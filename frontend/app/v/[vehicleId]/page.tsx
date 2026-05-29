@@ -10,6 +10,7 @@ import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
 import { PostCard } from "@/components/PostCard";
 import { Lightbox } from "@/components/Lightbox";
+import { ShareButton } from "@/components/ShareButton";
 
 const tabs = ["posts", "gallery", "history", "specs"] as const;
 
@@ -97,12 +98,18 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
                 {[v.year, v.make, v.model].filter(Boolean).join(" ")}
               </h1>
             </div>
-            {isOwner && (
-              <Link className="btn btn-secondary shrink-0" href={`/vehicles/${v.id}/edit`}>
-                <Pencil size={15} />
-                Edit
-              </Link>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              <ShareButton
+                title="Share vehicle"
+                url={typeof window !== "undefined" ? `${window.location.origin}/v/${v.id}` : `/v/${v.id}`}
+              />
+              {isOwner && (
+                <Link className="btn btn-secondary shrink-0" href={`/vehicles/${v.id}/edit`}>
+                  <Pencil size={15} />
+                  Edit
+                </Link>
+              )}
+            </div>
           </div>
 
           {v.description && <p className="mt-3 text-slate-600">{v.description}</p>}

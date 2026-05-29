@@ -10,6 +10,7 @@ import { authApi, postApi } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
 import type { Post } from "@/lib/types";
 import { ImageCarousel } from "@/components/ImageCarousel";
+import { ShareButton } from "@/components/ShareButton";
 
 export function PostCard({ post }: { post: Post }) {
   const queryClient = useQueryClient();
@@ -123,6 +124,11 @@ export function PostCard({ post }: { post: Post }) {
           <MessageCircle size={18} />
           {post.comment_count}
         </Link>
+        <ShareButton
+          variant="icon"
+          title="Share post"
+          url={typeof window !== "undefined" ? `${window.location.origin}/posts/${post.id}` : `/posts/${post.id}`}
+        />
       </footer>
     </article>
   );

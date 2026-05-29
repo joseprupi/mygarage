@@ -27,7 +27,7 @@ Legend: ✅ done · 🔜 next · 💤 backlog
 | Feature | Effort | Priority | Status | Notes |
 |---|---|---|---|---|
 | Like / unlike posts & comments | S | P0 | ✅ | Endpoints exist. |
-| **Share button (copy link / native share)** | S | P0 | 🔜 | Public `/v/{id}` & `/posts/{id}` already exist. Supports selling. |
+| **Share button (copy link / native share)** | S | P0 | ✅ | `components/ShareButton.tsx` on vehicle header + post footer. |
 | **Who-liked modal** (click count → list) | S | P1 | 🔜 | `post_likes` already stores it; add `GET /posts/{id}/likes`. |
 | Comment replies (threads) + comment-like UI | S–M | P1 | 💤 | `comments.parent_comment_id` + comment-like endpoints already exist. |
 | Follow **users** | M | P1 | 💤 | `follows` table exists (no API/UI yet). |

@@ -3,13 +3,15 @@
 Running record of what's shipped and what's next. Newest first. Update every slice.
 
 ## TODO (next up)
-- [ ] Share button (copy link + native share) on vehicle + post (P0, S).
 - [ ] Who-liked modal: `GET /posts/{id}/likes` + clickable count (P1, S).
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
 - [ ] Open PR `redesign → master` once polish is signed off.
 
 ## Done
 > Branch `redesign` unless noted. Dates approximate.
+
+### Social
+- **Share button** (`components/ShareButton.tsx`): native share on mobile, copy-to-clipboard + transient "Copied!" on desktop. Added to vehicle header (`/v/{id}`) and post footer (`/posts/{id}`); visible to owner and visitors.
 
 ### Planning / docs
 - Added project planning docs under `plan/`: NORTHSTAR + ARCHITECTURE, AGENTS, FEATURES, PROJECT_PLAN, LOG, ISSUES.
