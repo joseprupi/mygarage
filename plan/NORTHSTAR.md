@@ -29,9 +29,9 @@ If a feature is "social network table stakes" → do it only when it's cheap or 
 - The UI feels calm and consistent everywhere.
 
 ## Pointers
-- Roadmap & phases → `docs/PROJECT_PLAN.md`
-- Feature backlog (priority/effort) → `docs/FEATURES.md`
-- What's done / in-flight → `docs/LOG.md`
-- How the system works + dev gotchas → `docs/ARCHITECTURE.md`
-- How agents should operate → `docs/AGENTS.md`
-- Known issues / tech debt → `docs/ISSUES.md`
+- Roadmap & phases → `PROJECT_PLAN.md`
+- Feature backlog (priority/effort) → `FEATURES.md`
+- What's done / in-flight → `LOG.md`
+- How the system works + dev gotchas → `ARCHITECTURE.md`
+- How agents should operate → `AGENTS.md`
+- Known issues / tech debt → `ISSUES.md`

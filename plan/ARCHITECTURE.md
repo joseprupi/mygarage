@@ -1,6 +1,6 @@
 # Architecture & Dev Guide
 
-Practical reference for anyone (human or agent) working on My Garage. Read `../NORTHSTAR.md` first for the *why*.
+Practical reference for anyone (human or agent) working on My Garage. Read `NORTHSTAR.md` first for the *why*.
 
 ## Stack
 - **Backend:** FastAPI + SQLAlchemy + Alembic, Postgres, Pydantic, JWT auth (+ Google OAuth). Media via S3-compatible storage (MinIO locally, `boto3`).
@@ -25,7 +25,7 @@ frontend/
   lib/avatar.ts  # generated pixel-car avatars (per-user color)
   lib/events.ts  # event types, labels, badge colors
   app/globals.css     # theme tokens + UI primitives (.surface/.btn/.input/.chip/.tab/.hover-lift)
-NORTHSTAR.md, docs/*.md
+plan/          # NORTHSTAR.md + planning docs (this set)
 ```
 
 ## Running it (dev) — IMPORTANT, non-obvious

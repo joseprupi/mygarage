@@ -3,11 +3,11 @@
 How we run this project as a team of agents. The orchestrator plans and delegates; workers implement vertical slices.
 
 ## Roles
-- **Orchestrator (lead):** owns the plan. Breaks features into small, well-scoped tasks; assigns them; reviews/verifies; keeps `docs/LOG.md` and `docs/FEATURES.md` current; handles git commits/pushes and branch hygiene.
+- **Orchestrator (lead):** owns the plan. Breaks features into small, well-scoped tasks; assigns them; reviews/verifies; keeps `LOG.md` and `FEATURES.md` current; handles git commits/pushes and branch hygiene.
 - **Worker agents:** implement one scoped task end-to-end (backend + frontend + verify), report back with what changed and how it was verified. Workers should NOT redesign scope or invent new features — flag ideas to the orchestrator instead.
 
 ## Before starting any task
-1. Read `../NORTHSTAR.md`, this file, and `ARCHITECTURE.md`.
+1. Read `NORTHSTAR.md`, this file, and `ARCHITECTURE.md`.
 2. Check `LOG.md` (what's done / in-flight) and `FEATURES.md` (the spec for the feature).
 3. Confirm the task is a small vertical slice. If it's an "L", split it.
 

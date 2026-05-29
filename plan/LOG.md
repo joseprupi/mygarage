@@ -13,7 +13,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 > Branch `redesign` unless noted. Dates approximate.
 
 ### Planning / docs
-- Added project planning docs: `NORTHSTAR.md`, `docs/{ARCHITECTURE,AGENTS,FEATURES,PROJECT_PLAN,LOG,ISSUES}.md`.
+- Added project planning docs under `plan/`: NORTHSTAR + ARCHITECTURE, AGENTS, FEATURES, PROJECT_PLAN, LOG, ISSUES.
 
 ### History
 - Export history as ZIP (`history.csv` + per-row named images) — `/vehicles/{id}/history/export`.
