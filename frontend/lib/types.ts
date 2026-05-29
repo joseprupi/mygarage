@@ -46,6 +46,14 @@ export type Media = {
   sort_order?: number;
 };
 
+export type EventDocument = {
+  id?: string;
+  url: string;
+  filename: string;
+  content_type: string;
+  sort_order?: number;
+};
+
 export type Post = {
   id: string;
   caption?: string | null;
@@ -93,5 +101,6 @@ export type VehicleEvent = {
   location?: string | null;
   visibility: "public" | "private";
   media: Media[];
+  documents: EventDocument[];
   created_at: string;
 };

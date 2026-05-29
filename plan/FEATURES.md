@@ -18,7 +18,7 @@ Legend: ✅ done · 🔜 next · 💤 backlog
 | ~~Public "service record" page~~ | M | — | ⏭️ skipped | NOT needed for now: `/v/[id]` (owner controls hidden from visitors) + "Copy link" already cover sharing a car for sale. Revisit only if a dedicated buyer page is wanted. |
 | ~~Build sheet / mods list~~ | M | — | ⏭️ deferred | Overlaps with the `upgrade` event type (would invite double-entry). For now mods = `upgrade` events + the History type filter. Revisit only if filtered events feel insufficient. |
 | Tidy event types: drop `track_day` + `road_trip` (keep `upgrade`) | S | P1 | ✅ | Removed from `EventType` Literal + `lib/events.ts`; Alembic `0003_retire_event_types` migrates existing rows → `other`. |
-| Receipts/documents (PDF attachments on events) | M | P1 | 💤 | Export already bundles files. |
+| Receipts/documents (PDF attachments on events) | M | P1 | ✅ | `vehicle_event_documents` table; PDF-only direct upload (25 MB); bundled in export ZIP under `documents/`. |
 | Mileage timeline / chart | M | P2 | 💤 | Visualize the car's life; flag gaps. |
 | PDF export (pretty one-pager sibling of CSV/ZIP) | M | P2 | 💤 | Buyer-friendly. |
 | Ownership transfer (hand vehicle + history to buyer's account) | M–L | P2 | 💤 | Trust/portability. |

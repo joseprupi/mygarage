@@ -31,6 +31,7 @@ from app.models import (
     User,
     Vehicle,
     VehicleEvent,
+    VehicleEventDocument,
     VehicleEventMedia,
 )
 from app.schemas import (
@@ -429,6 +430,7 @@ def create_vehicle_event(
 ) -> VehicleEvent:
     assert_vehicle_owner(vehicle, user)
     values = data.model_dump(exclude={"media"}, by_alias=False)
+    values.pop("documents", None)
     event = VehicleEvent(vehicle_id=vehicle.id, author_user_id=user.id, **values)
     db.add(event)
     db.flush()
@@ -444,6 +446,16 @@ def create_vehicle_event(
                 height=media.height,
             )
         )
+    for index, doc in enumerate(data.documents):
+        db.add(
+            VehicleEventDocument(
+                vehicle_event_id=event.id,
+                sort_order=doc.sort_order or index,
+                url=doc.url,
+                filename=doc.filename,
+                content_type=doc.content_type,
+            )
+        )
     db.commit()
     return get_vehicle_event_or_404(db, event.id, user)
 
@@ -451,7 +463,11 @@ def create_vehicle_event(
 def get_vehicle_event_or_404(db: Session, event_id: str, viewer: User | None) -> VehicleEvent:
     event = db.scalar(
         select(VehicleEvent)
-        .options(selectinload(VehicleEvent.media), selectinload(VehicleEvent.vehicle))
+        .options(
+            selectinload(VehicleEvent.media),
+            selectinload(VehicleEvent.documents),
+            selectinload(VehicleEvent.vehicle),
+        )
         .where(VehicleEvent.id == event_id, VehicleEvent.deleted_at.is_(None))
     )
     if not event:
@@ -465,7 +481,7 @@ def get_vehicle_event_or_404(db: Session, event_id: str, viewer: User | None) ->
 def list_vehicle_events(db: Session, vehicle: Vehicle, viewer: User | None) -> list[VehicleEvent]:
     stmt = (
         select(VehicleEvent)
-        .options(selectinload(VehicleEvent.media))
+        .options(selectinload(VehicleEvent.media), selectinload(VehicleEvent.documents))
         .where(VehicleEvent.vehicle_id == vehicle.id, VehicleEvent.deleted_at.is_(None))
         .order_by(desc(VehicleEvent.event_date), desc(VehicleEvent.created_at))
     )
@@ -481,7 +497,9 @@ def update_vehicle_event(
         raise HTTPException(status_code=403, detail="You do not own this vehicle")
     payload = data.model_dump(exclude_unset=True, by_alias=False)
     media_provided = "media" in payload
+    documents_provided = "documents" in payload
     payload.pop("media", None)
+    payload.pop("documents", None)
     for key, value in payload.items():
         setattr(event, key, value)
     if media_provided:
@@ -501,10 +519,26 @@ def update_vehicle_event(
                     height=media.height,
                 )
             )
+    if documents_provided:
+        # Replace the event's documents with the supplied set.
+        for existing in list(event.documents):
+            db.delete(existing)
+        db.flush()
+        for index, doc in enumerate(data.documents or []):
+            db.add(
+                VehicleEventDocument(
+                    vehicle_event_id=event.id,
+                    sort_order=doc.sort_order or index,
+                    url=doc.url,
+                    filename=doc.filename,
+                    content_type=doc.content_type,
+                )
+            )
     db.commit()
-    if media_provided:
-        # expire_on_commit is off, so refresh the (now stale) media collection.
-        db.expire(event, ["media"])
+    # expire_on_commit is off, so refresh the (now stale) collections.
+    expired = [rel for rel, provided in (("media", media_provided), ("documents", documents_provided)) if provided]
+    if expired:
+        db.expire(event, expired)
     return get_vehicle_event_or_404(db, event.id, user)
 
 
@@ -770,7 +804,7 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
         writer = csv.writer(csv_buffer)
         writer.writerow(
             ["date", "type", "title", "description", "mileage", "cost_usd",
-             "currency", "shop", "location", "photos"]
+             "currency", "shop", "location", "photos", "documents"]
         )
         for idx, event in enumerate(events, start=1):
             photo_files: list[str] = []
@@ -789,6 +823,22 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
                     photo_files.append(fname)
                 except Exception:
                     continue
+            doc_files: list[str] = []
+            for n, doc in enumerate(event.documents, start=1):
+                key = _object_key_from_url(doc.url)
+                if not key:
+                    continue
+                ext = key.rsplit(".", 1)[-1] if "." in key else "pdf"
+                fname = (
+                    f"{idx:03d}_{event.event_date or 'nodate'}_"
+                    f"{slugify(event.event_type)}_{slugify(event.title)}_{n}.{ext}"
+                )
+                try:
+                    obj = client.get_object(Bucket=settings.storage_bucket, Key=key)
+                    zf.writestr(f"documents/{fname}", obj["Body"].read())
+                    doc_files.append(fname)
+                except Exception:
+                    continue
             cost_usd = f"{event.cost_cents / 100:.2f}" if event.cost_cents is not None else ""
             writer.writerow([
                 event.event_date or "",
@@ -801,6 +851,7 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
                 event.shop_name or "",
                 event.location or "",
                 "; ".join(photo_files),
+                "; ".join(doc_files),
             ])
         zf.writestr("history.csv", csv_buffer.getvalue())
     return buffer.getvalue()

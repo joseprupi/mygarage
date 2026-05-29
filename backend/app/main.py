@@ -251,6 +251,9 @@ def upload_url(
 
 _ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _ALLOWED_PURPOSES = {"post_media", "vehicle_cover", "vehicle_event_media", "avatar"}
+_DOCUMENT_PURPOSES = {"vehicle_event_document"}
+_ALLOWED_DOCUMENT_TYPES = {"application/pdf"}
+_MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 
 
 @app.post("/media/upload", response_model=MediaUploadResponse)
@@ -259,15 +262,22 @@ async def upload_media(
     purpose: str = Form(...),
     _user: User = Depends(get_current_user),
 ) -> MediaUploadResponse:
-    if purpose not in _ALLOWED_PURPOSES:
+    is_document = purpose in _DOCUMENT_PURPOSES
+    if purpose not in _ALLOWED_PURPOSES and not is_document:
         raise HTTPException(status_code=422, detail="Invalid upload purpose")
-    if file.content_type not in _ALLOWED_UPLOAD_TYPES:
-        raise HTTPException(status_code=422, detail="Unsupported image type")
+    if is_document:
+        if file.content_type not in _ALLOWED_DOCUMENT_TYPES:
+            raise HTTPException(status_code=422, detail="Unsupported document type")
+        max_bytes = _MAX_DOCUMENT_BYTES
+    else:
+        if file.content_type not in _ALLOWED_UPLOAD_TYPES:
+            raise HTTPException(status_code=422, detail="Unsupported image type")
+        max_bytes = settings.max_upload_bytes
     content = await file.read()
-    if len(content) > settings.max_upload_bytes:
-        raise HTTPException(status_code=413, detail="Image is too large")
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=413, detail="File is too large")
     url, object_key = services.store_upload(
-        content, file.content_type, file.filename or "upload.jpg", purpose
+        content, file.content_type, file.filename or "upload", purpose
     )
     return MediaUploadResponse(url=url, objectKey=object_key)
 

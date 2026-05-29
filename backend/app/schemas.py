@@ -160,6 +160,20 @@ class MediaRead(MediaCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DocumentCreate(BaseModel):
+    url: str
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(max_length=120)
+    sort_order: int = Field(default=0, ge=0)
+
+
+class DocumentRead(DocumentCreate):
+    id: str
+    created_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PostCreate(BaseModel):
     caption: str | None = Field(default=None, max_length=2200)
     vehicle_ids: list[str] = Field(default_factory=list, max_length=10, alias="vehicleIds")
@@ -208,6 +222,7 @@ class VehicleEventCreate(BaseModel):
     location: str | None = Field(default=None, max_length=160)
     visibility: EventVisibility = "public"
     media: list[MediaCreate] = Field(default_factory=list, max_length=20)
+    documents: list[DocumentCreate] = Field(default_factory=list, max_length=20)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -224,6 +239,7 @@ class VehicleEventUpdate(BaseModel):
     location: str | None = Field(default=None, max_length=160)
     visibility: EventVisibility | None = None
     media: list[MediaCreate] | None = Field(default=None, max_length=20)
+    documents: list[DocumentCreate] | None = Field(default=None, max_length=20)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -243,6 +259,7 @@ class VehicleEventRead(BaseModel):
     location: str | None = None
     visibility: EventVisibility
     media: list[MediaRead] = []
+    documents: list[DocumentRead] = []
     created_at: datetime
     updated_at: datetime
 

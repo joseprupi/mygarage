@@ -291,6 +291,22 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
                   ))}
                 </div>
               )}
+              {event.documents?.length > 0 && (
+                <ul className="mt-3 space-y-1">
+                  {event.documents.map((doc) => (
+                    <li key={doc.url}>
+                      <a
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-petrol hover:underline"
+                      >
+                        📄 {doc.filename}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </article>
           ))}
         </div>

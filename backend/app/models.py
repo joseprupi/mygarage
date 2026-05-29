@@ -172,6 +172,9 @@ class VehicleEvent(TimestampMixin, Base):
     media: Mapped[list["VehicleEventMedia"]] = relationship(
         back_populates="event", cascade="all, delete-orphan", order_by="VehicleEventMedia.sort_order"
     )
+    documents: Mapped[list["VehicleEventDocument"]] = relationship(
+        back_populates="event", cascade="all, delete-orphan", order_by="VehicleEventDocument.sort_order"
+    )
 
 
 class VehicleEventMedia(Base):
@@ -190,6 +193,22 @@ class VehicleEventMedia(Base):
     )
 
     event: Mapped[VehicleEvent] = relationship(back_populates="media")
+
+
+class VehicleEventDocument(Base):
+    __tablename__ = "vehicle_event_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    vehicle_event_id: Mapped[str] = mapped_column(ForeignKey("vehicle_events.id"), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    event: Mapped[VehicleEvent] = relationship(back_populates="documents")
 
 
 class PostLike(Base):

@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
 import { ImageUploader } from "@/components/ImageUploader";
+import { DocumentUploader } from "@/components/DocumentUploader";
 import { LocationInput } from "@/components/LocationInput";
 import { eventApi } from "@/lib/api/client";
 import { EVENT_TYPES, eventTypeLabel } from "@/lib/events";
-import type { Media } from "@/lib/types";
+import type { EventDocument, Media } from "@/lib/types";
 
 const emptyForm = {
   eventType: "maintenance",
@@ -27,6 +28,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
   const router = useRouter();
   const isEdit = Boolean(eventId);
   const [media, setMedia] = useState<Media[]>([]);
+  const [documents, setDocuments] = useState<EventDocument[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +54,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       visibility: e.visibility ?? "public"
     });
     setMedia(e.media ?? []);
+    setDocuments(e.documents ?? []);
   }, [eventQuery.data]);
 
   if (isEdit && eventQuery.isLoading) return <div className="p-6">Loading event...</div>;
@@ -72,7 +75,8 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       eventDate: form.eventDate || null,
       mileage: form.mileage ? Number(form.mileage) : null,
       costCents: form.cost ? Math.round(Number(form.cost) * 100) : null,
-      media: media.map((item, index) => ({ ...item, sort_order: index }))
+      media: media.map((item, index) => ({ ...item, sort_order: index })),
+      documents: documents.map((item, index) => ({ ...item, sort_order: index }))
     };
     try {
       if (isEdit) {
@@ -165,6 +169,30 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
           </div>
         )}
         <ImageUploader purpose="vehicle_event_media" onUploaded={(item) => setMedia((items) => [...items, item])} />
+      </div>
+      <div className="space-y-2">
+        <span className="text-sm">Documents (PDF)</span>
+        {documents.length > 0 && (
+          <ul className="space-y-1">
+            {documents.map((doc, index) => (
+              <li
+                className="flex items-center justify-between gap-2 rounded-xl border bg-white px-3 py-2 text-sm"
+                key={`${doc.url}-${index}`}
+              >
+                <span className="truncate">📄 {doc.filename}</span>
+                <button
+                  type="button"
+                  aria-label="Remove document"
+                  className="shrink-0 rounded-full bg-black/60 px-2 text-sm font-bold leading-6 text-white"
+                  onClick={() => setDocuments((items) => items.filter((_, i) => i !== index))}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <DocumentUploader onUploaded={(item) => setDocuments((items) => [...items, item])} />
       </div>
       <label className="block space-y-1 text-sm">
         <span>Visibility</span>
