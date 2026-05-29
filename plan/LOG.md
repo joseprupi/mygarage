@@ -4,6 +4,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 
 ## TODO (next up)
 - [ ] Who-liked modal: `GET /posts/{id}/likes` + clickable count (P1, S).
+- [ ] Simplify Share button → **copy-link only** (S). Drop `navigator.share`/OS share sheet; click = copy URL + transient "Copied!". Prefer a "Copy link" label + link icon. Do AFTER who-liked (both touch `ShareButton.tsx`/`PostCard.tsx`).
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
 - [ ] Open PR `redesign → master` once polish is signed off.
 
