@@ -16,7 +16,8 @@ Legend: ✅ done · 🔜 next · 💤 backlog
 | Export history (ZIP: `history.csv` + named per-row images) | M | P0 | ✅ | `/vehicles/{id}/history/export`. |
 | **Cost summary / total spend** (total + per-type breakdown on History tab) | S–M | P0 | ✅ | Client-side card, per-type chips, hidden when $0. |
 | ~~Public "service record" page~~ | M | — | ⏭️ skipped | NOT needed for now: `/v/[id]` (owner controls hidden from visitors) + "Copy link" already cover sharing a car for sale. Revisit only if a dedicated buyer page is wanted. |
-| **Build sheet / mods list** (parts/mods view, distinct from timeline) | M | P1 | 💤 | #1 thing modders show off. |
+| ~~Build sheet / mods list~~ | M | — | ⏭️ deferred | Overlaps with the `upgrade` event type (would invite double-entry). For now mods = `upgrade` events + the History type filter. Revisit only if filtered events feel insufficient. |
+| Tidy event types: drop `track_day` + `road_trip` (keep `upgrade`) | S | P1 | 🔜 | Trim usage-noise from the maintenance/build log; migrate existing rows → `other`. |
 | Receipts/documents (PDF attachments on events) | M | P1 | 💤 | Export already bundles files. |
 | Mileage timeline / chart | M | P2 | 💤 | Visualize the car's life; flag gaps. |
 | PDF export (pretty one-pager sibling of CSV/ZIP) | M | P2 | 💤 | Buyer-friendly. |
