@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
 import { ImageUploader } from "@/components/ImageUploader";
+import { LocationInput } from "@/components/LocationInput";
 import { eventApi } from "@/lib/api/client";
 import { EVENT_TYPES, eventTypeLabel } from "@/lib/events";
 import type { Media } from "@/lib/types";
@@ -15,7 +16,7 @@ const emptyForm = {
   description: "",
   eventDate: "",
   mileage: "",
-  costCents: "",
+  cost: "",
   currency: "USD",
   shopName: "",
   location: "",
@@ -44,7 +45,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       description: e.description ?? "",
       eventDate: e.event_date ?? "",
       mileage: e.mileage != null ? String(e.mileage) : "",
-      costCents: e.cost_cents != null ? String(e.cost_cents) : "",
+      cost: e.cost_cents != null ? String(e.cost_cents / 100) : "",
       currency: e.currency ?? "USD",
       shopName: e.shop_name ?? "",
       location: e.location ?? "",
@@ -70,7 +71,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       ...form,
       eventDate: form.eventDate || null,
       mileage: form.mileage ? Number(form.mileage) : null,
-      costCents: form.costCents ? Number(form.costCents) : null,
+      costCents: form.cost ? Math.round(Number(form.cost) * 100) : null,
       media: media.map((item, index) => ({ ...item, sort_order: index }))
     };
     try {
@@ -106,9 +107,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         ["title", "Title *"],
         ["eventDate", "Date *"],
         ["mileage", "Mileage"],
-        ["costCents", "Cost in cents"],
-        ["shopName", "Shop/vendor"],
-        ["location", "Location"]
+        ["shopName", "Shop/vendor"]
       ].map(([key, label]) => (
         <label className="block space-y-1 text-sm" key={key}>
           <span>{label}</span>
@@ -120,6 +119,26 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
           />
         </label>
       ))}
+      <label className="block space-y-1 text-sm">
+        <span>Cost</span>
+        <div className="relative">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+          <input
+            className="input pl-7"
+            type="text"
+            inputMode="decimal"
+            placeholder="0.00"
+            value={form.cost}
+            onChange={(event) =>
+              setForm({ ...form, cost: event.target.value.replace(/[^\d.]/g, "") })
+            }
+          />
+        </div>
+      </label>
+      <label className="block space-y-1 text-sm">
+        <span>Location</span>
+        <LocationInput value={form.location} onChange={(v) => setForm({ ...form, location: v })} />
+      </label>
       <textarea
         className="input min-h-28"
         placeholder="Notes"

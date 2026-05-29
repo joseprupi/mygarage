@@ -1,8 +1,10 @@
 import base64
 import json
 import re
+import urllib.request
 import uuid
 from pathlib import Path
+from urllib.parse import urlencode
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
@@ -697,3 +699,30 @@ def catalog_years() -> list[int]:
 
 def catalog_models(make: str, year: int) -> list[str]:
     return _catalog()["by_make_year"].get(make, {}).get(str(year), [])
+
+
+# --- Location autocomplete (proxied to Photon / OpenStreetMap, no API key) ----
+
+def geo_search(query: str) -> list[str]:
+    query = query.strip()
+    if len(query) < 2:
+        return []
+    url = "https://photon.komoot.io/api/?" + urlencode({"q": query, "limit": 6, "lang": "en"})
+    req = urllib.request.Request(url, headers={"User-Agent": "mygarage/0.1 (location autocomplete)"})
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+    except Exception:
+        return []
+    results: list[str] = []
+    seen: set[str] = set()
+    for feature in data.get("features", []):
+        p = feature.get("properties", {})
+        parts = [p.get(k) for k in ("name", "city", "state", "country") if p.get(k)]
+        label = ", ".join(dict.fromkeys(parts))  # ordered de-dupe (name often == city)
+        if p.get("postcode"):
+            label = f"{label} {p['postcode']}".strip()
+        if label and label not in seen:
+            seen.add(label)
+            results.append(label)
+    return results

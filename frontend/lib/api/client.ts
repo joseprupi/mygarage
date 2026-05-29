@@ -145,6 +145,10 @@ export const catalogApi = {
     api<string[]>(`/catalog/models?make=${encodeURIComponent(make)}&year=${year}`)
 };
 
+export const geoApi = {
+  search: (q: string) => api<string[]>(`/geo/search?q=${encodeURIComponent(q)}`)
+};
+
 export const eventApi = {
   create: (vehicleId: string, body: unknown) =>
     api<VehicleEvent>(`/vehicles/${vehicleId}/events`, {

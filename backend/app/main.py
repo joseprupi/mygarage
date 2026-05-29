@@ -286,6 +286,11 @@ def catalog_models(make: str, year: int) -> list[str]:
     return services.catalog_models(make, year)
 
 
+@app.get("/geo/search", response_model=list[str])
+def geo_search(q: str) -> list[str]:
+    return services.geo_search(q)
+
+
 @app.post("/vehicles/{vehicle_id}/events", response_model=VehicleEventRead)
 def create_vehicle_event(
     vehicle_id: str,
