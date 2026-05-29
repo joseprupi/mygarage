@@ -63,9 +63,13 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
   const formatUsd = (cents: number) =>
     (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
-  // Mileage points for the timeline chart: one per date (most recent wins on dupes).
+  // Mileage points for the timeline chart: one per date. On multiple readings for
+  // the same date, take the highest (odometer reading) so it's deterministic
+  // regardless of event order.
   const mileageByDate = allEvents.reduce<Record<string, number>>((acc, e) => {
-    if (e.event_date && e.mileage != null) acc[e.event_date] = e.mileage;
+    if (e.event_date && e.mileage != null) {
+      acc[e.event_date] = Math.max(acc[e.event_date] ?? e.mileage, e.mileage);
+    }
     return acc;
   }, {});
   const mileagePoints = Object.entries(mileageByDate)
