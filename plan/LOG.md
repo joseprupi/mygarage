@@ -3,6 +3,13 @@
 Running record of what's shipped and what's next. Newest first. Update every slice.
 
 ## TODO (next up)
+History/moat sequence (do in order, one worker each — they touch overlapping files):
+- [ ] 1. Build sheet / mods list (M) — dedicated parts/mods view + new tab.
+- [ ] 2. Receipts / documents on events (M) — attach PDFs to events.
+- [ ] 3. Mileage timeline / chart (M).
+- [ ] 4. Ownership transfer (M–L) — transfer vehicle + history to buyer's account. Last (riskiest).
+
+Then:
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
 - [ ] Open PR `redesign → master` once polish is signed off.
 
