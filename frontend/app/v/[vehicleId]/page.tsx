@@ -162,7 +162,24 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
                 {event.event_date} {event.mileage ? `· ${event.mileage.toLocaleString()} mi` : ""}
                 {event.cost_cents ? ` · $${(event.cost_cents / 100).toFixed(2)}` : ""}
               </p>
-              <p className="mt-2 text-sm">{event.description}</p>
+              {event.description && <p className="mt-2 text-sm">{event.description}</p>}
+              {event.media.length > 0 && (
+                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                  {event.media.map((media) => (
+                    <div
+                      key={media.url}
+                      className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                    >
+                      <img
+                        src={media.thumbnail_url ?? media.url}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </article>
           ))}
         </div>
