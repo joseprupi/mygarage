@@ -16,9 +16,9 @@ Goal: finish the visual/UX pass and merge `redesign → master`.
 
 ## Phase 1 — History deepening (next, P0/P1)
 Goal: make My Garage unmistakably "the place to keep your car."
-- [ ] Cost summary / total spend on History tab (S–M).
-- [ ] Share button on vehicle + post (S).
-- [ ] Public "service record" page (M) — shareable, sell-my-car oriented.
+- [x] Cost summary / total spend on History tab (S–M).
+- [x] Share button on vehicle + post (S) — copy-link.
+- [~] ~~Public "service record" page~~ — SKIPPED (decided `/v/[id]` + Copy link is enough).
 - [ ] Build sheet / mods list (M).
 - [ ] Receipts/PDF document attachments on events (M).
 
