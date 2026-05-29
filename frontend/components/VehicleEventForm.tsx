@@ -62,6 +62,10 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       setError("Title is required.");
       return;
     }
+    if (!form.eventDate) {
+      setError("Date is required.");
+      return;
+    }
     const payload = {
       ...form,
       eventDate: form.eventDate || null,
@@ -99,8 +103,8 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         </select>
       </label>
       {[
-        ["title", "Title"],
-        ["eventDate", "Date"],
+        ["title", "Title *"],
+        ["eventDate", "Date *"],
         ["mileage", "Mileage"],
         ["costCents", "Cost in cents"],
         ["shopName", "Shop/vendor"],

@@ -202,7 +202,7 @@ class VehicleEventCreate(BaseModel):
     event_type: EventType = Field(alias="eventType")
     title: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=4000)
-    event_date: date | None = Field(default=None, alias="eventDate")
+    event_date: date = Field(alias="eventDate")
     mileage: int | None = Field(default=None, ge=0)
     cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
     currency: str = Field(default="USD", min_length=3, max_length=3)
