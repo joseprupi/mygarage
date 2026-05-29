@@ -1,14 +1,14 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef } from "react";
 
 import { feedApi } from "@/lib/api/client";
 import { PostCard } from "@/components/PostCard";
 
 export function Feed() {
-  const parentRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useInfiniteQuery({
     queryKey: ["feed"],
@@ -22,11 +22,12 @@ export function Feed() {
     return Array.from(new Map(items.map((post) => [post.id, post])).values());
   }, [data]);
 
-  const rowVirtualizer = useVirtualizer({
+  // Virtualize against the window so the page has a single scrollbar.
+  const rowVirtualizer = useWindowVirtualizer({
     count: posts.length,
-    getScrollElement: () => parentRef.current,
     estimateSize: () => 760,
-    overscan: 5
+    overscan: 5,
+    scrollMargin: listRef.current?.offsetTop ?? 0
   });
 
   useEffect(() => {
@@ -41,11 +42,11 @@ export function Feed() {
     return () => observer.disconnect();
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
-  if (isLoading) return <div className="rounded-3xl bg-white p-8 text-center">Loading the garage...</div>;
+  if (isLoading) return <div className="surface rounded-3xl p-8 text-center">Loading the garage...</div>;
 
   return (
-    <div ref={parentRef} className="h-[calc(100vh-8rem)] overflow-auto">
-      <div className="relative" style={{ height: rowVirtualizer.getTotalSize() }}>
+    <div>
+      <div ref={listRef} className="relative" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rowVirtualizer.getVirtualItems().map((virtualItem) => {
           const post = posts[virtualItem.index];
           return (
@@ -54,7 +55,7 @@ export function Feed() {
               data-index={virtualItem.index}
               key={post.id}
               ref={rowVirtualizer.measureElement}
-              style={{ transform: `translateY(${virtualItem.start}px)` }}
+              style={{ transform: `translateY(${virtualItem.start - rowVirtualizer.options.scrollMargin}px)` }}
             >
               <PostCard post={post} />
             </div>

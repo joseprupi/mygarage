@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Car, Home, PlusSquare, Search, UserRound } from "lucide-react";
 
 const items = [
@@ -10,28 +13,60 @@ const items = [
 ];
 
 export function Nav() {
+  const pathname = usePathname();
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white/95 backdrop-blur md:top-0 md:bottom-auto">
-      <div className="mx-auto flex max-w-3xl items-center px-2 py-2">
-        <Link href="/" className="mr-auto hidden items-center gap-2 px-2 md:flex">
-          <span className="block h-8 w-8 overflow-hidden rounded-lg">
+    <>
+      {/* Desktop: Instagram-style left rail, icons-only, expands on hover. */}
+      <aside className="group fixed inset-y-0 left-0 z-30 hidden w-16 flex-col gap-1 overflow-hidden border-r border-slate-200 bg-white p-2 transition-[width] duration-200 ease-out hover:w-60 md:flex">
+        <Link href="/" className="mb-3 flex items-center gap-3 rounded-xl p-1.5">
+          <span className="block h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-1 ring-slate-200">
             <img src="/logo.svg" alt="" className="h-full w-full object-cover" />
           </span>
-          <span className="font-bold text-asphalt">Car Social</span>
+          <span className="whitespace-nowrap font-display text-lg font-bold tracking-tight text-asphalt opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            Car Social
+          </span>
         </Link>
-        <div className="flex flex-1 items-center justify-around md:flex-none md:gap-6">
-          {items.map((item) => (
+        {items.map((item) => {
+          const active = isActive(item.href);
+          return (
             <Link
-              className="flex flex-col items-center gap-1 rounded-xl px-3 py-1 text-xs text-slate-600 hover:text-petrol"
-              href={item.href}
               key={item.href}
+              href={item.href}
+              className={`flex items-center gap-3 rounded-xl p-2.5 ${
+                active ? "bg-petrol/10 text-petrol" : "text-slate-600 hover:bg-slate-100 hover:text-asphalt"
+              }`}
             >
-              <item.icon size={20} />
-              <span>{item.label}</span>
+              <item.icon size={22} strokeWidth={active ? 2.4 : 2} className="shrink-0" />
+              <span className="whitespace-nowrap text-sm font-medium opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                {item.label}
+              </span>
             </Link>
-          ))}
+          );
+        })}
+      </aside>
+
+      {/* Mobile: bottom tab bar. */}
+      <nav className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/90 backdrop-blur-xl md:hidden">
+        <div className="flex items-center justify-around px-2 py-2">
+          {items.map((item) => {
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-medium ${
+                  active ? "bg-petrol/10 text-petrol" : "text-slate-500 hover:bg-slate-100 hover:text-asphalt"
+                }`}
+              >
+                <item.icon size={20} strokeWidth={active ? 2.4 : 2} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </div>
-      </div>
-    </nav>
+      </nav>
+    </>
   );
 }

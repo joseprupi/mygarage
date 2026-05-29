@@ -57,10 +57,10 @@ export function PostCard({ post }: { post: Post }) {
   if (hidden) return null;
 
   return (
-    <article className="rounded-3xl border bg-white p-4 shadow-sm">
+    <article className="surface hover-lift rounded-3xl p-4">
       <header className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 overflow-hidden rounded-full bg-slate-200">
+          <div className="h-10 w-10 overflow-hidden rounded-full bg-slate-200 ring-1 ring-slate-200">
             <img
               src={post.author.avatar_url || carAvatarUri(post.author.username)}
               alt=""
@@ -68,7 +68,7 @@ export function PostCard({ post }: { post: Post }) {
             />
           </div>
           <div>
-            <Link className="font-semibold" href={`/u/${post.author.username}`}>
+            <Link className="font-semibold hover:text-petrol" href={`/u/${post.author.username}`}>
               @{post.author.username}
             </Link>
             <p className="text-xs text-slate-500">{new Date(post.created_at).toLocaleString()}</p>
@@ -92,7 +92,7 @@ export function PostCard({ post }: { post: Post }) {
       <div className="mb-3 flex flex-wrap gap-2">
         {post.vehicles.map((vehicle) => (
           <Link
-            className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700"
+            className="rounded-full bg-petrol/10 px-3 py-1 text-xs font-medium text-petrol ring-1 ring-petrol/15 hover:bg-petrol/15"
             href={`/v/${vehicle.id}`}
             key={vehicle.id}
           >
@@ -106,17 +106,20 @@ export function PostCard({ post }: { post: Post }) {
 
       {post.caption && <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{post.caption}</p>}
 
-      <footer className="mt-4 flex items-center gap-4 text-sm text-slate-600">
+      <footer className="mt-4 flex items-center gap-2 text-sm text-slate-600">
         <button
-          className="flex items-center gap-1 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-red-50 disabled:opacity-50"
           disabled={liking}
           onClick={handleLike}
           type="button"
         >
-          <Heart size={18} className={liked ? "fill-red-500 text-red-500" : ""} />
+          <Heart
+            size={18}
+            className={`transition-transform ${liked ? "scale-110 fill-red-500 text-red-500" : "hover:text-red-500"}`}
+          />
           {likeCount}
         </button>
-        <Link className="flex items-center gap-1" href={`/posts/${post.id}`}>
+        <Link className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-slate-100 hover:text-asphalt" href={`/posts/${post.id}`}>
           <MessageCircle size={18} />
           {post.comment_count}
         </Link>

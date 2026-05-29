@@ -5,9 +5,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        asphalt: "#111827",
+        asphalt: "#0b1120",
         petrol: "#2563eb",
-        garage: "#f8fafc"
+        accent: "#3b82f6",
+        garage: "#f6f8fc"
+      },
+      fontFamily: {
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "ui-sans-serif", "system-ui", "sans-serif"]
       }
     }
   },
