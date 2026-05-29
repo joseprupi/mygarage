@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { use, useState } from "react";
+import { Pencil, Plus } from "lucide-react";
 
 import { authApi, vehicleApi } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
@@ -43,23 +44,35 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
   ];
 
   return (
-    <section className="space-y-5">
-      <div className="surface overflow-hidden rounded-3xl">
-        {vehicle.data.cover_image_url && (
-          <img src={vehicle.data.cover_image_url} alt="" className="aspect-[16/9] w-full object-cover" />
-        )}
-        <div className="space-y-4 p-6">
-          <div>
-            {v.nickname && (
-              <p className="text-xs font-semibold uppercase tracking-widest text-petrol">{v.nickname}</p>
-            )}
-            <h1 className="mt-1 text-3xl font-bold">
-              {[v.year, v.make, v.model].filter(Boolean).join(" ")}
-            </h1>
-          </div>
-          {v.description && <p className="text-slate-600">{v.description}</p>}
+    <section className="space-y-4">
+      {v.cover_image_url && (
+        <div className="overflow-hidden rounded-3xl">
+          <img src={v.cover_image_url} alt="" className="aspect-[16/9] w-full object-cover" />
+        </div>
+      )}
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+      <div className="surface sticky top-4 z-10 overflow-hidden rounded-3xl">
+        <div className="p-6 pb-0">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              {v.nickname && (
+                <p className="text-xs font-semibold uppercase tracking-widest text-petrol">{v.nickname}</p>
+              )}
+              <h1 className="mt-1 text-3xl font-bold">
+                {[v.year, v.make, v.model].filter(Boolean).join(" ")}
+              </h1>
+            </div>
+            {isOwner && (
+              <Link className="btn btn-secondary shrink-0" href={`/vehicles/${v.id}/edit`}>
+                <Pencil size={15} />
+                Edit
+              </Link>
+            )}
+          </div>
+
+          {v.description && <p className="mt-3 text-slate-600">{v.description}</p>}
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               {v.owner && (
                 <Link href={`/u/${v.owner.username}`} className="flex items-center gap-2 hover:text-petrol">
@@ -76,30 +89,30 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
               {isOwner && <span className="chip">{v.visibility}</span>}
             </div>
             {isOwner && (
-              <div className="flex items-center gap-2">
-                <Link className="btn btn-secondary" href={`/vehicles/${v.id}/edit`}>
-                  Edit
-                </Link>
-                <Link className="btn btn-primary" href={`/vehicles/${v.id}/events/new`}>
-                  Add event
-                </Link>
-              </div>
+              <Link className="btn btn-accent px-5 py-2.5 shadow-sm" href={`/vehicles/${v.id}/events/new`}>
+                <Plus size={18} strokeWidth={2.5} />
+                Add event
+              </Link>
             )}
           </div>
         </div>
-      </div>
 
-      <div className="flex gap-2 overflow-auto">
-        {tabs.map((item) => (
-          <button
-            className={`tab ${tab === item ? "tab-active" : "tab-idle"}`}
-            key={item}
-            onClick={() => setTab(item)}
-            type="button"
-          >
-            {item}
-          </button>
-        ))}
+        <div className="mt-5 flex border-t border-slate-100">
+          {tabs.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setTab(item)}
+              className={`flex-1 border-b-2 px-2 py-3 text-sm font-medium capitalize transition ${
+                tab === item
+                  ? "border-asphalt text-asphalt"
+                  : "border-transparent text-slate-400 hover:text-asphalt"
+              }`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
       </div>
 
       {tab === "posts" && (

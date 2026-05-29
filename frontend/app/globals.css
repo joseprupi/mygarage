@@ -111,6 +111,13 @@ textarea {
   background: #f8fafc;
   border-color: rgba(15, 23, 42, 0.2);
 }
+.btn-accent {
+  background: var(--color-petrol);
+  color: #fff;
+}
+.btn-accent:hover {
+  background: #1d4ed8;
+}
 
 .chip {
   display: inline-flex;
