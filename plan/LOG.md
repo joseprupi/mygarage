@@ -3,9 +3,6 @@
 Running record of what's shipped and what's next. Newest first. Update every slice.
 
 ## TODO (next up)
-- [ ] **UI cleanup slice** (S, frontend-only):
-  - Simplify Share button → **copy-link only**: drop `navigator.share`/OS share sheet; click = copy URL + transient "Copied!"; prefer a "Copy link" label + link icon.
-  - Remove the "Car Social / The feed for builds, drives, and living vehicle history." heading block at the top of the feed (`app/page.tsx`) — start the feed clean.
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
 - [ ] Open PR `redesign → master` once polish is signed off.
 
@@ -13,6 +10,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 > Branch `redesign` unless noted. Dates approximate.
 
 ### Social
+- **UI cleanup**: Share button simplified to **copy-link only** (dropped `navigator.share`/OS share sheet; click copies URL + transient "Copied!"; `Link2` icon + "Copy link" label, both variants). Removed the "Car Social / The feed…" heading block atop the feed (`app/page.tsx`) — feed starts clean.
 - **Who-liked modal**: `GET /posts/{id}/likes` (reuses `PublicUser` + post-visibility helper) → clickable like count on `PostCard` opens a reusable `UserListModal` listing likers (avatar + @username link). Empty state "No likes yet."
 - **Share button** (`components/ShareButton.tsx`): native share on mobile, copy-to-clipboard + transient "Copied!" on desktop. Added to vehicle header (`/v/{id}`) and post footer (`/posts/{id}`); visible to owner and visitors.
 
