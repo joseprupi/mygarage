@@ -1,7 +1,7 @@
 from collections import defaultdict, deque
 from time import monotonic
 
-from fastapi import Depends, FastAPI, File, Form, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Query, Request, Response, UploadFile
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
@@ -300,6 +300,25 @@ def create_vehicle_event(
 ):
     vehicle = services.get_vehicle_or_404(db, vehicle_id, user)
     return services.create_vehicle_event(db, vehicle, user, data)
+
+
+@app.get("/vehicles/{vehicle_id}/history/export")
+def export_vehicle_history(
+    vehicle_id: str,
+    db: Session = Depends(get_db),
+    viewer: User | None = Depends(get_optional_user),
+) -> Response:
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, viewer)
+    data = services.export_history_zip(db, vehicle, viewer)
+    name = "-".join(
+        str(part) for part in [vehicle.year, vehicle.make, vehicle.model] if part
+    )
+    filename = f"{services.slugify(name)}-history.zip"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/vehicles/{vehicle_id}/events", response_model=list[VehicleEventRead])

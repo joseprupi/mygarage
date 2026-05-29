@@ -1,8 +1,11 @@
 import base64
+import csv
+import io
 import json
 import re
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 from urllib.parse import urlencode
 from datetime import UTC, datetime
@@ -726,3 +729,68 @@ def geo_search(query: str) -> list[str]:
             seen.add(label)
             results.append(label)
     return results
+
+
+# --- History export (ZIP of CSV + named images) ------------------------------
+
+def slugify(value: str | None) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", (value or "").strip().lower()).strip("-")
+    return slug[:40] or "x"
+
+
+def _object_key_from_url(url: str | None) -> str | None:
+    """Map a stored media url back to its object-storage key."""
+    if not url:
+        return None
+    if url.startswith("/media/"):
+        return url[len("/media/") :]
+    if "/car-social/" in url:
+        return url.split("/car-social/", 1)[1]
+    return None
+
+
+def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> bytes:
+    events = list_vehicle_events(db, vehicle, viewer)
+    settings = get_settings()
+    client = _s3_client()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(
+            ["date", "type", "title", "description", "mileage", "cost_usd",
+             "currency", "shop", "location", "photos"]
+        )
+        for idx, event in enumerate(events, start=1):
+            photo_files: list[str] = []
+            for n, media in enumerate(event.media, start=1):
+                key = _object_key_from_url(media.url)
+                if not key:
+                    continue
+                ext = key.rsplit(".", 1)[-1] if "." in key else "jpg"
+                fname = (
+                    f"{idx:03d}_{event.event_date or 'nodate'}_"
+                    f"{slugify(event.event_type)}_{slugify(event.title)}_{n}.{ext}"
+                )
+                try:
+                    obj = client.get_object(Bucket=settings.storage_bucket, Key=key)
+                    zf.writestr(f"images/{fname}", obj["Body"].read())
+                    photo_files.append(fname)
+                except Exception:
+                    continue
+            cost_usd = f"{event.cost_cents / 100:.2f}" if event.cost_cents is not None else ""
+            writer.writerow([
+                event.event_date or "",
+                event.event_type,
+                event.title,
+                event.description or "",
+                event.mileage if event.mileage is not None else "",
+                cost_usd,
+                event.currency or "",
+                event.shop_name or "",
+                event.location or "",
+                "; ".join(photo_files),
+            ])
+        zf.writestr("history.csv", csv_buffer.getvalue())
+    return buffer.getvalue()

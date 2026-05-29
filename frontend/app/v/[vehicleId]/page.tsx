@@ -3,9 +3,9 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { use, useState } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { Download, Pencil, Plus } from "lucide-react";
 
-import { authApi, vehicleApi } from "@/lib/api/client";
+import { authApi, getToken, vehicleApi } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
 import { PostCard } from "@/components/PostCard";
@@ -50,6 +50,23 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
   const filteredEvents = (events.data ?? []).filter(
     (e) => eventFilter === "all" || e.event_type === eventFilter
   );
+
+  async function exportHistory() {
+    const token = getToken();
+    const res = await fetch(`/api/vehicles/${vehicleId}/history/export`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${[v.year, v.make, v.model].filter(Boolean).join("-") || "vehicle"}-history.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <section className="space-y-4">
@@ -153,33 +170,43 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
         events.error ? <p className="text-sm text-red-600">Failed to load events.</p> :
         events.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
         <div className="space-y-4">
-          {presentEventTypes.length > 1 && (
+          <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setEventFilter("all")}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                  eventFilter === "all"
-                    ? "bg-asphalt text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                All
-              </button>
-              {presentEventTypes.map((type) => (
-                <button
-                  type="button"
-                  key={type}
-                  onClick={() => setEventFilter(type)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition ${eventTypeBadge(type)} ${
-                    eventFilter === type ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
-                  }`}
-                >
-                  {eventTypeLabel(type)}
-                </button>
-              ))}
+              {presentEventTypes.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setEventFilter("all")}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                      eventFilter === "all"
+                        ? "bg-asphalt text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    All
+                  </button>
+                  {presentEventTypes.map((type) => (
+                    <button
+                      type="button"
+                      key={type}
+                      onClick={() => setEventFilter(type)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition ${eventTypeBadge(type)} ${
+                        eventFilter === type ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
+                      }`}
+                    >
+                      {eventTypeLabel(type)}
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
-          )}
+            {(events.data?.length ?? 0) > 0 && (
+              <button type="button" onClick={exportHistory} className="btn btn-secondary shrink-0">
+                <Download size={15} />
+                Export
+              </button>
+            )}
+          </div>
           {filteredEvents.map((event) => (
             <article className="surface rounded-2xl p-4" key={event.id}>
               <div className="flex items-center justify-between gap-2">
