@@ -9,8 +9,6 @@ export const EVENT_TYPES = [
   "upgrade",
   "inspection",
   "detailing",
-  "track_day",
-  "road_trip",
   "accident",
   "note",
   "other"
@@ -32,8 +30,6 @@ const EVENT_TYPE_BADGE: Record<string, string> = {
   upgrade: "bg-violet-100 text-violet-700",
   inspection: "bg-teal-100 text-teal-700",
   detailing: "bg-sky-100 text-sky-700",
-  track_day: "bg-orange-100 text-orange-700",
-  road_trip: "bg-indigo-100 text-indigo-700",
   accident: "bg-rose-100 text-rose-700",
   note: "bg-slate-100 text-slate-600",
   other: "bg-slate-100 text-slate-600"

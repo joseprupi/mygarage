@@ -15,8 +15,6 @@ EventType = Literal[
     "upgrade",
     "inspection",
     "detailing",
-    "track_day",
-    "road_trip",
     "accident",
     "note",
     "other",

@@ -3,7 +3,6 @@
 Running record of what's shipped and what's next. Newest first. Update every slice.
 
 ## TODO (next up)
-- [ ] **Tidy event types** (S): remove `track_day` + `road_trip` (keep `upgrade`); migrate existing rows → `other`.
 History/moat sequence (one worker each — overlapping files, so strictly sequential):
 - [ ] 1. Receipts / documents on events (M) — attach PDFs to events (after tidy-events).
 - [ ] 2. Mileage timeline / chart (M).
@@ -26,6 +25,7 @@ Then:
 - Added project planning docs under `plan/`: NORTHSTAR + ARCHITECTURE, AGENTS, FEATURES, PROJECT_PLAN, LOG, ISSUES.
 
 ### History
+- **Tidy event types**: removed `track_day` + `road_trip` from the `EventType` Literal (`schemas.py`) and from `EVENT_TYPES`/badge map (`lib/events.ts`); kept `upgrade`. Alembic data migration `0003_retire_event_types` reassigns existing rows of those types → `other` (varchar column, no type change). New-event Type dropdown no longer lists them.
 - Cost summary card on the History tab: total spent + per-type colored chips + event count, computed client-side over all events, hidden when total is 0.
 - Export history as ZIP (`history.csv` + per-row named images) — `/vehicles/{id}/history/export`.
 - Cost entered in **dollars** (stored as cents); fixed "cost in cents" UX.
