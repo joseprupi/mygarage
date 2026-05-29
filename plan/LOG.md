@@ -3,7 +3,9 @@
 Running record of what's shipped and what's next. Newest first. Update every slice.
 
 ## TODO (next up)
-- [ ] Simplify Share button → **copy-link only** (S). Drop `navigator.share`/OS share sheet; click = copy URL + transient "Copied!". Prefer a "Copy link" label + link icon. Do AFTER who-liked (both touch `ShareButton.tsx`/`PostCard.tsx`).
+- [ ] **UI cleanup slice** (S, frontend-only):
+  - Simplify Share button → **copy-link only**: drop `navigator.share`/OS share sheet; click = copy URL + transient "Copied!"; prefer a "Copy link" label + link icon.
+  - Remove the "Car Social / The feed for builds, drives, and living vehicle history." heading block at the top of the feed (`app/page.tsx`) — start the feed clean.
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
 - [ ] Open PR `redesign → master` once polish is signed off.
 
