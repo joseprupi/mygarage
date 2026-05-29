@@ -4,7 +4,6 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 
 ## TODO (next up)
 History/moat sequence (one worker each — overlapping files, so strictly sequential):
-- [ ] 1. Mileage timeline / chart (M).
 - [ ] (later) Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
 - (deferred) Build sheet / mods list — overlaps with `upgrade` events; revisit only if needed.
 
@@ -24,6 +23,7 @@ Then:
 - Added project planning docs under `plan/`: NORTHSTAR + ARCHITECTURE, AGENTS, FEATURES, PROJECT_PLAN, LOG, ISSUES.
 
 ### History
+- **Mileage timeline / chart**: History tab now shows a hand-rolled responsive SVG line chart (`components/MileageChart.tsx`) of mileage over time — points derived client-side from events with `mileage != null` (one per `event_date`, sorted ascending), x scaled by real date so gaps show, petrol line + subtle fill + dots, min/max-mile and first/last-date labels, inside a `.surface` card. No backend/schema changes. Renders only with ≥2 mileage points (component returns `null` below that; parent also guards). Placed below the cost-summary card.
 - **Receipts / documents on events**: owners can attach PDF documents to a history event alongside photos. New `vehicle_event_documents` table + Alembic `0004_vehicle_event_documents`; direct-upload endpoint accepts `purpose=vehicle_event_document` (application/pdf, 25 MB cap; images unchanged). `documents` added to event create/read and update (replace-semantics like media, with `db.expire`). History export ZIP now bundles PDFs under `documents/` and lists them in a `documents` CSV column. Form has a PDF uploader (filename + ×); cards show 📄 download links.
 - **Tidy event types**: removed `track_day` + `road_trip` from the `EventType` Literal (`schemas.py`) and from `EVENT_TYPES`/badge map (`lib/events.ts`); kept `upgrade`. Alembic data migration `0003_retire_event_types` reassigns existing rows of those types → `other` (varchar column, no type change). New-event Type dropdown no longer lists them.
 - Cost summary card on the History tab: total spent + per-type colored chips + event count, computed client-side over all events, hidden when total is 0.

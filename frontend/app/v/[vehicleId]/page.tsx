@@ -10,6 +10,7 @@ import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
 import { PostCard } from "@/components/PostCard";
 import { Lightbox } from "@/components/Lightbox";
+import { MileageChart } from "@/components/MileageChart";
 import { ShareButton } from "@/components/ShareButton";
 
 const tabs = ["posts", "gallery", "history", "specs"] as const;
@@ -61,6 +62,15 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
   }, {});
   const formatUsd = (cents: number) =>
     (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+  // Mileage points for the timeline chart: one per date (most recent wins on dupes).
+  const mileageByDate = allEvents.reduce<Record<string, number>>((acc, e) => {
+    if (e.event_date && e.mileage != null) acc[e.event_date] = e.mileage;
+    return acc;
+  }, {});
+  const mileagePoints = Object.entries(mileageByDate)
+    .map(([date, miles]) => ({ date, miles }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   async function exportHistory() {
     const token = getToken();
@@ -210,6 +220,7 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
               </div>
             </div>
           )}
+          {mileagePoints.length >= 2 && <MileageChart points={mileagePoints} />}
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap gap-2">
               {presentEventTypes.length > 1 && (

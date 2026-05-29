@@ -19,7 +19,7 @@ Legend: ✅ done · 🔜 next · 💤 backlog
 | ~~Build sheet / mods list~~ | M | — | ⏭️ deferred | Overlaps with the `upgrade` event type (would invite double-entry). For now mods = `upgrade` events + the History type filter. Revisit only if filtered events feel insufficient. |
 | Tidy event types: drop `track_day` + `road_trip` (keep `upgrade`) | S | P1 | ✅ | Removed from `EventType` Literal + `lib/events.ts`; Alembic `0003_retire_event_types` migrates existing rows → `other`. |
 | Receipts/documents (PDF attachments on events) | M | P1 | ✅ | `vehicle_event_documents` table; PDF-only direct upload (25 MB); bundled in export ZIP under `documents/`. |
-| Mileage timeline / chart | M | P2 | 💤 | Visualize the car's life; flag gaps. |
+| Mileage timeline / chart | M | P2 | ✅ | Hand-rolled SVG line chart on History tab (`MileageChart.tsx`); frontend-only. |
 | PDF export (pretty one-pager sibling of CSV/ZIP) | M | P2 | 💤 | Buyer-friendly. |
 | Ownership transfer (hand vehicle + history to buyer's account) | M–L | P2 | 💤 | Trust/portability. |
 | Service reminders / intervals | L | P2 | 💤 | e.g. oil every X miles. |
