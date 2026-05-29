@@ -1,4 +1,4 @@
-import type { Comment, FeedPage, Post, Vehicle, VehicleEvent } from "@/lib/types";
+import type { Comment, FeedPage, Post, PublicUser, Vehicle, VehicleEvent } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -91,6 +91,7 @@ export const postApi = {
   delete: (id: string) => api<void>(`/posts/${id}`, { method: "DELETE" }),
   like: (id: string) => api<void>(`/posts/${id}/like`, { method: "POST" }),
   unlike: (id: string) => api<void>(`/posts/${id}/like`, { method: "DELETE" }),
+  likers: (id: string) => api<PublicUser[]>(`/posts/${id}/likes`),
   comments: (id: string) => api<Comment[]>(`/posts/${id}/comments`),
   comment: (id: string, body: string) =>
     api<Comment>(`/posts/${id}/comments`, {

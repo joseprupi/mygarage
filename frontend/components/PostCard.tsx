@@ -11,6 +11,7 @@ import { carAvatarUri } from "@/lib/avatar";
 import type { Post } from "@/lib/types";
 import { ImageCarousel } from "@/components/ImageCarousel";
 import { ShareButton } from "@/components/ShareButton";
+import { UserListModal } from "@/components/UserListModal";
 
 export function PostCard({ post }: { post: Post }) {
   const queryClient = useQueryClient();
@@ -22,6 +23,12 @@ export function PostCard({ post }: { post: Post }) {
   const [likeCount, setLikeCount] = useState(post.like_count);
   const [liking, setLiking] = useState(false);
   const [hidden, setHidden] = useState(false);
+  const [likersOpen, setLikersOpen] = useState(false);
+  const likers = useQuery({
+    queryKey: ["post", post.id, "likers"],
+    queryFn: () => postApi.likers(post.id),
+    enabled: likersOpen
+  });
   const deleteMutation = useMutation({
     mutationFn: () => postApi.delete(post.id),
     onSuccess: async () => {
@@ -108,18 +115,28 @@ export function PostCard({ post }: { post: Post }) {
       {post.caption && <p className="mt-3 whitespace-pre-wrap text-sm leading-6">{post.caption}</p>}
 
       <footer className="mt-4 flex items-center gap-2 text-sm text-slate-600">
-        <button
-          className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-red-50 disabled:opacity-50"
-          disabled={liking}
-          onClick={handleLike}
-          type="button"
-        >
-          <Heart
-            size={18}
-            className={`transition-transform ${liked ? "scale-110 fill-red-500 text-red-500" : "hover:text-red-500"}`}
-          />
-          {likeCount}
-        </button>
+        <div className="flex items-center rounded-full hover:bg-red-50">
+          <button
+            className="flex items-center rounded-full px-2 py-1 disabled:opacity-50"
+            disabled={liking}
+            onClick={handleLike}
+            aria-label={liked ? "Unlike" : "Like"}
+            type="button"
+          >
+            <Heart
+              size={18}
+              className={`transition-transform ${liked ? "scale-110 fill-red-500 text-red-500" : "hover:text-red-500"}`}
+            />
+          </button>
+          <button
+            className="rounded-full py-1 pr-2 tabular-nums hover:underline disabled:cursor-default disabled:no-underline"
+            disabled={likeCount === 0}
+            onClick={() => setLikersOpen(true)}
+            type="button"
+          >
+            {likeCount}
+          </button>
+        </div>
         <Link className="flex items-center gap-1.5 rounded-full px-2 py-1 hover:bg-slate-100 hover:text-asphalt" href={`/posts/${post.id}`}>
           <MessageCircle size={18} />
           {post.comment_count}
@@ -130,6 +147,16 @@ export function PostCard({ post }: { post: Post }) {
           url={typeof window !== "undefined" ? `${window.location.origin}/posts/${post.id}` : `/posts/${post.id}`}
         />
       </footer>
+
+      {likersOpen && (
+        <UserListModal
+          title="Liked by"
+          users={likers.data ?? []}
+          loading={likers.isLoading}
+          emptyText="No likes yet."
+          onClose={() => setLikersOpen(false)}
+        />
+      )}
     </article>
   );
 }

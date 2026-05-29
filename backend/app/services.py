@@ -528,6 +528,16 @@ def unlike_post(db: Session, post: Post, user: User) -> None:
         db.commit()
 
 
+def list_post_likers(db: Session, post: Post) -> list[PublicUser]:
+    users = db.scalars(
+        select(User)
+        .join(PostLike, PostLike.user_id == User.id)
+        .where(PostLike.post_id == post.id)
+        .order_by(desc(PostLike.created_at))
+    ).all()
+    return [PublicUser.model_validate(u) for u in users]
+
+
 def create_comment(db: Session, post: Post, user: User, data: CommentCreate) -> Comment:
     if data.parent_comment_id:
         parent = db.get(Comment, data.parent_comment_id)

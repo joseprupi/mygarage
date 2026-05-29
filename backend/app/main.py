@@ -19,6 +19,7 @@ from app.schemas import (
     PostCreate,
     PostRead,
     PostUpdate,
+    PublicUser,
     SignupRequest,
     TokenResponse,
     MediaUploadResponse,
@@ -373,6 +374,16 @@ def unlike_post(
 ) -> None:
     post = services.get_post_or_404(db, post_id, user)
     services.unlike_post(db, post, user)
+
+
+@app.get("/posts/{post_id}/likes", response_model=list[PublicUser])
+def post_likers(
+    post_id: str,
+    db: Session = Depends(get_db),
+    viewer: User | None = Depends(get_optional_user),
+) -> list[PublicUser]:
+    post = services.get_post_or_404(db, post_id, viewer)
+    return services.list_post_likers(db, post)
 
 
 @app.get("/posts/{post_id}/comments", response_model=list[CommentRead])

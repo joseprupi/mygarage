@@ -28,7 +28,7 @@ Legend: ✅ done · 🔜 next · 💤 backlog
 |---|---|---|---|---|
 | Like / unlike posts & comments | S | P0 | ✅ | Endpoints exist. |
 | **Share button (copy link / native share)** | S | P0 | ✅ | `components/ShareButton.tsx` on vehicle header + post footer. |
-| **Who-liked modal** (click count → list) | S | P1 | 🔜 | `post_likes` already stores it; add `GET /posts/{id}/likes`. |
+| **Who-liked modal** (click count → list) | S | P1 | ✅ | `GET /posts/{id}/likes`; clickable count → `UserListModal` (`PostCard.tsx`). |
 | Comment replies (threads) + comment-like UI | S–M | P1 | 💤 | `comments.parent_comment_id` + comment-like endpoints already exist. |
 | Follow **users** | M | P1 | 💤 | `follows` table exists (no API/UI yet). |
 | Follow **vehicles** ("watch this build / car for sale") | M | P1 | 💤 | `follows.followed_vehicle_id` already in schema — differentiator. |
