@@ -14,7 +14,7 @@ Legend: ✅ done · 🔜 next · 💤 backlog
 | Filter history by event type | S | P0 | ✅ | Chips + "All". |
 | Photo lightbox (maximize, prev/next) | S | P0 | ✅ | `components/Lightbox.tsx`; used by history + gallery. |
 | Export history (ZIP: `history.csv` + named per-row images) | M | P0 | ✅ | `/vehicles/{id}/history/export`. |
-| **Cost summary / total spend** (total + per-type breakdown on History tab) | S–M | P0 | 🔜 | Sum `cost_cents`; high enthusiast payoff. |
+| **Cost summary / total spend** (total + per-type breakdown on History tab) | S–M | P0 | ✅ | Client-side card, per-type chips, hidden when $0. |
 | **Public "service record" page** (clean, shareable full history for a listing) | M | P1 | 💤 | Ties share + history → sell-my-car. |
 | **Build sheet / mods list** (parts/mods view, distinct from timeline) | M | P1 | 💤 | #1 thing modders show off. |
 | Receipts/documents (PDF attachments on events) | M | P1 | 💤 | Export already bundles files. |

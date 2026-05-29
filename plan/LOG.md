@@ -3,7 +3,6 @@
 Running record of what's shipped and what's next. Newest first. Update every slice.
 
 ## TODO (next up)
-- [ ] Cost summary / total spend on the History tab (P0, S–M).
 - [ ] Share button (copy link + native share) on vehicle + post (P0, S).
 - [ ] Who-liked modal: `GET /posts/{id}/likes` + clickable count (P1, S).
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
@@ -16,6 +15,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 - Added project planning docs under `plan/`: NORTHSTAR + ARCHITECTURE, AGENTS, FEATURES, PROJECT_PLAN, LOG, ISSUES.
 
 ### History
+- Cost summary card on the History tab: total spent + per-type colored chips + event count, computed client-side over all events, hidden when total is 0.
 - Export history as ZIP (`history.csv` + per-row named images) — `/vehicles/{id}/history/export`.
 - Cost entered in **dollars** (stored as cents); fixed "cost in cents" UX.
 - Location autocomplete (Photon/OSM proxy) `/geo/search`.

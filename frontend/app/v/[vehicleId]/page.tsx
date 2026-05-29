@@ -51,6 +51,16 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
     (e) => eventFilter === "all" || e.event_type === eventFilter
   );
 
+  // Cost summary over ALL events (ignores the active type filter).
+  const allEvents = events.data ?? [];
+  const totalCostCents = allEvents.reduce((sum, e) => sum + (e.cost_cents ?? 0), 0);
+  const costByType = allEvents.reduce<Record<string, number>>((acc, e) => {
+    if (e.cost_cents) acc[e.event_type] = (acc[e.event_type] ?? 0) + e.cost_cents;
+    return acc;
+  }, {});
+  const formatUsd = (cents: number) =>
+    (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+
   async function exportHistory() {
     const token = getToken();
     const res = await fetch(`/api/vehicles/${vehicleId}/history/export`, {
@@ -170,6 +180,29 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
         events.error ? <p className="text-sm text-red-600">Failed to load events.</p> :
         events.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
         <div className="space-y-4">
+          {totalCostCents > 0 && (
+            <div className="surface rounded-2xl p-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Total spent</p>
+                  <p className="mt-1 text-2xl font-bold">{formatUsd(totalCostCents)}</p>
+                </div>
+                <span className="text-xs text-slate-400">
+                  {allEvents.length} {allEvents.length === 1 ? "event" : "events"}
+                </span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(costByType).map(([type, cents]) => (
+                  <span
+                    key={type}
+                    className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(type)}`}
+                  >
+                    {eventTypeLabel(type)} · {formatUsd(cents)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap gap-2">
               {presentEventTypes.length > 1 && (
