@@ -1,0 +1,1 @@
+"""Car Social backend application."""
