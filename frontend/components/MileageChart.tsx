@@ -23,11 +23,11 @@ export function MileageChart({ points }: { points: Point[] }) {
 
   // Plot geometry (viewBox user units; scales responsively via width 100%).
   const W = 600;
-  const H = 180;
-  const padTop = 14;
-  const padBottom = 26;
-  const padLeft = 52;
-  const padRight = 14;
+  const H = 200;
+  const padTop = 16;
+  const padBottom = 28;
+  const padLeft = 66; // room for "999,999 mi" y-axis labels (no clipping)
+  const padRight = 16;
   const plotW = W - padLeft - padRight;
   const plotH = H - padTop - padBottom;
 
@@ -49,12 +49,28 @@ export function MileageChart({ points }: { points: Point[] }) {
   const baseY = H - padBottom;
   const areaPts = `${coords[0].px},${baseY} ${linePts} ${coords[coords.length - 1].px},${baseY}`;
 
+  // y ticks: min, mid, max (mid dropped when the line is flat).
+  const yTicks = mMax === mMin ? [mMin] : [mMin, Math.round((mMin + mMax) / 2), mMax];
+  // x ticks: first, middle (when >=3 points), last — at real data points.
+  const xTickIdx =
+    sorted.length >= 3 ? [0, Math.floor((sorted.length - 1) / 2), sorted.length - 1] : [0, sorted.length - 1];
+
   return (
     <div className="surface rounded-2xl p-4">
       <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Mileage</p>
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img" aria-label="Mileage over time">
-        {/* baseline */}
-        <line x1={padLeft} y1={baseY} x2={W - padRight} y2={baseY} stroke="#e2e8f0" strokeWidth={1} />
+        {/* y gridlines + labels (bottom gridline doubles as the baseline) */}
+        {yTicks.map((v, i) => {
+          const gy = y(v);
+          return (
+            <g key={`y${i}`}>
+              <line x1={padLeft} y1={gy} x2={W - padRight} y2={gy} stroke="#eef2f7" strokeWidth={1} />
+              <text x={padLeft - 8} y={gy} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="#94a3b8">
+                {v.toLocaleString()} mi
+              </text>
+            </g>
+          );
+        })}
         {/* area fill */}
         <polygon points={areaPts} fill="#2563eb" fillOpacity={0.08} />
         {/* line */}
@@ -71,20 +87,19 @@ export function MileageChart({ points }: { points: Point[] }) {
         {coords.map((c, i) => (
           <circle key={i} cx={c.px} cy={c.py} r={3} fill="#2563eb" stroke="#fff" strokeWidth={1.5} />
         ))}
-        {/* y-axis labels: max (top) + min (bottom) */}
-        <text x={padLeft - 8} y={padTop + 4} textAnchor="end" fontSize={11} fill="#94a3b8">
-          {mMax.toLocaleString()} mi
-        </text>
-        <text x={padLeft - 8} y={baseY} textAnchor="end" fontSize={11} fill="#94a3b8">
-          {mMin.toLocaleString()} mi
-        </text>
-        {/* x-axis labels: first + last date */}
-        <text x={padLeft} y={H - 8} textAnchor="start" fontSize={11} fill="#94a3b8">
-          {formatDate(sorted[0].date)}
-        </text>
-        <text x={W - padRight} y={H - 8} textAnchor="end" fontSize={11} fill="#94a3b8">
-          {formatDate(sorted[sorted.length - 1].date)}
-        </text>
+        {/* x ticks + date labels */}
+        {xTickIdx.map((idx, i) => {
+          const cx = coords[idx].px;
+          const anchor = i === 0 ? "start" : i === xTickIdx.length - 1 ? "end" : "middle";
+          return (
+            <g key={`x${idx}`}>
+              <line x1={cx} y1={baseY} x2={cx} y2={baseY + 4} stroke="#cbd5e1" strokeWidth={1} />
+              <text x={cx} y={H - 8} textAnchor={anchor} fontSize={10} fill="#94a3b8">
+                {formatDate(sorted[idx].date)}
+              </text>
+            </g>
+          );
+        })}
       </svg>
     </div>
   );
