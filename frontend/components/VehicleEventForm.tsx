@@ -82,12 +82,12 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
   }
 
   return (
-    <form className="space-y-4 rounded-3xl bg-white p-6 shadow-sm" onSubmit={submit}>
+    <form className="surface space-y-4 rounded-3xl p-6" onSubmit={submit}>
       <h1 className="text-2xl font-bold">{isEdit ? "Edit history event" : "Add history event"}</h1>
       <label className="block space-y-1 text-sm">
         <span>Type</span>
         <select
-          className="w-full rounded-xl border px-3 py-2"
+          className="input"
           value={form.eventType}
           onChange={(event) => setForm({ ...form, eventType: event.target.value })}
         >
@@ -109,7 +109,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         <label className="block space-y-1 text-sm" key={key}>
           <span>{label}</span>
           <input
-            className="w-full rounded-xl border px-3 py-2"
+            className="input"
             type={key === "eventDate" ? "date" : "text"}
             value={form[key as keyof typeof form]}
             onChange={(event) => setForm({ ...form, [key]: event.target.value })}
@@ -117,7 +117,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         </label>
       ))}
       <textarea
-        className="min-h-28 w-full rounded-xl border px-3 py-2"
+        className="input min-h-28"
         placeholder="Notes"
         value={form.description}
         onChange={(event) => setForm({ ...form, description: event.target.value })}
@@ -146,7 +146,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       <label className="block space-y-1 text-sm">
         <span>Visibility</span>
         <select
-          className="w-full rounded-xl border px-3 py-2"
+          className="input"
           value={form.visibility}
           onChange={(event) => setForm({ ...form, visibility: event.target.value })}
         >
@@ -155,7 +155,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         </select>
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="rounded-xl bg-asphalt px-5 py-3 font-semibold text-white" type="submit">
+      <button className="btn btn-primary px-5 py-3" type="submit">
         {isEdit ? "Save changes" : "Save event"}
       </button>
     </form>

@@ -128,11 +128,11 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
     }
   }
 
-  const selectClass = "w-full rounded-xl border px-3 py-2 disabled:bg-slate-100 disabled:text-slate-400";
-  const inputClass = "w-full rounded-xl border px-3 py-2";
+  const selectClass = "input disabled:bg-slate-100 disabled:text-slate-400";
+  const inputClass = "input";
 
   return (
-    <form className="space-y-4 rounded-3xl bg-white p-6 shadow-sm" onSubmit={submit}>
+    <form className="surface space-y-4 rounded-3xl p-6" onSubmit={submit}>
       <h1 className="text-2xl font-bold">{vehicleId ? "Edit vehicle" : "Create vehicle"}</h1>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -307,22 +307,25 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
       <label className="block space-y-1 text-sm">
         <span>Description</span>
         <textarea
-          className="min-h-28 w-full rounded-xl border px-3 py-2"
+          className="input min-h-28"
           value={form.description}
           onChange={(event) => setForm({ ...form, description: event.target.value })}
         />
       </label>
-      <select
-        className="rounded-xl border px-3 py-2"
-        value={form.visibility}
-        onChange={(event) => setForm({ ...form, visibility: event.target.value })}
-      >
-        <option value="public">Public</option>
-        <option value="private">Private</option>
-        <option value="unlisted">Unlisted</option>
-      </select>
+      <label className="block space-y-1 text-sm">
+        <span>Visibility</span>
+        <select
+          className="input"
+          value={form.visibility}
+          onChange={(event) => setForm({ ...form, visibility: event.target.value })}
+        >
+          <option value="public">Public</option>
+          <option value="private">Private</option>
+          <option value="unlisted">Unlisted</option>
+        </select>
+      </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="rounded-xl bg-asphalt px-5 py-3 font-semibold text-white" type="submit">
+      <button className="btn btn-primary px-5 py-3" type="submit">
         Save vehicle
       </button>
     </form>

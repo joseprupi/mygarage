@@ -40,16 +40,18 @@ export default function NewPostPage() {
   }
 
   return (
-    <form className="space-y-5 rounded-3xl bg-white p-6 shadow-sm" onSubmit={submit}>
+    <form className="surface space-y-5 rounded-3xl p-6" onSubmit={submit}>
       <h1 className="text-2xl font-bold">Create post</h1>
       <ImageUploader purpose="post_media" onUploaded={(item) => setMedia((items) => [...items, item])} />
       <div className="grid grid-cols-3 gap-2">
         {media.map((item) => (
-          <img className="aspect-square rounded-xl object-cover" src={item.thumbnail_url ?? item.url} alt="" key={item.url} />
+          <div className="aspect-square overflow-hidden rounded-xl bg-slate-100" key={item.url}>
+            <img className="h-full w-full object-cover" src={item.thumbnail_url ?? item.url} alt="" />
+          </div>
         ))}
       </div>
       <textarea
-        className="min-h-32 w-full rounded-xl border px-3 py-2"
+        className="input min-h-32"
         placeholder="Caption"
         value={caption}
         onChange={(event) => setCaption(event.target.value)}
@@ -71,13 +73,16 @@ export default function NewPostPage() {
           </label>
         ))}
       </div>
-      <select className="rounded-xl border px-3 py-2" value={visibility} onChange={(event) => setVisibility(event.target.value)}>
-        <option value="public">Public</option>
-        <option value="private">Private</option>
-        <option value="unlisted">Unlisted</option>
-      </select>
+      <label className="block space-y-1 text-sm">
+        <span>Visibility</span>
+        <select className="input" value={visibility} onChange={(event) => setVisibility(event.target.value)}>
+          <option value="public">Public</option>
+          <option value="private">Private</option>
+          <option value="unlisted">Unlisted</option>
+        </select>
+      </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="rounded-xl bg-asphalt px-5 py-3 font-semibold text-white" type="submit">
+      <button className="btn btn-primary px-5 py-3" type="submit">
         Publish
       </button>
     </form>

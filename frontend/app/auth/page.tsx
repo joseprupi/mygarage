@@ -87,7 +87,7 @@ export default function AuthPage() {
   }
 
   return (
-    <section className="mx-auto max-w-md rounded-3xl bg-white p-6 shadow-sm">
+    <section className="surface mx-auto max-w-md rounded-3xl p-6">
       <div className="mb-6 flex items-center gap-3">
         <span className="block h-10 w-10 overflow-hidden rounded-xl">
           <img src="/logo.svg" alt="" className="h-full w-full object-cover" />
@@ -109,13 +109,13 @@ export default function AuthPage() {
         {mode === "signup" && (
           <>
             <input
-              className="w-full rounded-xl border px-4 py-3"
+              className="input"
               placeholder="Username"
               value={form.username}
               onChange={(event) => setForm({ ...form, username: event.target.value })}
             />
             <input
-              className="w-full rounded-xl border px-4 py-3"
+              className="input"
               placeholder="Display name"
               value={form.display_name}
               onChange={(event) => setForm({ ...form, display_name: event.target.value })}
@@ -123,26 +123,26 @@ export default function AuthPage() {
           </>
         )}
         <input
-          className="w-full rounded-xl border px-4 py-3"
+          className="input"
           placeholder="Email"
           type="email"
           value={form.email}
           onChange={(event) => setForm({ ...form, email: event.target.value })}
         />
         <input
-          className="w-full rounded-xl border px-4 py-3"
+          className="input"
           placeholder="Password"
           type="password"
           value={form.password}
           onChange={(event) => setForm({ ...form, password: event.target.value })}
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <button className="w-full rounded-xl bg-asphalt px-4 py-3 font-semibold text-white" type="submit">
+        <button className="btn btn-primary w-full px-4 py-3" type="submit">
           {mode === "signup" ? "Sign up" : "Log in"}
         </button>
       </form>
       <button
-        className="mt-4 text-sm text-blue-600"
+        className="mt-4 text-sm font-medium text-petrol"
         onClick={() => setMode(mode === "signup" ? "login" : "signup")}
         type="button"
       >

@@ -17,9 +17,9 @@ export default function GaragePage() {
 
   if (!user) {
     return (
-      <div className="rounded-3xl bg-white p-6">
+      <div className="surface rounded-3xl p-6">
         <p className="mb-4">Log in to see your garage.</p>
-        <Link href="/auth" className="rounded-xl bg-asphalt px-4 py-2 text-white">
+        <Link href="/auth" className="btn btn-primary">
           Log in
         </Link>
       </div>
@@ -30,14 +30,14 @@ export default function GaragePage() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Garage</h1>
-        <Link className="rounded-xl bg-asphalt px-4 py-2 text-white" href="/vehicles/new">
+        <Link className="btn btn-primary" href="/vehicles/new">
           Add vehicle
         </Link>
       </div>
       {vehicles.error && <p className="text-sm text-red-600">Failed to load vehicles.</p>}
-      <div className="grid gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         {vehicles.data?.map((vehicle) => (
-          <Link className="rounded-2xl bg-white p-4 shadow-sm" href={`/v/${vehicle.id}`} key={vehicle.id}>
+          <Link className="surface hover-lift rounded-2xl p-4" href={`/v/${vehicle.id}`} key={vehicle.id}>
             <p className="font-semibold">
               {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ")}
             </p>

@@ -32,7 +32,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
 
   return (
     <section className="space-y-6">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className="surface rounded-3xl p-6">
         <div className="flex items-center gap-4">
           <div className="h-20 w-20 overflow-hidden rounded-full bg-slate-200">
             <img
@@ -50,7 +50,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
         {vehiclesQuery.error && <p className="text-sm text-red-600">Failed to load vehicles.</p>}
         <div className="grid gap-3 sm:grid-cols-2">
           {vehiclesQuery.data?.map((vehicle) => (
-            <Link className="rounded-2xl bg-white p-4 shadow-sm" href={`/v/${vehicle.id}`} key={vehicle.id}>
+            <Link className="surface hover-lift rounded-2xl p-4" href={`/v/${vehicle.id}`} key={vehicle.id}>
               <p className="font-semibold">
                 {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ")}
               </p>

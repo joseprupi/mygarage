@@ -41,12 +41,12 @@ export function ProfileEditor() {
     onError: (err) => setError(err instanceof Error ? err.message : "Could not update photo")
   });
 
-  if (isLoading) return <div className="rounded-3xl bg-white p-6">Loading profile...</div>;
+  if (isLoading) return <div className="surface rounded-3xl p-6">Loading profile...</div>;
   if (loadError || !user) {
     return (
-      <div className="rounded-3xl bg-white p-6">
+      <div className="surface rounded-3xl p-6">
         <p className="mb-4">Log in to manage your garage.</p>
-        <Link className="rounded-xl bg-asphalt px-4 py-2 text-white" href="/auth">
+        <Link className="btn btn-primary" href="/auth">
           Log in
         </Link>
       </div>
@@ -57,7 +57,7 @@ export function ProfileEditor() {
 
   return (
     <section className="space-y-6">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className="surface rounded-3xl p-6">
         <div className="flex items-center gap-4">
           <div className="relative h-20 w-20 shrink-0">
             <div className="h-20 w-20 overflow-hidden rounded-full bg-slate-200">
@@ -98,10 +98,10 @@ export function ProfileEditor() {
         {user.bio && <p className="mt-4 text-sm leading-6">{user.bio}</p>}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Link className="rounded-2xl bg-asphalt p-4 font-semibold text-white" href="/vehicles/new">
+        <Link className="hover-lift flex items-center justify-center rounded-2xl bg-asphalt p-4 font-semibold text-white" href="/vehicles/new">
           Add a vehicle
         </Link>
-        <Link className="rounded-2xl bg-white p-4 font-semibold shadow-sm" href="/posts/new">
+        <Link className="surface hover-lift flex items-center justify-center rounded-2xl p-4 font-semibold" href="/posts/new">
           Create a post
         </Link>
       </div>

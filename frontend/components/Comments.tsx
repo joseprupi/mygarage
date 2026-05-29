@@ -97,7 +97,7 @@ export function Comments({ postId, postAuthorId }: { postId: string; postAuthorI
   });
 
   return (
-    <section className="mt-5 rounded-3xl bg-white p-5 shadow-sm">
+    <section className="surface mt-5 rounded-3xl p-5">
       <h2 className="font-bold">Comments</h2>
       <form
         className="mt-3 flex gap-2"
@@ -107,12 +107,12 @@ export function Comments({ postId, postAuthorId }: { postId: string; postAuthorI
         }}
       >
         <input
-          className="flex-1 rounded-xl border px-3 py-2"
+          className="input flex-1"
           placeholder="Add a comment"
           value={body}
           onChange={(event) => setBody(event.target.value)}
         />
-        <button className="rounded-xl bg-asphalt px-4 py-2 text-white" type="submit">
+        <button className="btn btn-primary px-4 py-2" type="submit">
           Post
         </button>
       </form>

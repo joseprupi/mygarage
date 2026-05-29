@@ -5,6 +5,7 @@ import Link from "next/link";
 import { use, useState } from "react";
 
 import { authApi, vehicleApi } from "@/lib/api/client";
+import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeLabel } from "@/lib/events";
 import { PostCard } from "@/components/PostCard";
 
@@ -43,27 +44,47 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
 
   return (
     <section className="space-y-5">
-      <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
+      <div className="surface overflow-hidden rounded-3xl">
         {vehicle.data.cover_image_url && (
           <img src={vehicle.data.cover_image_url} alt="" className="aspect-[16/9] w-full object-cover" />
         )}
-        <div className="space-y-3 p-6">
-          <p className="text-sm uppercase tracking-wide text-blue-600">{vehicle.data.nickname}</p>
-          <h1 className="text-3xl font-bold">
-            {[vehicle.data.year, vehicle.data.make, vehicle.data.model].filter(Boolean).join(" ")}
-          </h1>
-          <p className="text-slate-600">{vehicle.data.description}</p>
-          <div className="flex flex-wrap gap-2 text-sm">
-            {vehicle.data.owner && <Link href={`/u/${vehicle.data.owner.username}`}>@{vehicle.data.owner.username}</Link>}
-            <span className="rounded-full bg-slate-100 px-3 py-1">{vehicle.data.visibility}</span>
-            {isOwner && (
-              <Link className="rounded-full border px-3 py-1" href={`/vehicles/${vehicle.data.id}/edit`}>
-                Edit vehicle
-              </Link>
+        <div className="space-y-4 p-6">
+          <div>
+            {v.nickname && (
+              <p className="text-xs font-semibold uppercase tracking-widest text-petrol">{v.nickname}</p>
             )}
-            <Link className="rounded-full bg-asphalt px-3 py-1 text-white" href={`/vehicles/${vehicle.data.id}/events/new`}>
-              Add event
-            </Link>
+            <h1 className="mt-1 text-3xl font-bold">
+              {[v.year, v.make, v.model].filter(Boolean).join(" ")}
+            </h1>
+          </div>
+          {v.description && <p className="text-slate-600">{v.description}</p>}
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+            <div className="flex items-center gap-3">
+              {v.owner && (
+                <Link href={`/u/${v.owner.username}`} className="flex items-center gap-2 hover:text-petrol">
+                  <span className="h-8 w-8 overflow-hidden rounded-full ring-1 ring-slate-200">
+                    <img
+                      src={v.owner.avatar_url || carAvatarUri(v.owner.username)}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  </span>
+                  <span className="text-sm font-semibold">@{v.owner.username}</span>
+                </Link>
+              )}
+              {isOwner && <span className="chip">{v.visibility}</span>}
+            </div>
+            {isOwner && (
+              <div className="flex items-center gap-2">
+                <Link className="btn btn-secondary" href={`/vehicles/${v.id}/edit`}>
+                  Edit
+                </Link>
+                <Link className="btn btn-primary" href={`/vehicles/${v.id}/events/new`}>
+                  Add event
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -71,7 +92,7 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
       <div className="flex gap-2 overflow-auto">
         {tabs.map((item) => (
           <button
-            className={`rounded-full px-4 py-2 text-sm ${tab === item ? "bg-asphalt text-white" : "bg-white"}`}
+            className={`tab ${tab === item ? "tab-active" : "tab-idle"}`}
             key={item}
             onClick={() => setTab(item)}
             type="button"
@@ -92,7 +113,14 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {gallery.data?.flatMap((post) =>
             post.media.map((media) => (
-              <img className="aspect-square rounded-2xl object-cover" src={media.thumbnail_url ?? media.url} alt="" key={media.url} loading="lazy" />
+              <div className="aspect-square overflow-hidden rounded-2xl bg-slate-100" key={media.url}>
+                <img
+                  className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                  src={media.thumbnail_url ?? media.url}
+                  alt=""
+                  loading="lazy"
+                />
+              </div>
             ))
           )}
         </div>
@@ -102,14 +130,14 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
         events.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
         <div className="space-y-4">
           {events.data?.map((event) => (
-            <article className="rounded-2xl bg-white p-4 shadow-sm" key={event.id}>
+            <article className="surface rounded-2xl p-4" key={event.id}>
               <div className="flex items-center justify-between gap-2">
-                <span className="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                <span className="rounded-full bg-petrol/10 px-2.5 py-1 text-xs font-medium text-petrol">
                   {eventTypeLabel(event.event_type)}
                 </span>
                 {isOwner && (
                   <Link
-                    className="text-xs text-slate-500 hover:text-asphalt"
+                    className="text-xs font-medium text-slate-500 hover:text-petrol"
                     href={`/vehicles/${vehicleId}/events/${event.id}/edit`}
                   >
                     Edit
@@ -127,7 +155,7 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
         </div>
       )}
       {tab === "specs" && (
-        <dl className="grid gap-3 rounded-3xl bg-white p-6 text-sm shadow-sm sm:grid-cols-2">
+        <dl className="surface grid gap-4 rounded-3xl p-6 text-sm sm:grid-cols-2">
           {specs.map(([label, value]) => (
             <div key={label}>
               <dt className="font-semibold">{label}</dt>

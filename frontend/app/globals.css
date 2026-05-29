@@ -81,3 +81,83 @@ textarea {
     0 2px 4px rgba(15, 23, 42, 0.05),
     0 18px 40px -16px rgba(15, 23, 42, 0.22);
 }
+
+/* --- Reusable UI primitives (consistent buttons / chips / inputs / tabs) --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.btn-primary {
+  background: var(--color-asphalt);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: #1e293b;
+}
+.btn-secondary {
+  background: #fff;
+  color: var(--color-asphalt);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+.btn-secondary:hover {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.2);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #475569;
+  text-transform: capitalize;
+}
+
+.input {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.9rem;
+}
+.input:focus {
+  border-color: var(--color-petrol);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.tab {
+  border-radius: 9999px;
+  padding: 0.4rem 0.95rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: capitalize;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.tab-active {
+  background: var(--color-asphalt);
+  color: #fff;
+}
+.tab-idle {
+  background: #fff;
+  color: #475569;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.tab-idle:hover {
+  background: #f8fafc;
+  color: var(--color-asphalt);
+}
