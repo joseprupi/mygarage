@@ -7,14 +7,17 @@ import { Pencil, Plus } from "lucide-react";
 
 import { authApi, vehicleApi } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
-import { eventTypeLabel } from "@/lib/events";
+import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
 import { PostCard } from "@/components/PostCard";
+import { Lightbox } from "@/components/Lightbox";
 
 const tabs = ["posts", "gallery", "history", "specs"] as const;
 
 export default function VehiclePage({ params }: { params: Promise<{ vehicleId: string }> }) {
   const { vehicleId } = use(params);
   const [tab, setTab] = useState<(typeof tabs)[number]>("posts");
+  const [eventFilter, setEventFilter] = useState<string>("all");
+  const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
   const currentUser = me.data as { id: string } | undefined;
@@ -42,6 +45,11 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
     ["Drivetrain", v.drivetrain ?? ""],
     ["Visibility", v.visibility ?? ""]
   ];
+  const galleryImages = gallery.data?.flatMap((post) => post.media.map((m) => m.url)) ?? [];
+  const presentEventTypes = Array.from(new Set(events.data?.map((e) => e.event_type) ?? []));
+  const filteredEvents = (events.data ?? []).filter(
+    (e) => eventFilter === "all" || e.event_type === eventFilter
+  );
 
   return (
     <section className="space-y-4">
@@ -124,28 +132,60 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
         gallery.error ? <p className="text-sm text-red-600">Failed to load gallery.</p> :
         gallery.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {gallery.data?.flatMap((post) =>
-            post.media.map((media) => (
-              <div className="aspect-square overflow-hidden rounded-2xl bg-slate-100" key={media.url}>
-                <img
-                  className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                  src={media.thumbnail_url ?? media.url}
-                  alt=""
-                  loading="lazy"
-                />
-              </div>
-            ))
-          )}
+          {galleryImages.map((url, i) => (
+            <button
+              type="button"
+              className="aspect-square overflow-hidden rounded-2xl bg-slate-100"
+              key={`${url}-${i}`}
+              onClick={() => setLightbox({ images: galleryImages, index: i })}
+            >
+              <img
+                className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                src={url}
+                alt=""
+                loading="lazy"
+              />
+            </button>
+          ))}
         </div>
       )}
       {tab === "history" && (
         events.error ? <p className="text-sm text-red-600">Failed to load events.</p> :
         events.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
         <div className="space-y-4">
-          {events.data?.map((event) => (
+          {presentEventTypes.length > 1 && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setEventFilter("all")}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  eventFilter === "all"
+                    ? "bg-asphalt text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                All
+              </button>
+              {presentEventTypes.map((type) => (
+                <button
+                  type="button"
+                  key={type}
+                  onClick={() => setEventFilter(type)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition ${eventTypeBadge(type)} ${
+                    eventFilter === type ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
+                  }`}
+                >
+                  {eventTypeLabel(type)}
+                </button>
+              ))}
+            </div>
+          )}
+          {filteredEvents.map((event) => (
             <article className="surface rounded-2xl p-4" key={event.id}>
               <div className="flex items-center justify-between gap-2">
-                <span className="rounded-full bg-petrol/10 px-2.5 py-1 text-xs font-medium text-petrol">
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(event.event_type)}`}
+                >
                   {eventTypeLabel(event.event_type)}
                 </span>
                 {isOwner && (
@@ -165,9 +205,13 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
               {event.description && <p className="mt-2 text-sm">{event.description}</p>}
               {event.media.length > 0 && (
                 <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                  {event.media.map((media) => (
-                    <div
+                  {event.media.map((media, i) => (
+                    <button
+                      type="button"
                       key={media.url}
+                      onClick={() =>
+                        setLightbox({ images: event.media.map((m) => m.url), index: i })
+                      }
                       className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
                     >
                       <img
@@ -176,7 +220,7 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
                         loading="lazy"
                         className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
                       />
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -199,6 +243,10 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
             </div>
           )}
         </dl>
+      )}
+
+      {lightbox && (
+        <Lightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />
       )}
     </section>
   );
