@@ -19,32 +19,31 @@ export function Nav() {
   return (
     <>
       {/* Desktop: Instagram-style left rail, icons-only, expands on hover. */}
-      <aside className="group fixed inset-y-0 left-0 z-30 hidden w-16 flex-col gap-1 overflow-hidden border-r border-slate-200 bg-white p-2 transition-[width] duration-200 ease-out hover:w-60 md:flex">
-        <Link href="/" className="mb-3 flex items-center gap-3 rounded-xl p-1.5">
+      <aside className="group fixed inset-y-0 left-0 z-30 hidden w-16 flex-col overflow-hidden bg-white p-2 transition-[width] duration-200 ease-out hover:w-60 md:flex">
+        <Link href="/" className="flex items-center rounded-xl p-1.5">
           <span className="block h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-1 ring-slate-200">
-            <img src="/logo.svg" alt="" className="h-full w-full object-cover" />
-          </span>
-          <span className="whitespace-nowrap font-display text-lg font-bold tracking-tight text-asphalt opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            Car Social
+            <img src="/logo.svg" alt="Car Social" className="h-full w-full object-cover" />
           </span>
         </Link>
-        {items.map((item) => {
-          const active = isActive(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-xl p-2.5 ${
-                active ? "bg-petrol/10 text-petrol" : "text-slate-600 hover:bg-slate-100 hover:text-asphalt"
-              }`}
-            >
-              <item.icon size={22} strokeWidth={active ? 2.4 : 2} className="shrink-0" />
-              <span className="whitespace-nowrap text-sm font-medium opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
+        <div className="flex flex-1 flex-col gap-1 pt-[18vh]">
+          {items.map((item) => {
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 rounded-xl p-2.5 ${
+                  active ? "bg-petrol/10 text-petrol" : "text-slate-600 hover:bg-slate-100 hover:text-asphalt"
+                }`}
+              >
+                <item.icon size={22} strokeWidth={active ? 2.4 : 2} className="shrink-0" />
+                <span className="whitespace-nowrap text-sm font-medium opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
       </aside>
 
       {/* Mobile: bottom tab bar. */}
