@@ -4,10 +4,10 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 
 ## TODO (next up)
 - [ ] **Tidy event types** (S): remove `track_day` + `road_trip` (keep `upgrade`); migrate existing rows → `other`.
-History/moat sequence (one worker each; order to be confirmed in next discussion):
-- [ ] Receipts / documents on events (M) — attach PDFs to events.
-- [ ] Mileage timeline / chart (M).
-- [ ] Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
+History/moat sequence (one worker each — overlapping files, so strictly sequential):
+- [ ] 1. Receipts / documents on events (M) — attach PDFs to events (after tidy-events).
+- [ ] 2. Mileage timeline / chart (M).
+- [ ] (later) Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
 - (deferred) Build sheet / mods list — overlaps with `upgrade` events; revisit only if needed.
 
 Then:
