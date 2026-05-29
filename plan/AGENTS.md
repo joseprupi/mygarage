@@ -27,12 +27,12 @@ How we run this project as a team of agents. The orchestrator plans and delegate
 - Keep changes minimal and in the established style.
 
 ## Git workflow
-- `master` — stable. Tagged `before-redesign` at the pre-redesign snapshot.
-- `redesign` — current active branch. Work happens here until merged.
-- Commit in small, themed units. Message: imperative summary + (optional) body.
+- `master` — the trunk and only long-lived branch. Work happens here. (The `redesign` branch was merged into `master` and deleted.)
+- Tags as restore points: `before-redesign` (original), `checkpoint-*` (per accepted slice), `v0.1.0` (pre-production baseline = redesign merged).
+- Commit in small, themed units directly on `master`. Message: imperative summary + (optional) body.
 - End commit messages with:
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
-- Push after a verified slice. Open a PR `redesign → master` when the redesign milestone is complete.
+- Push after a verified slice; the orchestrator tags a `checkpoint-*` for each accepted slice.
 
 ## Task hand-off format (worker → orchestrator)
 ```
