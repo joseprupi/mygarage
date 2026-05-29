@@ -33,7 +33,7 @@ This environment has quirks. Read carefully before "just running" things.
 
 - **Ports are 8010 (backend) and 3010 (frontend), NOT the README's 8000/3001.** Another unrelated project occupies 8000/3001 — **do not touch it**. If a port is busy, pick another; never kill processes you didn't start.
 - **The browser is remote/tunneled and can only reach `:3010`.** It CANNOT reach Postgres, MinIO (`:9000`), or external APIs directly. Therefore **everything the browser needs must be served through `:3010`**:
-  - `/api/*` → Next rewrite → backend `:8010` (set via `BACKEND_ORIGIN`).
+  - `/api/*` → Next rewrite → backend `:8010` (set via `BACKEND_ORIGIN`). NOTE: `/api` is only the frontend-origin prefix — curl the **backend directly on :8010 WITHOUT `/api`** (e.g. `:8010/auth/login`), but **via :3010 WITH `/api`** (e.g. `:3010/api/auth/login`).
   - `/media/*` → Next rewrite → MinIO `:9000/car-social` (set via `MEDIA_ORIGIN`).
   - Stored media URLs are **relative** (`/media/...`) because `PUBLIC_MEDIA_BASE_URL=/media`.
 - **Uploads do NOT use presigned PUT** (browser can't reach MinIO). Use the **direct-upload** endpoint `POST /media/upload` which streams through the backend. `ImageUploader` already does this.
