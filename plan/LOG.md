@@ -9,7 +9,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 - [x] **Deploy automation**: `scripts/` now holds `_config.sh` (non-secret config), `deploy-backend.sh` (Cloud Run w/ secrets+cloudsql+env), `deploy-frontend.sh` (firebase deploy w/ NEXT_PUBLIC_* baked), `migrate.sh` (Cloud SQL proxy + alembic), + README. Syntax-checked; NOT run (dev-only). Deploy knowledge is now in-repo, not chat.
 - [ ] **Migrations as a Cloud Run Job** (same image, `alembic upgrade head`) instead of the manual proxy run (P1 worker's suggestion).
 - [ ] (later) CI/CD: auto-deploy on push to `master` (GitHub Actions or Firebase App Hosting GitHub connect).
-- [ ] **Budget alert** (~$25) on the billing account.
+- [x] **Budget alert** — $25/mo on the mygarage project, alerts at 50/90/100% to billing admins (notify-only, not a hard cap).
 - [ ] Decide: seed prod DB vs start fresh (prod DB is currently empty; local data not migrated).
 
 ### Custom domain (cececar.com, via Cloudflare) — P5
