@@ -12,8 +12,13 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 - [ ] **Budget alert** (~$25) on the billing account.
 - [ ] Decide: seed prod DB vs start fresh (prod DB is currently empty; local data not migrated).
 
-### Custom domain / branding (P5–P6)
-- [ ] Pick a **name + domain**, map it (Firebase Hosting custom domain + Cloud Run), update CORS + OAuth origins.
+### Custom domain (cececar.com, via Cloudflare) — P5
+Domain bought on Squarespace; DNS/CDN to be managed by **Cloudflare**.
+- [ ] Add `cececar.com` to Cloudflare; point Squarespace **nameservers** → Cloudflare.
+- [ ] Firebase Hosting → Add custom domain `cececar.com` (+ `www`); it issues a TXT verify + A/AAAA (or CNAME) records.
+- [ ] Add those records in Cloudflare. **SSL gotcha:** Firebase manages the cert — set the Firebase records **DNS-only (grey cloud)** during provisioning, or if proxied (orange) use Cloudflare SSL mode **Full (strict)**. Don't leave it "Flexible".
+- [ ] (Optional, cleaner) map **api.cececar.com → Cloud Run** (domain mapping), then rebuild frontend with `NEXT_PUBLIC_API_BASE_URL=https://api.cececar.com`.
+- [ ] Update backend `CORS_ORIGINS` + Google OAuth origins to include `https://cececar.com` + `https://www.cececar.com`.
 - [ ] Logo swap (cosmetic, anytime).
 
 ### Product backlog
