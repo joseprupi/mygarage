@@ -680,7 +680,9 @@ def _s3_client():
         region_name=settings.storage_region,
         aws_access_key_id=settings.storage_access_key_id,
         aws_secret_access_key=settings.storage_secret_access_key,
-        config=Config(signature_version="s3v4"),
+        # Path-style addressing: required for GCS's S3-compatible (XML) API to
+        # avoid SignatureDoesNotMatch, and equally fine for MinIO locally.
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
     )
 
 
