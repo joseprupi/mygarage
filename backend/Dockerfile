@@ -7,7 +7,11 @@ FROM python:3.13-slim
 # - PORT: Cloud Run injects this; default 8080 for local/standalone runs
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8080
+    PORT=8080 \
+    AWS_REQUEST_CHECKSUM_CALCULATION=when_required \
+    AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+# ^ Recent botocore adds default request checksums (CRC32) that GCS's S3-compatible
+#   API rejects (SignatureDoesNotMatch). Only checksum when required. Harmless for MinIO.
 
 WORKDIR /app
 
