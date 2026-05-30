@@ -58,6 +58,27 @@ cd backend && .venv/bin/alembic upgrade head
 cd frontend && BACKEND_ORIGIN=http://127.0.0.1:8010 MEDIA_ORIGIN=http://127.0.0.1:9000 npx next dev -p 3010
 ```
 
+## Production (Cloud Run)
+The backend deploys as a container (`backend/Dockerfile`, `python:3.13-slim`): it `pip install`s
+the package, runs as a non-root user, and starts uvicorn bound to `0.0.0.0:$PORT` (default 8080,
+injected by Cloud Run). `backend/.dockerignore` keeps `.venv`, caches, tests, and `.env` out of
+the image. Nothing about local dev changes — config defaults still point at the local stack.
+
+- **Config stays env-driven** (`app/config.py`). All prod vars are documented in
+  `backend/.env.production.example`: `DATABASE_URL` (Cloud SQL Postgres, psycopg driver),
+  `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `STORAGE_*` (GCS via the S3-compatible endpoint
+  `https://storage.googleapis.com` + an HMAC key — **no storage code change**, same boto3 path as
+  MinIO), `PUBLIC_MEDIA_BASE_URL`, `CORS_ORIGINS`, `PORT`.
+- **CORS is env-driven**: `CORS_ORIGINS` is a **comma-separated** list (defaults to the local dev
+  origin), so the prod domain is added by config, not code.
+- **Migrations run as a separate one-off**, not on boot (safer with multiple Cloud Run instances —
+  avoids racing migrations). Use the same image with an overridden command:
+  ```bash
+  docker run --rm -e DATABASE_URL='<prod url>' mygarage-backend alembic upgrade head
+  ```
+  (On GCP: a Cloud Run Job with the Cloud SQL instance attached.) Alembic reads `DATABASE_URL`
+  from the same config. See `backend/README.md` for full build/run/migrate steps.
+
 ## Data model (current)
 `users`, `vehicles`, `posts`, `post_media`, `post_vehicle_tags`, `comments` (has `parent_comment_id` → threads), `post_likes`, `comment_likes`, `follows` (supports following a **user** OR a **vehicle** — schema only, no API/UI yet), `vehicle_events`, `vehicle_event_media`.
 

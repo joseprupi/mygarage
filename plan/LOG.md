@@ -14,6 +14,9 @@ Then:
 ## Done
 > Branch `redesign` unless noted. Dates approximate.
 
+### Production (Phase P)
+- **P1 — Containerize + cloud-ready backend** (`master`): `backend/Dockerfile` (python:3.13-slim, `pip install .`, non-root, uvicorn on `0.0.0.0:$PORT` default 8080) + `.dockerignore` + `.env.production.example` + `backend/README.md`. CORS now env-driven via comma-separated `CORS_ORIGINS` (`config.py`, defaults to local origin; `NoDecode` validator). Migrations run as a documented one-off (`alembic upgrade head`, not on boot). No local-dev or storage-code changes (still boto3/S3-compat). Verified: `docker build` OK; container against local stack → `/health` 200, `/catalog/makes` 200, CORS preflight reflects allowed origin; `alembic upgrade head` connects to local DB.
+
 ### Social
 - **UI cleanup**: Share button simplified to **copy-link only** (dropped `navigator.share`/OS share sheet; click copies URL + transient "Copied!"; `Link2` icon + "Copy link" label, both variants). Removed the "Car Social / The feed…" heading block atop the feed (`app/page.tsx`) — feed starts clean.
 - **Who-liked modal**: `GET /posts/{id}/likes` (reuses `PublicUser` + post-visibility helper) → clickable like count on `PostCard` opens a reusable `UserListModal` listing likers (avatar + @username link). Empty state "No likes yet."

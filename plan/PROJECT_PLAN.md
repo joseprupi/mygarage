@@ -37,7 +37,7 @@ Goal: help the right people find the right cars; cheap wins first.
 
 ## Phase P — Production deploy (Google Cloud, all-native) — ACTIVE
 Target: Cloud Run (FastAPI backend) + Cloud SQL Postgres + GCS (media) + Firebase App Hosting (Next.js). ~$10–20/mo idle (Cloud SQL is the floor). Steps:
-- [ ] P1. Containerize backend + make it fully cloud-ready (Dockerfile, $PORT, env/Secret-driven config, healthcheck, .dockerignore, prod env template). Verify locally with Docker.
+- [x] P1. Containerize backend + make it fully cloud-ready (Dockerfile, $PORT, env/Secret-driven config, healthcheck, .dockerignore, prod env template). Verify locally with Docker.
 - [ ] P2. Provision GCP: enable APIs, Cloud SQL (Postgres), GCS bucket + HMAC keys (S3-compat for boto3), Artifact Registry, Secret Manager. (Owner runs the auth'd `gcloud` commands; orchestrator supplies them.)
 - [ ] P3. Deploy backend → Cloud Run; run Alembic migrations against Cloud SQL; smoke-test API.
 - [ ] P4. Deploy frontend → Firebase App Hosting; point `/api` + `/media` at the Cloud Run/GCS origins.

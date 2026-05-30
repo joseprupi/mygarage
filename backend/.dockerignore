@@ -1,0 +1,27 @@
+# Virtualenvs / local Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Secrets & local env (never bake into the image)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Tests (not needed at runtime)
+tests/
+
+# Editor / OS cruft
+.DS_Store
+*.swp
