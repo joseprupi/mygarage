@@ -38,7 +38,7 @@ Goal: help the right people find the right cars; cheap wins first.
 ## Phase P — Production deploy (Google Cloud, all-native) — ACTIVE
 Target: Cloud Run (FastAPI backend) + Cloud SQL Postgres + GCS (media) + Firebase App Hosting (Next.js). ~$10–20/mo idle (Cloud SQL is the floor). Steps:
 - [x] P1. Containerize backend + make it fully cloud-ready (Dockerfile, $PORT, env/Secret-driven config, healthcheck, .dockerignore, prod env template). Verify locally with Docker.
-- [ ] P2. Provision GCP: enable APIs, Cloud SQL (Postgres), GCS bucket + HMAC keys (S3-compat for boto3), Artifact Registry, Secret Manager. (Owner runs the auth'd `gcloud` commands; orchestrator supplies them.)
+- [x] P2. Provision GCP (project `mygarage-app-9feafd`, region us-central1): Cloud SQL `mygarage-db` (Postgres 16, db-f1-micro) + db/user `carsocial`; GCS bucket `mygarage-app-9feafd-media` + app SA + HMAC keys; Artifact Registry `mygarage`; Secret Manager (database-url, db-password, jwt-secret, storage-hmac-access, storage-hmac-secret). SA has secretAccessor + cloudsql.client. Conn name: `mygarage-app-9feafd:us-central1:mygarage-db`.
 - [ ] P3. Deploy backend → Cloud Run; run Alembic migrations against Cloud SQL; smoke-test API.
 - [ ] P4. Deploy frontend → Firebase App Hosting; point `/api` + `/media` at the Cloud Run/GCS origins.
 - [ ] P5. Custom domain + SSL (needs name/domain); update CORS + Google OAuth origins.
