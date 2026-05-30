@@ -22,6 +22,7 @@ Domain bought on Squarespace; DNS/CDN to be managed by **Cloudflare**.
 - [ ] Logo swap (cosmetic, anytime).
 
 ### Product backlog
+- [ ] **Login/Logout UI** (S, dev): "Log out" button on the profile page; subtle "log in" affordance in the main feed for guests.
 - [ ] (later) Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
 - (deferred) Build sheet / mods list — overlaps with `upgrade` events; revisit only if needed.

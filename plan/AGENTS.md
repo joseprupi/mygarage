@@ -20,6 +20,7 @@ How we run this project as a team of agents. The orchestrator plans and delegate
 - [ ] `LOG.md` updated (move item from TODO → Done with a one-line note).
 
 ## Guardrails (hard rules)
+- **DEV ONLY by default — do NOT deploy to production.** Implement, verify locally (`:3010`/`:8010`), commit + push to `master`. Do **not** run `gcloud run deploy`, `firebase deploy`, prod migrations, or touch prod env/secrets unless the owner explicitly says **"deploy"**. (The app is already live; unrequested deploys could disrupt it.)
 - **Never touch the other project** on ports 8000/3001, and never kill processes you didn't start.
 - **Everything the browser uses must be served via `:3010`** (proxy external/media through the backend). No direct browser → MinIO / external API calls.
 - **Edit canonical source** in `/root/mygarage/frontend`, then **sync to `/tmp/mygarage-frontend-run`**.
