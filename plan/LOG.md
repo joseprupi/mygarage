@@ -5,7 +5,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 ## TODO (next up)
 
 ### Productionize / ops (the app is LIVE — harden it)  ← focus next session
-- [ ] **Google login in prod** (manual, console): add `https://mygarage-app-9feafd.web.app` (+ `.firebaseapp.com`, later the custom domain) to the OAuth client `543015959578-…` *Authorized JavaScript origins*. Email/password works without it.
+- [x] **Google login in prod** — created a DEDICATED OAuth web client in the mygarage project (`147573336932-mm59b4qpu7nj6pbicu9f5forrnospa9a.apps.googleusercontent.com`, replaces the old `autocriba` 543… client) with JS origins for .web.app/.firebaseapp.com/cececar.com/www/localhost:3010. Wired into Cloud Run `GOOGLE_CLIENT_ID` + frontend `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (redeployed) + local `.env`s. NOTE: consent screen is in **Testing** → add test users or Publish for non-dev sign-ins.
 - [ ] **Deploy automation**: capture the exact commands as repeatable scripts — `scripts/deploy-backend.sh` (gcloud run deploy w/ env+secrets+cloudsql), `scripts/deploy-frontend.sh` (firebase deploy w/ NEXT_PUBLIC_API_BASE_URL), `scripts/migrate.sh` (cloud-sql-proxy + alembic). Right now the deploy knowledge lives only in chat history.
 - [ ] **Migrations as a Cloud Run Job** (same image, `alembic upgrade head`) instead of the manual proxy run (P1 worker's suggestion).
 - [ ] (later) CI/CD: auto-deploy on push to `master` (GitHub Actions or Firebase App Hosting GitHub connect).
