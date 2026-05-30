@@ -11,4 +11,4 @@ BACKEND_URL="https://mygarage-backend-147573336932.us-central1.run.app"
 GOOGLE_CLIENT_ID="147573336932-mm59b4qpu7nj6pbicu9f5forrnospa9a.apps.googleusercontent.com"
 # Origins allowed to call the API (comma-separated). Add the custom domain here when live:
 #   ...,https://cececar.com,https://www.cececar.com
-CORS_ORIGINS="https://${PROJECT_ID}.web.app,https://${PROJECT_ID}.firebaseapp.com"
+CORS_ORIGINS="https://${PROJECT_ID}.web.app,https://${PROJECT_ID}.firebaseapp.com,https://cececar.com,https://www.cececar.com"
