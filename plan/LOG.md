@@ -3,13 +3,24 @@
 Running record of what's shipped and what's next. Newest first. Update every slice.
 
 ## TODO (next up)
-History/moat sequence (one worker each — overlapping files, so strictly sequential):
-- [ ] (later) Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
-- (deferred) Build sheet / mods list — overlaps with `upgrade` events; revisit only if needed.
 
-Then:
+### Productionize / ops (the app is LIVE — harden it)  ← focus next session
+- [ ] **Google login in prod** (manual, console): add `https://mygarage-app-9feafd.web.app` (+ `.firebaseapp.com`, later the custom domain) to the OAuth client `543015959578-…` *Authorized JavaScript origins*. Email/password works without it.
+- [ ] **Deploy automation**: capture the exact commands as repeatable scripts — `scripts/deploy-backend.sh` (gcloud run deploy w/ env+secrets+cloudsql), `scripts/deploy-frontend.sh` (firebase deploy w/ NEXT_PUBLIC_API_BASE_URL), `scripts/migrate.sh` (cloud-sql-proxy + alembic). Right now the deploy knowledge lives only in chat history.
+- [ ] **Migrations as a Cloud Run Job** (same image, `alembic upgrade head`) instead of the manual proxy run (P1 worker's suggestion).
+- [ ] (later) CI/CD: auto-deploy on push to `master` (GitHub Actions or Firebase App Hosting GitHub connect).
+- [ ] **Budget alert** (~$25) on the billing account.
+- [ ] Decide: seed prod DB vs start fresh (prod DB is currently empty; local data not migrated).
+
+### Custom domain / branding (P5–P6)
+- [ ] Pick a **name + domain**, map it (Firebase Hosting custom domain + Cloud Run), update CORS + OAuth origins.
+- [ ] Logo swap (cosmetic, anytime).
+
+### Product backlog
+- [ ] (later) Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
-- [ ] Open PR `redesign → master` once polish is signed off.
+- (deferred) Build sheet / mods list — overlaps with `upgrade` events; revisit only if needed.
+- Note: `redesign` branch already merged to `master` (tag `v0.1.0`); trunk is `master`.
 
 ## Done
 > Branch `redesign` unless noted. Dates approximate.
