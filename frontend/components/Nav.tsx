@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Car, Home, PlusSquare, Search, UserRound } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Car, Home, LogIn, PlusSquare, Search, UserRound } from "lucide-react";
+
+import { authApi } from "@/lib/api/client";
 
 const items = [
   { href: "/", label: "Home", icon: Home },
@@ -16,6 +19,11 @@ export function Nav() {
   const pathname = usePathname();
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
+  // Show a subtle "Log in" affordance only to guests (once the query has settled,
+  // so it doesn't flash for logged-in users on first paint).
+  const { data, error, isPending } = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const isGuest = !isPending && (!data || !!error);
+
   return (
     <>
       {/* Desktop: Instagram-style left rail, icons-only, expands on hover. */}
@@ -25,6 +33,17 @@ export function Nav() {
             <img src="/logo.svg" alt="Car Social" className="h-full w-full object-cover" />
           </span>
         </Link>
+        {isGuest && (
+          <Link
+            href="/auth"
+            className="mt-1 flex items-center gap-3 rounded-xl p-2.5 text-petrol hover:bg-petrol/10"
+          >
+            <LogIn size={22} strokeWidth={2} className="shrink-0" />
+            <span className="whitespace-nowrap text-sm font-medium opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+              Log in
+            </span>
+          </Link>
+        )}
         <div className="flex flex-1 flex-col gap-1 pt-[18vh]">
           {items.map((item) => {
             const active = isActive(item.href);
@@ -64,6 +83,15 @@ export function Nav() {
               </Link>
             );
           })}
+          {isGuest && (
+            <Link
+              href="/auth"
+              className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-medium text-petrol"
+            >
+              <LogIn size={20} strokeWidth={2} />
+              <span>Log in</span>
+            </Link>
+          )}
         </div>
       </nav>
     </>
