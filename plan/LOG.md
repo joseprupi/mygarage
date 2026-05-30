@@ -22,7 +22,6 @@ Domain bought on Squarespace; DNS/CDN to be managed by **Cloudflare**.
 - [ ] Logo swap (cosmetic, anytime).
 
 ### Product backlog
-- [ ] **Login/Logout UI** (S, dev): "Log out" button on the profile page; subtle "log in" affordance in the main feed for guests.
 - [ ] (later) Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
 - (deferred) Build sheet / mods list — overlaps with `upgrade` events; revisit only if needed.
@@ -35,6 +34,7 @@ Domain bought on Squarespace; DNS/CDN to be managed by **Cloudflare**.
 - **P1 — Containerize + cloud-ready backend** (`master`): `backend/Dockerfile` (python:3.13-slim, `pip install .`, non-root, uvicorn on `0.0.0.0:$PORT` default 8080) + `.dockerignore` + `.env.production.example` + `backend/README.md`. CORS now env-driven via comma-separated `CORS_ORIGINS` (`config.py`, defaults to local origin; `NoDecode` validator). Migrations run as a documented one-off (`alembic upgrade head`, not on boot). No local-dev or storage-code changes (still boto3/S3-compat). Verified: `docker build` OK; container against local stack → `/health` 200, `/catalog/makes` 200, CORS preflight reflects allowed origin; `alembic upgrade head` connects to local DB.
 
 ### Social
+- **Login/Logout UI** (dev): "Log out" button (`.btn-secondary`) in the profile header card (`ProfileEditor.tsx`) → `setToken(null)`, invalidate `["me"]`+`["feed"]`, `router.push("/auth")`. New `GuestPrompt.tsx` client component renders a slim `.surface` line ("Browsing as a guest — Log in or Sign up", petrol link to `/auth`) above the feed in `app/page.tsx`, shown only to guests (gated on settled `["me"]` query so logged-in users get no flash; `<Feed/>` untouched).
 - **UI cleanup**: Share button simplified to **copy-link only** (dropped `navigator.share`/OS share sheet; click copies URL + transient "Copied!"; `Link2` icon + "Copy link" label, both variants). Removed the "Car Social / The feed…" heading block atop the feed (`app/page.tsx`) — feed starts clean.
 - **Who-liked modal**: `GET /posts/{id}/likes` (reuses `PublicUser` + post-visibility helper) → clickable like count on `PostCard` opens a reusable `UserListModal` listing likers (avatar + @username link). Empty state "No likes yet."
 - **Share button** (`components/ShareButton.tsx`): native share on mobile, copy-to-clipboard + transient "Copied!" on desktop. Added to vehicle header (`/v/{id}`) and post footer (`/posts/{id}`); visible to owner and visitors.

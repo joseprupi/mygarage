@@ -2,15 +2,24 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
-import { authApi, mediaApi } from "@/lib/api/client";
+import { authApi, mediaApi, setToken } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
 
 export function ProfileEditor() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function logOut() {
+    setToken(null);
+    queryClient.invalidateQueries({ queryKey: ["me"] });
+    queryClient.invalidateQueries({ queryKey: ["feed"] });
+    router.push("/auth");
+  }
 
   const { data, isLoading, error: loadError } = useQuery({
     queryKey: ["me"],
@@ -58,7 +67,7 @@ export function ProfileEditor() {
   return (
     <section className="space-y-6">
       <div className="surface rounded-3xl p-6">
-        <div className="flex items-center gap-4">
+        <div className="flex items-start gap-4">
           <div className="relative h-20 w-20 shrink-0">
             <div className="h-20 w-20 overflow-hidden rounded-full bg-slate-200">
               <img
@@ -88,11 +97,14 @@ export function ProfileEditor() {
               }}
             />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold">@{user.username}</h1>
             <p className="text-slate-600">{user.display_name}</p>
             <p className="text-sm text-slate-500">{user.location}</p>
           </div>
+          <button type="button" className="btn btn-secondary shrink-0" onClick={logOut}>
+            Log out
+          </button>
         </div>
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         {user.bio && <p className="mt-4 text-sm leading-6">{user.bio}</p>}
