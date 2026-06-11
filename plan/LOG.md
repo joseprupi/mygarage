@@ -18,6 +18,15 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 - [ ] (Optional, cleaner) map **api.cececar.com → Cloud Run**, then rebuild frontend `NEXT_PUBLIC_API_BASE_URL=https://api.cececar.com`.
 - [ ] Logo swap (cosmetic, anytime).
 
+### Frontend hardening — from review (branch `improvements`; see plan/REVIEW.md for detail)
+- [ ] FE-1 Request & form robustness (S): typed ApiError + retry-skips-4xx (F3), disable submits while pending (F1), allowedDevOrigins (F18).
+- [ ] FE-2 Guest & auth states (S): login-to-act (F5), guard create/edit for guests (F6), garage pending flash (F12).
+- [ ] FE-3 Share-the-history trust (S–M): styled private/deleted state, tab-in-URL (F10), hide empty specs for visitors (F14), one date/money formatter (F9).
+- [ ] FE-4 Missing CRUD (S–M): delete event/vehicle (F2), edit profile fields (F4), require content to publish (F7).
+- [ ] FE-5 Shareable metadata/OG (M): F11.
+- [ ] FE-6 A11y + polish + rebrand (S–M): modal focus (F13), polish bundle (F19), adopt/remove .tab (F16), "Car Social"→"My Garage" (F17).
+- [ ] FE-7 Cleanup/refactor (S): useMe hook + types (F15), like via query cache (F8).
+
 ### Product backlog
 - [ ] (later) Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.

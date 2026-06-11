@@ -7,6 +7,7 @@ Things that bite. Check here before debugging something weird. Add new entries a
 - **Browser can only reach `:3010`** (remote/tunnel). It cannot reach MinIO `:9000`, Postgres, or external APIs. Anything browser-facing must be proxied through `:3010`. Symptom when violated: `net::ERR_CONNECTION_REFUSED` on `localhost:9000` images, or CORS errors.
 - **Running frontend = a copy at `/tmp/mygarage-frontend-run`** (node_modules bind-mounted), due to Next's single-dev-server lock on the canonical path. **Edits in `/root/mygarage/frontend` won't show until synced** (`cp -a`). Risk: source/run divergence if someone forgets to sync. Canonical source is always the repo path.
 - **Backend runs without `--reload`** — restart uvicorn after backend edits.
+- **Next 16 `allowedDevOrigins` unset** — the dev server SSRs pages but **never hydrates** (zero interactivity, no API calls, no visible error) when reached on a non-`localhost` origin (e.g. `127.0.0.1` or an IP/hostname). Reviewers hitting `127.0.0.1:3010` see frozen pages. Fix: add `allowedDevOrigins: ['127.0.0.1']` to `next.config.mjs` (queued as F18). Workaround: access via `localhost:3010`.
 - **Google login doesn't work on `:3010`** — `http://localhost:3010` isn't an authorized JS origin for the OAuth client (only `:3001` was set up). Use email/password (`joseprupi@gmail.com`) in dev. Fix later: add the origin in Google Cloud or make it env-driven.
 
 ## Code / data
