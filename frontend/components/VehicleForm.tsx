@@ -41,6 +41,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
   const router = useRouter();
   const [form, setForm] = useState(emptyVehicle);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   // "Other" (free-text) mode per field.
   const [makeOther, setMakeOther] = useState(false);
@@ -109,6 +110,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (submitting) return;
     setError(null);
     if (!form.make || !form.model) {
       setError("Make and model are required.");
@@ -120,11 +122,13 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
       mileage: form.mileage ? Number(form.mileage) : null,
       visibility: form.visibility as Vehicle["visibility"]
     };
+    setSubmitting(true);
     try {
       const vehicle = vehicleId ? await vehicleApi.update(vehicleId, body) : await vehicleApi.create(body);
       router.push(`/v/${vehicle.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save vehicle");
+      setSubmitting(false);
     }
   }
 
@@ -325,8 +329,8 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
         </select>
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn btn-primary px-5 py-3" type="submit">
-        Save vehicle
+      <button className="btn btn-primary px-5 py-3 disabled:opacity-60" disabled={submitting} type="submit">
+        {submitting ? "Saving…" : "Save vehicle"}
       </button>
     </form>
   );

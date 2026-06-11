@@ -31,6 +31,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
   const [documents, setDocuments] = useState<EventDocument[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const eventQuery = useQuery({
     queryKey: ["event", eventId],
@@ -61,6 +62,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (submitting) return;
     setError(null);
     if (!form.title.trim()) {
       setError("Title is required.");
@@ -78,6 +80,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       media: media.map((item, index) => ({ ...item, sort_order: index })),
       documents: documents.map((item, index) => ({ ...item, sort_order: index }))
     };
+    setSubmitting(true);
     try {
       if (isEdit) {
         await eventApi.update(eventId!, payload);
@@ -87,6 +90,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       router.push(`/v/${vehicleId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save event");
+      setSubmitting(false);
     }
   }
 
@@ -206,8 +210,8 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         </select>
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn btn-primary px-5 py-3" type="submit">
-        {isEdit ? "Save changes" : "Save event"}
+      <button className="btn btn-primary px-5 py-3 disabled:opacity-60" disabled={submitting} type="submit">
+        {submitting ? "Saving…" : isEdit ? "Save changes" : "Save event"}
       </button>
     </form>
   );

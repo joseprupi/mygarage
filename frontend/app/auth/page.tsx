@@ -27,6 +27,7 @@ export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "signup">("signup");
   const [form, setForm] = useState({ username: "", email: "", password: "", display_name: "" });
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
   useEffect(() => {
@@ -73,7 +74,9 @@ export default function AuthPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (submitting) return;
     setError(null);
+    setSubmitting(true);
     try {
       const result =
         mode === "signup"
@@ -83,6 +86,7 @@ export default function AuthPage() {
       router.push("/profile");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
+      setSubmitting(false);
     }
   }
 
@@ -137,8 +141,8 @@ export default function AuthPage() {
           onChange={(event) => setForm({ ...form, password: event.target.value })}
         />
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <button className="btn btn-primary w-full px-4 py-3" type="submit">
-          {mode === "signup" ? "Sign up" : "Log in"}
+        <button className="btn btn-primary w-full px-4 py-3 disabled:opacity-60" disabled={submitting} type="submit">
+          {submitting ? "Please wait…" : mode === "signup" ? "Sign up" : "Log in"}
         </button>
       </form>
       <button

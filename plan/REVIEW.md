@@ -37,7 +37,7 @@ ImageCarousel & comment styling (already on LOG), legacy presigned upload (ISSUE
 login (ISSUES), comment replies/follows/following-feed (FEATURES backlog), USD-only.
 
 ### Proposed fix order (slices, all FRONTEND / dev-only / branch `improvements`)
-- [ ] **FE-1 Request & form robustness** (S): F3 (typed ApiError + QueryClient retry skips 4xx) + F1 (disable submits while pending) + F18 (allowedDevOrigins). Foundational; kills the worst shared-link bug and dupes.
+- [x] **FE-1 Request & form robustness** (S): F3 (typed ApiError + QueryClient retry skips 4xx) + F1 (disable submits while pending) + F18 (allowedDevOrigins). Foundational; kills the worst shared-link bug and dupes. **Done 2026-06-11** — verified: 404 vehicle fails in ~1.4s (was ~8s), double-submit creates 1 post (was 2), hydration works on 127.0.0.1.
 - [ ] **FE-2 Guest & auth states** (S): F5 (login-to-act), F6 (guard create/edit for guests), F12 (garage pending flash).
 - [ ] **FE-3 Share-the-history trust** (S–M): styled private/deleted state (F3 UI), F10 (tab in URL), F14 (hide empty specs for visitors + mileage), F9 (one date/money formatter in lib/).
 - [ ] **FE-4 Missing CRUD** (S–M): F2 (delete event/vehicle w/ confirm), F4 (edit profile fields), F7 (require content to publish).

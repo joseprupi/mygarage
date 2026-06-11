@@ -103,7 +103,7 @@ export function Comments({ postId, postAuthorId }: { postId: string; postAuthorI
         className="mt-3 flex gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          if (body.trim()) mutation.mutate();
+          if (body.trim() && !mutation.isPending) mutation.mutate();
         }}
       >
         <input
@@ -112,7 +112,7 @@ export function Comments({ postId, postAuthorId }: { postId: string; postAuthorI
           value={body}
           onChange={(event) => setBody(event.target.value)}
         />
-        <button className="btn btn-primary px-4 py-2" type="submit">
+        <button className="btn btn-primary px-4 py-2 disabled:opacity-60" disabled={mutation.isPending} type="submit">
           Post
         </button>
       </form>

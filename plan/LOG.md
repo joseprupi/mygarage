@@ -19,7 +19,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 - [ ] Logo swap (cosmetic, anytime).
 
 ### Frontend hardening — from review (branch `improvements`; see plan/REVIEW.md for detail)
-- [ ] FE-1 Request & form robustness (S): typed ApiError + retry-skips-4xx (F3), disable submits while pending (F1), allowedDevOrigins (F18).
+- [x] FE-1 Request & form robustness (S): typed ApiError + retry-skips-4xx (F3), disable submits while pending (F1), allowedDevOrigins (F18). Verified live: missing vehicle errors in ~1.4s (was ~8s/8 fetches), double-click Publish creates 1 post (was 2), app hydrates on 127.0.0.1.
 - [ ] FE-2 Guest & auth states (S): login-to-act (F5), guard create/edit for guests (F6), garage pending flash (F12).
 - [ ] FE-3 Share-the-history trust (S–M): styled private/deleted state, tab-in-URL (F10), hide empty specs for visitors (F14), one date/money formatter (F9).
 - [ ] FE-4 Missing CRUD (S–M): delete event/vehicle (F2), edit profile fields (F4), require content to publish (F7).

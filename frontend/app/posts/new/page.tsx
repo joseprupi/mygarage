@@ -15,6 +15,7 @@ export default function NewPostPage() {
   const [media, setMedia] = useState<Media[]>([]);
   const [vehicleIds, setVehicleIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
   const user = me.data as { id: string } | undefined;
   const vehicles = useQuery({
@@ -25,7 +26,9 @@ export default function NewPostPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (submitting) return;
     setError(null);
+    setSubmitting(true);
     try {
       const post = await postApi.create({
         caption,
@@ -36,6 +39,7 @@ export default function NewPostPage() {
       router.push(`/posts/${post.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create post");
+      setSubmitting(false);
     }
   }
 
@@ -82,8 +86,8 @@ export default function NewPostPage() {
         </select>
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn btn-primary px-5 py-3" type="submit">
-        Publish
+      <button className="btn btn-primary px-5 py-3 disabled:opacity-60" disabled={submitting} type="submit">
+        {submitting ? "Publishing…" : "Publish"}
       </button>
     </form>
   );
