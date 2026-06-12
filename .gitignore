@@ -15,3 +15,6 @@ coverage/
 
 # Firebase deploy build output
 .firebase/
+
+# TS incremental build cache
+*.tsbuildinfo
