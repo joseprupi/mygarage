@@ -6,7 +6,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Heart, MessageCircle, Trash2 } from "lucide-react";
 
-import { authApi, postApi } from "@/lib/api/client";
+import { authApi, getToken, postApi } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
 import type { Post } from "@/lib/types";
 import { ImageCarousel } from "@/components/ImageCarousel";
@@ -44,6 +44,14 @@ export function PostCard({ post }: { post: Post }) {
 
   async function handleLike() {
     if (liking) return;
+    if (!currentUser) {
+      // No token = guest: invite them to log in instead of firing a 401.
+      // (Token present but ["me"] not resolved yet: ignore the click —
+      // on the virtualized feed the query observer can report pending
+      // right after a remount even when the user is known.)
+      if (!getToken()) router.push("/auth");
+      return;
+    }
     const wasLiked = liked;
     setLiked(!wasLiked);
     setLikeCount(wasLiked ? likeCount - 1 : likeCount + 1);

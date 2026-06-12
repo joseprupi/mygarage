@@ -15,6 +15,10 @@ export default function GaragePage() {
     queryFn: () => api<Vehicle[]>(`/users/${user!.id}/vehicles`)
   });
 
+  if (me.isPending) {
+    return <div className="surface rounded-3xl p-6 text-sm text-slate-500">Loading...</div>;
+  }
+
   if (!user) {
     return (
       <div className="surface rounded-3xl p-6">

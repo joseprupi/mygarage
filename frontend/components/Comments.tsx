@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import Link from "next/link";
 import { Heart, Trash2 } from "lucide-react";
 
 import { authApi, postApi } from "@/lib/api/client";
@@ -99,23 +100,34 @@ export function Comments({ postId, postAuthorId }: { postId: string; postAuthorI
   return (
     <section className="surface mt-5 rounded-3xl p-5">
       <h2 className="font-bold">Comments</h2>
-      <form
-        className="mt-3 flex gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (body.trim() && !mutation.isPending) mutation.mutate();
-        }}
-      >
-        <input
-          className="input flex-1"
-          placeholder="Add a comment"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-        />
-        <button className="btn btn-primary px-4 py-2 disabled:opacity-60" disabled={mutation.isPending} type="submit">
-          Post
-        </button>
-      </form>
+      {currentUser ? (
+        <form
+          className="mt-3 flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (body.trim() && !mutation.isPending) mutation.mutate();
+          }}
+        >
+          <input
+            className="input flex-1"
+            placeholder="Add a comment"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+          />
+          <button className="btn btn-primary px-4 py-2 disabled:opacity-60" disabled={mutation.isPending} type="submit">
+            Post
+          </button>
+        </form>
+      ) : (
+        !me.isPending && (
+          <p className="mt-3 text-sm text-slate-500">
+            <Link className="font-medium text-petrol hover:underline" href="/auth">
+              Log in
+            </Link>{" "}
+            to comment.
+          </p>
+        )
+      )}
       <div className="mt-4 space-y-3">
         {comments.isLoading && <p className="text-sm text-slate-500">Loading comments...</p>}
         {comments.error && <p className="text-sm text-red-600">Unable to load comments.</p>}

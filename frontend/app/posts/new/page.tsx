@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import Link from "next/link";
 
 import { ImageUploader } from "@/components/ImageUploader";
 import { api, authApi, postApi } from "@/lib/api/client";
@@ -41,6 +42,21 @@ export default function NewPostPage() {
       setError(err instanceof Error ? err.message : "Unable to create post");
       setSubmitting(false);
     }
+  }
+
+  if (me.isPending) {
+    return <div className="surface rounded-3xl p-6 text-sm text-slate-500">Loading...</div>;
+  }
+
+  if (!user) {
+    return (
+      <div className="surface rounded-3xl p-6">
+        <p className="mb-4">Log in to share a post.</p>
+        <Link className="btn btn-primary" href="/auth">
+          Log in
+        </Link>
+      </div>
+    );
   }
 
   return (

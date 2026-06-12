@@ -20,7 +20,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 
 ### Frontend hardening — from review (branch `improvements`; see plan/REVIEW.md for detail)
 - [x] FE-1 Request & form robustness (S): typed ApiError + retry-skips-4xx (F3), disable submits while pending (F1), allowedDevOrigins (F18). Verified live: missing vehicle errors in ~1.4s (was ~8s/8 fetches), double-click Publish creates 1 post (was 2), app hydrates on 127.0.0.1.
-- [ ] FE-2 Guest & auth states (S): login-to-act (F5), guard create/edit for guests (F6), garage pending flash (F12).
+- [x] FE-2 Guest & auth states (S): login-to-act (F5: guest like → /auth, guest comment form → "Log in to comment"), AuthGate card on create/edit pages (F6), garage/posts-new wait for ["me"] to settle before showing guest card (F12). Verified headless-browser both states: guest sees login cards everywhere + like fires no POST; logged-in sees forms, likes 204, no garage guest-card flash. Gotcha: on the virtualized feed `me.isPending` flickers true on PostCard remount, so the like guard treats "no token" as the guest signal.
 - [ ] FE-3 Share-the-history trust (S–M): styled private/deleted state, tab-in-URL (F10), hide empty specs for visitors (F14), one date/money formatter (F9).
 - [ ] FE-4 Missing CRUD (S–M): delete event/vehicle (F2), edit profile fields (F4), require content to publish (F7).
 - [ ] FE-5 Shareable metadata/OG (M): F11.
