@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ImageUploader } from "@/components/ImageUploader";
 import { DocumentUploader } from "@/components/DocumentUploader";
@@ -26,6 +26,7 @@ const emptyForm = {
 
 export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; eventId?: string }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const isEdit = Boolean(eventId);
   const [media, setMedia] = useState<Media[]>([]);
   const [documents, setDocuments] = useState<EventDocument[]>([]);
@@ -57,6 +58,18 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
     setMedia(e.media ?? []);
     setDocuments(e.documents ?? []);
   }, [eventQuery.data]);
+
+  const deleteMutation = useMutation({
+    mutationFn: () => eventApi.delete(eventId!),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] }),
+        queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] })
+      ]);
+      router.push(`/v/${vehicleId}`);
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to delete event")
+  });
 
   if (isEdit && eventQuery.isLoading) return <div className="p-6">Loading event...</div>;
 
@@ -210,9 +223,23 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         </select>
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn btn-primary px-5 py-3 disabled:opacity-60" disabled={submitting} type="submit">
-        {submitting ? "Saving…" : isEdit ? "Save changes" : "Save event"}
-      </button>
+      <div className="flex items-center justify-between gap-3">
+        <button className="btn btn-primary px-5 py-3 disabled:opacity-60" disabled={submitting} type="submit">
+          {submitting ? "Saving…" : isEdit ? "Save changes" : "Save event"}
+        </button>
+        {isEdit && (
+          <button
+            type="button"
+            className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
+            disabled={deleteMutation.isPending}
+            onClick={() => {
+              if (window.confirm("Delete this event? This cannot be undone.")) deleteMutation.mutate();
+            }}
+          >
+            {deleteMutation.isPending ? "Deleting…" : "Delete event"}
+          </button>
+        )}
+      </div>
     </form>
   );
 }

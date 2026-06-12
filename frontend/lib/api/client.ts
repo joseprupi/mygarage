@@ -91,6 +91,7 @@ export const vehicleApi = {
     api<Vehicle>("/vehicles", { method: "POST", body: JSON.stringify(body) }),
   update: (id: string, body: Partial<Vehicle>) =>
     api<Vehicle>(`/vehicles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  delete: (id: string) => api<void>(`/vehicles/${id}`, { method: "DELETE" }),
   get: (id: string) => api<Vehicle>(`/vehicles/${id}`),
   myVehicles: (userId: string) => api<Vehicle[]>(`/users/${userId}/vehicles`),
   posts: (id: string) => api<Post[]>(`/vehicles/${id}/posts`),
@@ -173,5 +174,6 @@ export const eventApi = {
     api<VehicleEvent>(`/vehicle-events/${eventId}`, {
       method: "PATCH",
       body: JSON.stringify(body)
-    })
+    }),
+  delete: (eventId: string) => api<void>(`/vehicle-events/${eventId}`, { method: "DELETE" })
 };

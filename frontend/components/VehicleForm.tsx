@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { catalogApi, vehicleApi } from "@/lib/api/client";
 import type { Vehicle } from "@/lib/types";
@@ -15,6 +15,7 @@ const emptyVehicle = {
   year: "",
   trim: "",
   nickname: "",
+  vin: "",
   mileage: "",
   color: "",
   transmission: "",
@@ -29,6 +30,7 @@ const emptyVehicle = {
 const textFields: [keyof typeof emptyVehicle, string][] = [
   ["trim", "Trim"],
   ["nickname", "Nickname"],
+  ["vin", "VIN"],
   ["mileage", "Mileage"],
   ["color", "Color"],
   ["transmission", "Transmission"],
@@ -39,6 +41,7 @@ const textFields: [keyof typeof emptyVehicle, string][] = [
 
 export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [form, setForm] = useState(emptyVehicle);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -77,6 +80,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
       year: v.year != null ? String(v.year) : "",
       trim: v.trim ?? "",
       nickname: v.nickname ?? "",
+      vin: v.vin ?? "",
       mileage: v.mileage != null ? String(v.mileage) : "",
       color: v.color ?? "",
       transmission: v.transmission ?? "",
@@ -105,6 +109,19 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
       setModelOther(true);
     }
   }, [modelsQuery.data, canLookupModels, form.model]);
+
+  const deleteMutation = useMutation({
+    mutationFn: () => vehicleApi.delete(vehicleId!),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["garage"] }),
+        queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] }),
+        queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] })
+      ]);
+      router.push("/garage");
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Unable to delete vehicle")
+  });
 
   if (vehicleId && vehicleQuery.isLoading) return <div className="p-6">Loading vehicle...</div>;
 
@@ -301,6 +318,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
             <span>{label}</span>
             <input
               className={inputClass}
+              maxLength={key === "vin" ? 32 : undefined}
               value={form[key]}
               onChange={(event) => setForm({ ...form, [key]: event.target.value })}
             />
@@ -329,9 +347,28 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
         </select>
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn btn-primary px-5 py-3 disabled:opacity-60" disabled={submitting} type="submit">
-        {submitting ? "Saving…" : "Save vehicle"}
-      </button>
+      <div className="flex items-center justify-between gap-3">
+        <button className="btn btn-primary px-5 py-3 disabled:opacity-60" disabled={submitting} type="submit">
+          {submitting ? "Saving…" : "Save vehicle"}
+        </button>
+        {vehicleId && (
+          <button
+            type="button"
+            className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
+            disabled={deleteMutation.isPending}
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Delete this vehicle? Its entire history (events, photos, documents) will be removed. This cannot be undone."
+                )
+              )
+                deleteMutation.mutate();
+            }}
+          >
+            {deleteMutation.isPending ? "Deleting…" : "Delete vehicle"}
+          </button>
+        )}
+      </div>
     </form>
   );
 }

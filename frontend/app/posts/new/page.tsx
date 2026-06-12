@@ -25,10 +25,16 @@ export default function NewPostPage() {
     queryFn: () => api<Vehicle[]>(`/users/${user!.id}/vehicles`)
   });
 
+  const hasContent = caption.trim().length > 0 || media.length > 0;
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (submitting) return;
     setError(null);
+    if (!hasContent) {
+      setError("Add a caption or a photo before publishing.");
+      return;
+    }
     setSubmitting(true);
     try {
       const post = await postApi.create({
@@ -102,7 +108,12 @@ export default function NewPostPage() {
         </select>
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn btn-primary px-5 py-3 disabled:opacity-60" disabled={submitting} type="submit">
+      {!hasContent && <p className="text-sm text-slate-500">Add a caption or a photo to publish.</p>}
+      <button
+        className="btn btn-primary px-5 py-3 disabled:opacity-60"
+        disabled={submitting || !hasContent}
+        type="submit"
+      >
         {submitting ? "Publishing…" : "Publish"}
       </button>
     </form>
