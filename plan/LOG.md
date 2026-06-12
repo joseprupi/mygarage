@@ -28,6 +28,7 @@ Running record of what's shipped and what's next. Newest first. Update every sli
 - [ ] FE-7 Cleanup/refactor (S): useMe hook + types (F15), like via query cache (F8).
 
 ### Product backlog
+- [ ] (later, post-deploy) **Dedicated design + performance frontend review** — separate report-only reviewer (visual hierarchy, spacing/typography, color/contrast, motion, mobile/responsive, Core Web Vitals/bundle/image strategy/perceived speed). Run AFTER FE-5/6/7 land + deploy, against the polished live app. Distinct from the correctness/UX review in REVIEW.md.
 - [ ] (later) Ownership transfer (M–L) — transfer vehicle + history to buyer's account (riskiest).
 - [ ] Remaining redesign polish: empty states, `ImageCarousel` controls, comment list styling.
 - (deferred) Build sheet / mods list — overlaps with `upgrade` events; revisit only if needed.
