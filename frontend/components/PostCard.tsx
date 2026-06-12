@@ -8,6 +8,7 @@ import { Heart, MessageCircle, Trash2 } from "lucide-react";
 
 import { authApi, getToken, postApi } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
+import { formatDateTime } from "@/lib/format";
 import type { Post } from "@/lib/types";
 import { ImageCarousel } from "@/components/ImageCarousel";
 import { ShareButton } from "@/components/ShareButton";
@@ -87,7 +88,7 @@ export function PostCard({ post }: { post: Post }) {
             <Link className="font-semibold hover:text-petrol" href={`/u/${post.author.username}`}>
               @{post.author.username}
             </Link>
-            <p className="text-xs text-slate-500">{new Date(post.created_at).toLocaleString()}</p>
+            <p className="text-xs text-slate-500">{formatDateTime(post.created_at)}</p>
           </div>
         </div>
         {currentUser?.id === post.author.id && (

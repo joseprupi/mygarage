@@ -2,22 +2,39 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { use, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, use, useState } from "react";
 import { Download, Pencil, Plus } from "lucide-react";
 
 import { authApi, getToken, vehicleApi } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
+import { formatDate, formatMoney } from "@/lib/format";
 import { PostCard } from "@/components/PostCard";
 import { Lightbox } from "@/components/Lightbox";
+import { LoadErrorCard } from "@/components/LoadErrorCard";
 import { MileageChart } from "@/components/MileageChart";
 import { ShareButton } from "@/components/ShareButton";
 
 const tabs = ["posts", "gallery", "history", "specs"] as const;
+type Tab = (typeof tabs)[number];
 
-export default function VehiclePage({ params }: { params: Promise<{ vehicleId: string }> }) {
+export default function VehiclePage(props: { params: Promise<{ vehicleId: string }> }) {
+  // useSearchParams needs a Suspense boundary at the page level.
+  return (
+    <Suspense fallback={<div>Loading vehicle...</div>}>
+      <VehiclePageInner {...props} />
+    </Suspense>
+  );
+}
+
+function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }) {
   const { vehicleId } = use(params);
-  const [tab, setTab] = useState<(typeof tabs)[number]>("posts");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // The active tab lives in the URL so /v/<id>?tab=history is shareable.
+  const tabParam = searchParams.get("tab");
+  const tab: Tab = (tabs as readonly string[]).includes(tabParam ?? "") ? (tabParam as Tab) : "posts";
   const [eventFilter, setEventFilter] = useState<string>("all");
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
@@ -25,14 +42,29 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
   const currentUser = me.data as { id: string } | undefined;
   const posts = useQuery({ queryKey: ["vehiclePosts", vehicleId], queryFn: () => vehicleApi.posts(vehicleId), enabled: tab === "posts" });
   const gallery = useQuery({ queryKey: ["vehicleGallery", vehicleId], queryFn: () => vehicleApi.gallery(vehicleId), enabled: tab === "gallery" });
-  const events = useQuery({ queryKey: ["vehicleEvents", vehicleId], queryFn: () => vehicleApi.events(vehicleId), enabled: tab === "history" });
+  // Specs also needs events: when the vehicle has no mileage of its own we
+  // derive it from the latest recorded reading in the history.
+  const events = useQuery({ queryKey: ["vehicleEvents", vehicleId], queryFn: () => vehicleApi.events(vehicleId), enabled: tab === "history" || tab === "specs" });
+
+  function selectTab(next: Tab) {
+    router.replace(next === "posts" ? `/v/${vehicleId}` : `/v/${vehicleId}?tab=${next}`, { scroll: false });
+  }
 
   if (vehicle.isLoading) return <div>Loading vehicle...</div>;
-  if (vehicle.error) return <div>Failed to load vehicle.</div>;
+  if (vehicle.error) return <LoadErrorCard error={vehicle.error} noun="vehicle" />;
   if (!vehicle.data) return <div>Vehicle not found.</div>;
 
   const isOwner = Boolean(currentUser && currentUser.id === vehicle.data.owner_user_id);
   const v = vehicle.data;
+  const latestReading = (events.data ?? [])
+    .filter((e) => e.mileage != null && e.event_date)
+    .sort((a, b) => b.event_date!.localeCompare(a.event_date!))[0];
+  const mileageValue =
+    v.mileage != null
+      ? `${v.mileage.toLocaleString()} mi`
+      : latestReading
+        ? `${latestReading.mileage!.toLocaleString()} mi (latest recorded, ${formatDate(latestReading.event_date!)})`
+        : "";
   const specs: [string, string][] = [
     ["Year", v.year != null ? String(v.year) : ""],
     ["Make", v.make ?? ""],
@@ -40,13 +72,16 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
     ["Trim", v.trim ?? ""],
     ["Nickname", v.nickname ?? ""],
     ["VIN", v.vin ?? ""],
-    ["Mileage", v.mileage != null ? `${v.mileage.toLocaleString()} mi` : ""],
+    ["Mileage", mileageValue],
     ["Color", v.color ?? ""],
     ["Transmission", v.transmission ?? ""],
     ["Engine", v.engine ?? ""],
     ["Drivetrain", v.drivetrain ?? ""],
     ["Visibility", v.visibility ?? ""]
   ];
+  // Owners see every row (so they know what's left to fill in); visitors only
+  // see rows with real values — a wall of "Not set" reads as a thin history.
+  const visibleSpecs = isOwner ? specs : specs.filter(([, value]) => value);
   const galleryImages = gallery.data?.flatMap((post) => post.media.map((m) => m.url)) ?? [];
   const presentEventTypes = Array.from(new Set(events.data?.map((e) => e.event_type) ?? []));
   const filteredEvents = (events.data ?? []).filter(
@@ -60,9 +95,6 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
     if (e.cost_cents) acc[e.event_type] = (acc[e.event_type] ?? 0) + e.cost_cents;
     return acc;
   }, {});
-  const formatUsd = (cents: number) =>
-    (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
-
   // Mileage points for the timeline chart: one per date. On multiple readings for
   // the same date, take the highest (odometer reading) so it's deterministic
   // regardless of event order.
@@ -158,7 +190,7 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
             <button
               key={item}
               type="button"
-              onClick={() => setTab(item)}
+              onClick={() => selectTab(item)}
               className={`flex-1 border-b-2 px-2 py-3 text-sm font-medium capitalize transition ${
                 tab === item
                   ? "border-asphalt text-asphalt"
@@ -206,7 +238,7 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
               <div className="flex items-baseline justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Total spent</p>
-                  <p className="mt-1 text-2xl font-bold">{formatUsd(totalCostCents)}</p>
+                  <p className="mt-1 text-2xl font-bold">{formatMoney(totalCostCents)}</p>
                 </div>
                 <span className="text-xs text-slate-400">
                   {allEvents.length} {allEvents.length === 1 ? "event" : "events"}
@@ -218,7 +250,7 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
                     key={type}
                     className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(type)}`}
                   >
-                    {eventTypeLabel(type)} · {formatUsd(cents)}
+                    {eventTypeLabel(type)} · {formatMoney(cents)}
                   </span>
                 ))}
               </div>
@@ -281,8 +313,9 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
               </div>
               <h2 className="mt-2 font-bold">{event.title}</h2>
               <p className="text-sm text-slate-500">
-                {event.event_date} {event.mileage ? `· ${event.mileage.toLocaleString()} mi` : ""}
-                {event.cost_cents ? ` · $${(event.cost_cents / 100).toFixed(2)}` : ""}
+                {event.event_date ? formatDate(event.event_date) : ""}
+                {event.mileage ? ` · ${event.mileage.toLocaleString()} mi` : ""}
+                {event.cost_cents ? ` · ${formatMoney(event.cost_cents)}` : ""}
               </p>
               {event.description && <p className="mt-2 text-sm">{event.description}</p>}
               {event.media.length > 0 && (
@@ -328,7 +361,7 @@ export default function VehiclePage({ params }: { params: Promise<{ vehicleId: s
       )}
       {tab === "specs" && (
         <dl className="surface grid gap-4 rounded-3xl p-6 text-sm sm:grid-cols-2">
-          {specs.map(([label, value]) => (
+          {visibleSpecs.map(([label, value]) => (
             <div key={label}>
               <dt className="font-semibold">{label}</dt>
               <dd className="text-slate-600">{value || "Not set"}</dd>

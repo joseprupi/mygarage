@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Heart, Trash2 } from "lucide-react";
 
 import { authApi, postApi } from "@/lib/api/client";
+import { formatDateTime } from "@/lib/format";
 import type { Comment } from "@/lib/types";
 
 function CommentRow({
@@ -56,7 +57,7 @@ function CommentRow({
             {comment.author?.username ? `@${comment.author.username}` : "Driver"}
           </p>
           <p className="mt-1 whitespace-pre-wrap">{comment.body}</p>
-          <p className="mt-1 text-xs text-slate-500">{new Date(comment.created_at).toLocaleString()}</p>
+          <p className="mt-1 text-xs text-slate-500">{formatDateTime(comment.created_at)}</p>
         </div>
         {canDelete && (
           <button

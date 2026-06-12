@@ -1,16 +1,8 @@
 "use client";
 
+import { formatShortDate } from "@/lib/format";
+
 type Point = { date: string; miles: number };
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-// Timezone-safe day-precision label from a YYYY-MM-DD string (avoid Date() UTC
-// day-shift). Day precision so readings in the same month stay distinguishable.
-function formatDate(d: string): string {
-  const [y, m, day] = d.split("-");
-  const month = MONTHS[Number(m) - 1];
-  return month ? `${month} ${Number(day)}, '${y.slice(2)}` : d;
-}
 
 // Parse YYYY-MM-DD to a sortable timestamp (UTC midnight).
 function toTime(d: string): number {
@@ -95,7 +87,7 @@ export function MileageChart({ points }: { points: Point[] }) {
             <g key={`x${idx}`}>
               <line x1={cx} y1={baseY} x2={cx} y2={baseY + 4} stroke="#cbd5e1" strokeWidth={1} />
               <text x={cx} y={H - 8} textAnchor={anchor} fontSize={10} fill="#94a3b8">
-                {formatDate(sorted[idx].date)}
+                {formatShortDate(sorted[idx].date)}
               </text>
             </g>
           );

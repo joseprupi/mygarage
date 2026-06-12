@@ -8,6 +8,7 @@ import { api } from "@/lib/api/client";
 import { carAvatarUri } from "@/lib/avatar";
 import type { Post, Vehicle } from "@/lib/types";
 import { PostCard } from "@/components/PostCard";
+import { LoadErrorCard } from "@/components/LoadErrorCard";
 
 export default function UserProfilePage({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params);
@@ -27,7 +28,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
   });
 
   if (userQuery.isLoading) return <div>Loading user...</div>;
-  if (userQuery.error) return <div>Failed to load user.</div>;
+  if (userQuery.error) return <LoadErrorCard error={userQuery.error} noun="profile" />;
   if (!userQuery.data) return <div>User not found.</div>;
 
   return (
