@@ -17,7 +17,7 @@ from botocore.config import Config
 from fastapi import HTTPException, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
-from sqlalchemy import Select, and_, desc, func, or_, select
+from sqlalchemy import Select, and_, delete, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
@@ -222,6 +222,16 @@ def update_vehicle(db: Session, vehicle: Vehicle, user: User, data: VehicleUpdat
 
 def delete_vehicle(db: Session, vehicle: Vehicle, user: User) -> None:
     assert_vehicle_owner(vehicle, user)
+    # Hard delete. Events are soft-deleted (rows remain) and there is no FK cascade,
+    # so we must remove child rows first — otherwise db.delete(vehicle) tries to NULL
+    # vehicle_events.vehicle_id (NOT NULL) → IntegrityError. Posts tagged to this
+    # vehicle survive (only the tag rows are removed).
+    event_ids = list(db.scalars(select(VehicleEvent.id).where(VehicleEvent.vehicle_id == vehicle.id)))
+    if event_ids:
+        db.execute(delete(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids)))
+        db.execute(delete(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids)))
+        db.execute(delete(VehicleEvent).where(VehicleEvent.vehicle_id == vehicle.id))
+    db.execute(delete(PostVehicleTag).where(PostVehicleTag.vehicle_id == vehicle.id))
     db.delete(vehicle)
     db.commit()
 
