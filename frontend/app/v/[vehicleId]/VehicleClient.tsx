@@ -1,12 +1,12 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, use, useState } from "react";
-import { Download, Pencil, Plus } from "lucide-react";
+import { Download, ExternalLink, Pencil, Plus } from "lucide-react";
 
-import { getToken, vehicleApi } from "@/lib/api/client";
+import { getToken, modApi, vehicleApi } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
@@ -16,9 +16,23 @@ import { Lightbox } from "@/components/Lightbox";
 import { LoadErrorCard } from "@/components/LoadErrorCard";
 import { MileageChart } from "@/components/MileageChart";
 import { ShareButton } from "@/components/ShareButton";
+import { VehicleModForm } from "@/components/VehicleModForm";
+import type { VehicleMod } from "@/lib/types";
 
-const tabs = ["posts", "gallery", "history", "specs"] as const;
+const tabs = ["posts", "gallery", "history", "build", "specs"] as const;
 type Tab = (typeof tabs)[number];
+
+// Group an already-category-sorted mod list into [category, mods][] by walking
+// consecutive runs — preserves the backend's category/sort_order ordering.
+function groupMods(items: VehicleMod[]): [string, VehicleMod[]][] {
+  const groups: [string, VehicleMod[]][] = [];
+  for (const mod of items) {
+    const last = groups[groups.length - 1];
+    if (last && last[0] === mod.category) last[1].push(mod);
+    else groups.push([mod.category, [mod]]);
+  }
+  return groups;
+}
 
 export function VehicleClient(props: { params: Promise<{ vehicleId: string }> }) {
   // useSearchParams needs a Suspense boundary at the page level.
@@ -40,6 +54,10 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // Build tab: which form is open ("new" to add, a mod id to edit, null to hide).
+  const [modForm, setModForm] = useState<"new" | string | null>(null);
+  const [modError, setModError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useMe();
   const currentUser = me.data as { id: string } | undefined;
@@ -48,6 +66,18 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   // Specs also needs events: when the vehicle has no mileage of its own we
   // derive it from the latest recorded reading in the history.
   const events = useQuery({ queryKey: ["vehicleEvents", vehicleId], queryFn: () => vehicleApi.events(vehicleId), enabled: tab === "history" || tab === "specs" });
+  const mods = useQuery({ queryKey: ["vehicleMods", vehicleId], queryFn: () => vehicleApi.mods(vehicleId), enabled: tab === "build" });
+
+  async function deleteMod(modId: string) {
+    if (!window.confirm("Delete this mod? This cannot be undone.")) return;
+    setModError(null);
+    try {
+      await modApi.delete(modId);
+      await queryClient.invalidateQueries({ queryKey: ["vehicleMods", vehicleId] });
+    } catch {
+      setModError("Couldn't delete the mod. Try again in a moment.");
+    }
+  }
 
   function selectTab(next: Tab) {
     router.replace(next === "posts" ? `/v/${vehicleId}` : `/v/${vehicleId}?tab=${next}`, { scroll: false });
@@ -374,6 +404,113 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
               )}
             </article>
           ))}
+        </div>
+      )}
+      {tab === "build" && (
+        mods.error ? <p className="text-sm text-red-600">Failed to load build details.</p> :
+        mods.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
+        <div className="space-y-4">
+          {isOwner && (
+            <div className="flex justify-end">
+              {modForm !== "new" && (
+                <button
+                  type="button"
+                  className="btn btn-accent px-5 py-2.5 shadow-sm"
+                  onClick={() => setModForm("new")}
+                >
+                  <Plus size={18} strokeWidth={2.5} />
+                  Add mod
+                </button>
+              )}
+            </div>
+          )}
+          {modForm === "new" && (
+            <VehicleModForm vehicleId={vehicleId} onClose={() => setModForm(null)} />
+          )}
+          {modError && <p className="text-sm text-red-600">{modError}</p>}
+          {(mods.data?.length ?? 0) === 0 && modForm !== "new" ? (
+            <div className="surface rounded-2xl p-6 text-center">
+              <p className="text-sm text-slate-600">No build details yet.</p>
+              {isOwner && (
+                <button
+                  type="button"
+                  className="btn btn-accent mt-3 px-5 py-2.5"
+                  onClick={() => setModForm("new")}
+                >
+                  <Plus size={18} strokeWidth={2.5} />
+                  Add the first mod
+                </button>
+              )}
+            </div>
+          ) : (
+            // The list comes back category-sorted, so consecutive grouping yields
+            // one header per category.
+            groupMods(mods.data ?? []).map(([category, items]) => (
+              <div key={category} className="space-y-2">
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500">{category}</h2>
+                <div className="space-y-2">
+                  {items.map((mod) =>
+                    modForm === mod.id ? (
+                      <VehicleModForm
+                        key={mod.id}
+                        vehicleId={vehicleId}
+                        mod={mod}
+                        onClose={() => setModForm(null)}
+                      />
+                    ) : (
+                      <article className="surface rounded-2xl p-4" key={mod.id}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="font-bold">{mod.name}</h3>
+                            {mod.brand && <p className="text-sm text-slate-500">{mod.brand}</p>}
+                          </div>
+                          {isOwner && (
+                            <div className="flex shrink-0 items-center gap-3">
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-slate-500 hover:text-petrol"
+                                onClick={() => setModForm(mod.id)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-slate-500 hover:text-red-600"
+                                onClick={() => deleteMod(mod.id)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {(mod.cost_cents != null || mod.installed_date) && (
+                          <p className="mt-1 text-sm text-slate-500">
+                            {[
+                              mod.cost_cents != null ? formatMoney(mod.cost_cents) : null,
+                              mod.installed_date ? formatDate(mod.installed_date) : null
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        )}
+                        {mod.notes && <p className="mt-2 text-sm">{mod.notes}</p>}
+                        {mod.link && (
+                          <a
+                            href={mod.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-2 inline-flex items-center gap-1 text-sm text-petrol hover:underline"
+                          >
+                            View part <ExternalLink size={13} />
+                          </a>
+                        )}
+                      </article>
+                    )
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
       {tab === "specs" && (

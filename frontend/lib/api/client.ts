@@ -1,4 +1,4 @@
-import type { Comment, FeedPage, Post, PublicUser, Vehicle, VehicleEvent } from "@/lib/types";
+import type { Comment, FeedPage, Post, PublicUser, Vehicle, VehicleEvent, VehicleMod } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -96,7 +96,8 @@ export const vehicleApi = {
   myVehicles: (userId: string) => api<Vehicle[]>(`/users/${userId}/vehicles`),
   posts: (id: string) => api<Post[]>(`/vehicles/${id}/posts`),
   gallery: (id: string) => api<Post[]>(`/vehicles/${id}/gallery`),
-  events: (id: string) => api<VehicleEvent[]>(`/vehicles/${id}/events`)
+  events: (id: string) => api<VehicleEvent[]>(`/vehicles/${id}/events`),
+  mods: (id: string) => api<VehicleMod[]>(`/vehicles/${id}/mods`)
 };
 
 export const postApi = {
@@ -176,4 +177,18 @@ export const eventApi = {
       body: JSON.stringify(body)
     }),
   delete: (eventId: string) => api<void>(`/vehicle-events/${eventId}`, { method: "DELETE" })
+};
+
+export const modApi = {
+  create: (vehicleId: string, body: unknown) =>
+    api<VehicleMod>(`/vehicles/${vehicleId}/mods`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  update: (modId: string, body: unknown) =>
+    api<VehicleMod>(`/mods/${modId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body)
+    }),
+  delete: (modId: string) => api<void>(`/mods/${modId}`, { method: "DELETE" })
 };
