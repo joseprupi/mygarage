@@ -26,7 +26,7 @@ export function ImageCarousel({ media }: { media: Media[] }) {
       {media.length > 1 && (
         <>
           <button
-            className="absolute left-2 top-1/2 rounded-full bg-black/40 p-1 text-white"
+            className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1 text-white"
             onClick={previous}
             type="button"
             aria-label="Previous image"
@@ -34,7 +34,7 @@ export function ImageCarousel({ media }: { media: Media[] }) {
             <ChevronLeft size={20} />
           </button>
           <button
-            className="absolute right-2 top-1/2 rounded-full bg-black/40 p-1 text-white"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-1 text-white"
             onClick={next}
             type="button"
             aria-label="Next image"

@@ -40,6 +40,9 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
               src={userQuery.data.avatar_url || carAvatarUri(userQuery.data.username)}
               alt=""
               className="h-full w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = carAvatarUri(username);
+              }}
             />
           </div>
           <h1 className="text-3xl font-bold">@{userQuery.data.username}</h1>

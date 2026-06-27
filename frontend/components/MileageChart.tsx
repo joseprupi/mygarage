@@ -49,7 +49,7 @@ export function MileageChart({ points }: { points: Point[] }) {
 
   return (
     <div className="surface rounded-2xl p-4">
-      <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Mileage</p>
+      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Mileage</p>
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img" aria-label="Mileage over time">
         {/* y gridlines + labels (bottom gridline doubles as the baseline) */}
         {yTicks.map((v, i) => {

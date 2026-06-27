@@ -96,6 +96,7 @@ export default function NewPostPage() {
               }
             />
             {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ")}
+            {vehicle.nickname ? ` · “${vehicle.nickname}”` : ""}
           </label>
         ))}
       </div>

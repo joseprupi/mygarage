@@ -87,6 +87,9 @@ export function ProfileEditor() {
                 src={user.avatar_url || carAvatarUri(user.username)}
                 alt=""
                 className="h-full w-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.src = carAvatarUri(user.username);
+                }}
               />
             </div>
             <button

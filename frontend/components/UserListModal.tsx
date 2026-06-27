@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 
 import { carAvatarUri } from "@/lib/avatar";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 import type { PublicUser } from "@/lib/types";
 
 export function UserListModal({
@@ -20,6 +21,9 @@ export function UserListModal({
   emptyText?: string;
   onClose: () => void;
 }) {
+  const titleId = useId();
+  const dialogRef = useDialogFocus<HTMLDivElement>();
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -38,11 +42,16 @@ export function UserListModal({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className="surface flex max-h-[80vh] w-full max-w-sm flex-col rounded-3xl p-4"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="mb-2 flex items-center justify-between">
-          <h2 className="text-base font-semibold">{title}</h2>
+          <h2 id={titleId} className="text-base font-semibold">{title}</h2>
           <button
             className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-asphalt"
             onClick={onClose}
@@ -72,6 +81,9 @@ export function UserListModal({
                         src={user.avatar_url || carAvatarUri(user.username)}
                         alt=""
                         className="h-full w-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = carAvatarUri(user.username);
+                        }}
                       />
                     </div>
                     <div className="min-w-0">

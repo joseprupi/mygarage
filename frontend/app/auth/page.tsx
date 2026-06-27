@@ -96,7 +96,7 @@ export default function AuthPage() {
         <span className="block h-10 w-10 overflow-hidden rounded-xl">
           <img src="/logo.svg" alt="" className="h-full w-full object-cover" />
         </span>
-        <span className="text-lg font-bold text-asphalt">Car Social</span>
+        <span className="text-lg font-bold text-asphalt">CeCeCar</span>
       </div>
       <h1 className="text-2xl font-bold">{mode === "signup" ? "Create your garage" : "Log in"}</h1>
       <div className="mt-6">

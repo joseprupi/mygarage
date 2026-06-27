@@ -9,7 +9,7 @@ const sans = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap
 const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Car Social",
+  title: "CeCeCar",
   description: "Vehicle-first social profiles, posts, galleries, and history."
 };
 

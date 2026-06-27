@@ -37,6 +37,8 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const tab: Tab = (tabs as readonly string[]).includes(tabParam ?? "") ? (tabParam as Tab) : "posts";
   const [eventFilter, setEventFilter] = useState<string>("all");
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
   const currentUser = me.data as { id: string } | undefined;
@@ -109,20 +111,29 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     .sort((a, b) => a.date.localeCompare(b.date));
 
   async function exportHistory() {
-    const token = getToken();
-    const res = await fetch(`/api/vehicles/${vehicleId}/history/export`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${[v.year, v.make, v.model].filter(Boolean).join("-") || "vehicle"}-history.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    if (exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/vehicles/${vehicleId}/history/export`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${[v.year, v.make, v.model].filter(Boolean).join("-") || "vehicle"}-history.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Couldn't export the history. Try again in a moment.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -169,6 +180,9 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                       src={v.owner.avatar_url || carAvatarUri(v.owner.username)}
                       alt=""
                       className="h-full w-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = carAvatarUri(v.owner!.username);
+                      }}
                     />
                   </span>
                   <span className="text-sm font-semibold">@{v.owner.username}</span>
@@ -185,17 +199,13 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
           </div>
         </div>
 
-        <div className="mt-5 flex border-t border-slate-100">
+        <div className="mt-5 flex gap-2 overflow-x-auto border-t border-slate-100 px-4 py-3">
           {tabs.map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => selectTab(item)}
-              className={`flex-1 border-b-2 px-2 py-3 text-sm font-medium capitalize transition ${
-                tab === item
-                  ? "border-asphalt text-asphalt"
-                  : "border-transparent text-slate-400 hover:text-asphalt"
-              }`}
+              className={`tab ${tab === item ? "tab-active" : "tab-idle"}`}
             >
               {item}
             </button>
@@ -237,10 +247,10 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
             <div className="surface rounded-2xl p-4">
               <div className="flex items-baseline justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">Total spent</p>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Total spent</p>
                   <p className="mt-1 text-2xl font-bold">{formatMoney(totalCostCents)}</p>
                 </div>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-500">
                   {allEvents.length} {allEvents.length === 1 ? "event" : "events"}
                 </span>
               </div>
@@ -288,12 +298,18 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
               )}
             </div>
             {(events.data?.length ?? 0) > 0 && (
-              <button type="button" onClick={exportHistory} className="btn btn-secondary shrink-0">
+              <button
+                type="button"
+                onClick={exportHistory}
+                disabled={exporting}
+                className="btn btn-secondary shrink-0 disabled:opacity-60"
+              >
                 <Download size={15} />
-                Export
+                {exporting ? "Exporting…" : "Export"}
               </button>
             )}
           </div>
+          {exportError && <p className="text-right text-sm text-red-600">{exportError}</p>}
           {filteredEvents.map((event) => (
             <article className="surface rounded-2xl p-4" key={event.id}>
               <div className="flex items-center justify-between gap-2">

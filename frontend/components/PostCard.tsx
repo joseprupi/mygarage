@@ -82,6 +82,9 @@ export function PostCard({ post }: { post: Post }) {
               src={post.author.avatar_url || carAvatarUri(post.author.username)}
               alt=""
               className="h-full w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = carAvatarUri(post.author.username);
+              }}
             />
           </div>
           <div>
