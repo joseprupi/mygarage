@@ -33,6 +33,7 @@ from app.models import (
     VehicleEvent,
     VehicleEventDocument,
     VehicleEventMedia,
+    VehicleMod,
 )
 from app.schemas import (
     CommentCreate,
@@ -51,6 +52,8 @@ from app.schemas import (
     VehicleCreate,
     VehicleEventCreate,
     VehicleEventUpdate,
+    VehicleModCreate,
+    VehicleModUpdate,
     VehicleSummary,
     VehicleUpdate,
 )
@@ -231,6 +234,7 @@ def delete_vehicle(db: Session, vehicle: Vehicle, user: User) -> None:
         db.execute(delete(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids)))
         db.execute(delete(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids)))
         db.execute(delete(VehicleEvent).where(VehicleEvent.vehicle_id == vehicle.id))
+    db.execute(delete(VehicleMod).where(VehicleMod.vehicle_id == vehicle.id))
     db.execute(delete(PostVehicleTag).where(PostVehicleTag.vehicle_id == vehicle.id))
     db.delete(vehicle)
     db.commit()
@@ -556,6 +560,57 @@ def delete_vehicle_event(db: Session, event: VehicleEvent, user: User) -> None:
     if event.vehicle.owner_user_id != user.id:
         raise HTTPException(status_code=403, detail="You do not own this vehicle")
     event.deleted_at = datetime.now(UTC)
+    db.commit()
+
+
+def create_vehicle_mod(
+    db: Session, vehicle: Vehicle, user: User, data: VehicleModCreate
+) -> VehicleMod:
+    assert_vehicle_owner(vehicle, user)
+    values = data.model_dump(by_alias=False)
+    mod = VehicleMod(vehicle_id=vehicle.id, author_user_id=user.id, **values)
+    db.add(mod)
+    db.commit()
+    db.refresh(mod)
+    return mod
+
+
+def get_vehicle_mod_or_404(db: Session, mod_id: str, viewer: User | None) -> VehicleMod:
+    mod = db.scalar(
+        select(VehicleMod)
+        .options(selectinload(VehicleMod.vehicle))
+        .where(VehicleMod.id == mod_id, VehicleMod.deleted_at.is_(None))
+    )
+    if not mod or not can_view_vehicle(mod.vehicle, viewer):
+        raise HTTPException(status_code=404, detail="Vehicle mod not found")
+    return mod
+
+
+def list_vehicle_mods(db: Session, vehicle: Vehicle, viewer: User | None) -> list[VehicleMod]:
+    stmt = (
+        select(VehicleMod)
+        .where(VehicleMod.vehicle_id == vehicle.id, VehicleMod.deleted_at.is_(None))
+        .order_by(VehicleMod.category, VehicleMod.sort_order, VehicleMod.created_at)
+    )
+    return list(db.scalars(stmt))
+
+
+def update_vehicle_mod(
+    db: Session, mod: VehicleMod, user: User, data: VehicleModUpdate
+) -> VehicleMod:
+    if mod.vehicle.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    for key, value in data.model_dump(exclude_unset=True, by_alias=False).items():
+        setattr(mod, key, value)
+    db.commit()
+    db.refresh(mod)
+    return mod
+
+
+def delete_vehicle_mod(db: Session, mod: VehicleMod, user: User) -> None:
+    if mod.vehicle.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    mod.deleted_at = datetime.now(UTC)
     db.commit()
 
 

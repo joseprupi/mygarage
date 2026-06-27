@@ -77,6 +77,7 @@ class Vehicle(TimestampMixin, Base):
     owner: Mapped[User] = relationship(back_populates="vehicles")
     tags: Mapped[list["PostVehicleTag"]] = relationship(back_populates="vehicle")
     events: Mapped[list["VehicleEvent"]] = relationship(back_populates="vehicle")
+    mods: Mapped[list["VehicleMod"]] = relationship(back_populates="vehicle")
 
 
 class Post(TimestampMixin, Base):
@@ -209,6 +210,29 @@ class VehicleEventDocument(Base):
     )
 
     event: Mapped[VehicleEvent] = relationship(back_populates="documents")
+
+
+class VehicleMod(TimestampMixin, Base):
+    __tablename__ = "vehicle_mods"
+    __table_args__ = (
+        Index("idx_vehicle_mods_vehicle_category_sort", "vehicle_id", "category", "sort_order"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    vehicle_id: Mapped[str] = mapped_column(ForeignKey("vehicles.id"), nullable=False)
+    author_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    brand: Mapped[str | None] = mapped_column(String(120))
+    cost_cents: Mapped[int | None] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
+    link: Mapped[str | None] = mapped_column(String(500))
+    installed_date: Mapped[date | None] = mapped_column(Date)
+    notes: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    vehicle: Mapped[Vehicle] = relationship(back_populates="mods")
 
 
 class PostLike(Base):
