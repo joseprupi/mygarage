@@ -296,3 +296,81 @@ def test_deleting_vehicle_with_mods_succeeds():
         f"/vehicles/{vehicle['id']}", headers=auth_headers(owner["accessToken"])
     )
     assert deleted.status_code == 204, deleted.text
+
+
+def test_mod_create_with_mileage_and_photo_then_read():
+    owner = signup("modmilephoto", "modmilephoto@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+
+    created = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "category": "Suspension",
+            "name": "Coilovers",
+            "mileage": 42000,
+            "media": [{"url": "/media/vehicle_mod_media/a.jpg", "media_type": "image"}],
+        },
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["mileage"] == 42000
+    assert len(body["media"]) == 1
+    assert body["media"][0]["url"] == "/media/vehicle_mod_media/a.jpg"
+
+    fetched = client.get(f"/vehicles/{vehicle['id']}/mods").json()
+    assert len(fetched) == 1
+    assert fetched[0]["mileage"] == 42000
+    assert len(fetched[0]["media"]) == 1
+
+
+def test_mod_update_replaces_media_and_updates_mileage():
+    owner = signup("modmediaedit", "modmediaedit@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    mod = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "category": "Exhaust",
+            "name": "Cat-back",
+            "mileage": 1000,
+            "media": [{"url": "/media/vehicle_mod_media/old.jpg", "media_type": "image"}],
+        },
+    ).json()
+    assert mod["media"][0]["url"] == "/media/vehicle_mod_media/old.jpg"
+
+    updated = client.patch(
+        f"/mods/{mod['id']}",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "mileage": 2000,
+            "media": [{"url": "/media/vehicle_mod_media/new.jpg", "media_type": "image"}],
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["mileage"] == 2000
+    assert len(body["media"]) == 1
+    assert body["media"][0]["url"] == "/media/vehicle_mod_media/new.jpg"
+    # old media replaced, not appended
+    assert all(m["url"] != "/media/vehicle_mod_media/old.jpg" for m in body["media"])
+
+
+def test_deleting_vehicle_whose_mod_has_a_photo_succeeds():
+    owner = signup("modphotovehdel", "modphotovehdel@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    created = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "category": "Brakes",
+            "name": "Brembo BBK",
+            "media": [{"url": "/media/vehicle_mod_media/brake.jpg", "media_type": "image"}],
+        },
+    )
+    assert created.status_code == 200, created.text
+
+    deleted = client.delete(
+        f"/vehicles/{vehicle['id']}", headers=auth_headers(owner["accessToken"])
+    )
+    assert deleted.status_code == 204, deleted.text

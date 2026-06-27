@@ -228,11 +228,33 @@ class VehicleMod(TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
     link: Mapped[str | None] = mapped_column(String(500))
     installed_date: Mapped[date | None] = mapped_column(Date)
+    mileage: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     vehicle: Mapped[Vehicle] = relationship(back_populates="mods")
+    media: Mapped[list["VehicleModMedia"]] = relationship(
+        back_populates="mod", cascade="all, delete-orphan", order_by="VehicleModMedia.sort_order"
+    )
+
+
+class VehicleModMedia(Base):
+    __tablename__ = "vehicle_mod_media"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    vehicle_mod_id: Mapped[str] = mapped_column(ForeignKey("vehicle_mods.id"), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    thumbnail_url: Mapped[str | None] = mapped_column(Text)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    mod: Mapped[VehicleMod] = relationship(back_populates="media")
 
 
 class PostLike(Base):

@@ -34,6 +34,7 @@ from app.models import (
     VehicleEventDocument,
     VehicleEventMedia,
     VehicleMod,
+    VehicleModMedia,
 )
 from app.schemas import (
     CommentCreate,
@@ -234,7 +235,10 @@ def delete_vehicle(db: Session, vehicle: Vehicle, user: User) -> None:
         db.execute(delete(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids)))
         db.execute(delete(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids)))
         db.execute(delete(VehicleEvent).where(VehicleEvent.vehicle_id == vehicle.id))
-    db.execute(delete(VehicleMod).where(VehicleMod.vehicle_id == vehicle.id))
+    mod_ids = list(db.scalars(select(VehicleMod.id).where(VehicleMod.vehicle_id == vehicle.id)))
+    if mod_ids:
+        db.execute(delete(VehicleModMedia).where(VehicleModMedia.vehicle_mod_id.in_(mod_ids)))
+        db.execute(delete(VehicleMod).where(VehicleMod.vehicle_id == vehicle.id))
     db.execute(delete(PostVehicleTag).where(PostVehicleTag.vehicle_id == vehicle.id))
     db.delete(vehicle)
     db.commit()
@@ -567,18 +571,30 @@ def create_vehicle_mod(
     db: Session, vehicle: Vehicle, user: User, data: VehicleModCreate
 ) -> VehicleMod:
     assert_vehicle_owner(vehicle, user)
-    values = data.model_dump(by_alias=False)
+    values = data.model_dump(exclude={"media"}, by_alias=False)
     mod = VehicleMod(vehicle_id=vehicle.id, author_user_id=user.id, **values)
     db.add(mod)
+    db.flush()
+    for index, media in enumerate(data.media):
+        db.add(
+            VehicleModMedia(
+                vehicle_mod_id=mod.id,
+                sort_order=media.sort_order or index,
+                media_type=media.media_type,
+                url=media.url,
+                thumbnail_url=media.thumbnail_url,
+                width=media.width,
+                height=media.height,
+            )
+        )
     db.commit()
-    db.refresh(mod)
-    return mod
+    return get_vehicle_mod_or_404(db, mod.id, user)
 
 
 def get_vehicle_mod_or_404(db: Session, mod_id: str, viewer: User | None) -> VehicleMod:
     mod = db.scalar(
         select(VehicleMod)
-        .options(selectinload(VehicleMod.vehicle))
+        .options(selectinload(VehicleMod.vehicle), selectinload(VehicleMod.media))
         .where(VehicleMod.id == mod_id, VehicleMod.deleted_at.is_(None))
     )
     if not mod or not can_view_vehicle(mod.vehicle, viewer):
@@ -589,6 +605,7 @@ def get_vehicle_mod_or_404(db: Session, mod_id: str, viewer: User | None) -> Veh
 def list_vehicle_mods(db: Session, vehicle: Vehicle, viewer: User | None) -> list[VehicleMod]:
     stmt = (
         select(VehicleMod)
+        .options(selectinload(VehicleMod.media))
         .where(VehicleMod.vehicle_id == vehicle.id, VehicleMod.deleted_at.is_(None))
         .order_by(VehicleMod.category, VehicleMod.sort_order, VehicleMod.created_at)
     )
@@ -600,11 +617,33 @@ def update_vehicle_mod(
 ) -> VehicleMod:
     if mod.vehicle.owner_user_id != user.id:
         raise HTTPException(status_code=403, detail="You do not own this vehicle")
-    for key, value in data.model_dump(exclude_unset=True, by_alias=False).items():
+    payload = data.model_dump(exclude_unset=True, by_alias=False)
+    media_provided = "media" in payload
+    payload.pop("media", None)
+    for key, value in payload.items():
         setattr(mod, key, value)
+    if media_provided:
+        # Replace the mod's media with the supplied set.
+        for existing in list(mod.media):
+            db.delete(existing)
+        db.flush()
+        for index, media in enumerate(data.media or []):
+            db.add(
+                VehicleModMedia(
+                    vehicle_mod_id=mod.id,
+                    sort_order=media.sort_order or index,
+                    media_type=media.media_type,
+                    url=media.url,
+                    thumbnail_url=media.thumbnail_url,
+                    width=media.width,
+                    height=media.height,
+                )
+            )
     db.commit()
-    db.refresh(mod)
-    return mod
+    # expire_on_commit is off, so refresh the (now stale) media collection.
+    if media_provided:
+        db.expire(mod, ["media"])
+    return get_vehicle_mod_or_404(db, mod.id, user)
 
 
 def delete_vehicle_mod(db: Session, mod: VehicleMod, user: User) -> None:
