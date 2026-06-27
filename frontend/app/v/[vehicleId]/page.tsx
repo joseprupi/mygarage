@@ -1,400 +1,45 @@
-"use client";
+import type { Metadata } from "next";
 
-import { useQuery } from "@tanstack/react-query";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, use, useState } from "react";
-import { Download, Pencil, Plus } from "lucide-react";
+import type { Vehicle } from "@/lib/types";
+import { absoluteMediaUrl, serverFetch } from "@/lib/api/serverBase";
+import { VehicleClient } from "./VehicleClient";
 
-import { authApi, getToken, vehicleApi } from "@/lib/api/client";
-import { carAvatarUri } from "@/lib/avatar";
-import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
-import { formatDate, formatMoney } from "@/lib/format";
-import { PostCard } from "@/components/PostCard";
-import { Lightbox } from "@/components/Lightbox";
-import { LoadErrorCard } from "@/components/LoadErrorCard";
-import { MileageChart } from "@/components/MileageChart";
-import { ShareButton } from "@/components/ShareButton";
+export async function generateMetadata({
+  params
+}: {
+  params: Promise<{ vehicleId: string }>;
+}): Promise<Metadata> {
+  const { vehicleId } = await params;
+  const vehicle = await serverFetch<Vehicle>(`/vehicles/${vehicleId}`);
+  if (!vehicle) return { title: "CeCeCar" };
 
-const tabs = ["posts", "gallery", "history", "specs"] as const;
-type Tab = (typeof tabs)[number];
+  const name = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
+  const title = `${name || "Vehicle"} — CeCeCar`;
+  const owner = vehicle.owner?.username ? `@${vehicle.owner.username}` : "an owner";
+  const description =
+    vehicle.description?.trim() ||
+    `${name || "This vehicle"}'s full history on CeCeCar, kept by ${owner}.`;
+  const image = absoluteMediaUrl(vehicle.cover_image_url) ?? absoluteMediaUrl(vehicle.owner?.avatar_url);
 
-export default function VehiclePage(props: { params: Promise<{ vehicleId: string }> }) {
-  // useSearchParams needs a Suspense boundary at the page level.
-  return (
-    <Suspense fallback={<div>Loading vehicle...</div>}>
-      <VehiclePageInner {...props} />
-    </Suspense>
-  );
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: "website",
+      url: `/v/${vehicle.id}`,
+      images: image ? [{ url: image }] : undefined
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: image ? [image] : undefined
+    }
+  };
 }
 
-function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }) {
-  const { vehicleId } = use(params);
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  // The active tab lives in the URL so /v/<id>?tab=history is shareable.
-  const tabParam = searchParams.get("tab");
-  const tab: Tab = (tabs as readonly string[]).includes(tabParam ?? "") ? (tabParam as Tab) : "posts";
-  const [eventFilter, setEventFilter] = useState<string>("all");
-  const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
-  const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
-  const currentUser = me.data as { id: string } | undefined;
-  const posts = useQuery({ queryKey: ["vehiclePosts", vehicleId], queryFn: () => vehicleApi.posts(vehicleId), enabled: tab === "posts" });
-  const gallery = useQuery({ queryKey: ["vehicleGallery", vehicleId], queryFn: () => vehicleApi.gallery(vehicleId), enabled: tab === "gallery" });
-  // Specs also needs events: when the vehicle has no mileage of its own we
-  // derive it from the latest recorded reading in the history.
-  const events = useQuery({ queryKey: ["vehicleEvents", vehicleId], queryFn: () => vehicleApi.events(vehicleId), enabled: tab === "history" || tab === "specs" });
-
-  function selectTab(next: Tab) {
-    router.replace(next === "posts" ? `/v/${vehicleId}` : `/v/${vehicleId}?tab=${next}`, { scroll: false });
-  }
-
-  if (vehicle.isLoading) return <div>Loading vehicle...</div>;
-  if (vehicle.error) return <LoadErrorCard error={vehicle.error} noun="vehicle" />;
-  if (!vehicle.data) return <div>Vehicle not found.</div>;
-
-  const isOwner = Boolean(currentUser && currentUser.id === vehicle.data.owner_user_id);
-  const v = vehicle.data;
-  const latestReading = (events.data ?? [])
-    .filter((e) => e.mileage != null && e.event_date)
-    .sort((a, b) => b.event_date!.localeCompare(a.event_date!))[0];
-  const mileageValue =
-    v.mileage != null
-      ? `${v.mileage.toLocaleString()} mi`
-      : latestReading
-        ? `${latestReading.mileage!.toLocaleString()} mi (latest recorded, ${formatDate(latestReading.event_date!)})`
-        : "";
-  const specs: [string, string][] = [
-    ["Year", v.year != null ? String(v.year) : ""],
-    ["Make", v.make ?? ""],
-    ["Model", v.model ?? ""],
-    ["Trim", v.trim ?? ""],
-    ["Nickname", v.nickname ?? ""],
-    ["VIN", v.vin ?? ""],
-    ["Mileage", mileageValue],
-    ["Color", v.color ?? ""],
-    ["Transmission", v.transmission ?? ""],
-    ["Engine", v.engine ?? ""],
-    ["Drivetrain", v.drivetrain ?? ""],
-    ["Visibility", v.visibility ?? ""]
-  ];
-  // Owners see every row (so they know what's left to fill in); visitors only
-  // see rows with real values — a wall of "Not set" reads as a thin history.
-  const visibleSpecs = isOwner ? specs : specs.filter(([, value]) => value);
-  const galleryImages = gallery.data?.flatMap((post) => post.media.map((m) => m.url)) ?? [];
-  const presentEventTypes = Array.from(new Set(events.data?.map((e) => e.event_type) ?? []));
-  const filteredEvents = (events.data ?? []).filter(
-    (e) => eventFilter === "all" || e.event_type === eventFilter
-  );
-
-  // Cost summary over ALL events (ignores the active type filter).
-  const allEvents = events.data ?? [];
-  const totalCostCents = allEvents.reduce((sum, e) => sum + (e.cost_cents ?? 0), 0);
-  const costByType = allEvents.reduce<Record<string, number>>((acc, e) => {
-    if (e.cost_cents) acc[e.event_type] = (acc[e.event_type] ?? 0) + e.cost_cents;
-    return acc;
-  }, {});
-  // Mileage points for the timeline chart: one per date. On multiple readings for
-  // the same date, take the highest (odometer reading) so it's deterministic
-  // regardless of event order.
-  const mileageByDate = allEvents.reduce<Record<string, number>>((acc, e) => {
-    if (e.event_date && e.mileage != null) {
-      acc[e.event_date] = Math.max(acc[e.event_date] ?? e.mileage, e.mileage);
-    }
-    return acc;
-  }, {});
-  const mileagePoints = Object.entries(mileageByDate)
-    .map(([date, miles]) => ({ date, miles }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  async function exportHistory() {
-    if (exporting) return;
-    setExporting(true);
-    setExportError(null);
-    try {
-      const token = getToken();
-      const res = await fetch(`/api/vehicles/${vehicleId}/history/export`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
-      if (!res.ok) throw new Error(`Export failed (${res.status})`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${[v.year, v.make, v.model].filter(Boolean).join("-") || "vehicle"}-history.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      setExportError("Couldn't export the history. Try again in a moment.");
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  return (
-    <section className="space-y-4">
-      {v.cover_image_url && (
-        <div className="overflow-hidden rounded-3xl">
-          <img src={v.cover_image_url} alt="" className="aspect-[16/9] w-full object-cover" />
-        </div>
-      )}
-
-      <div className="surface sticky top-4 z-10 overflow-hidden rounded-3xl">
-        <div className="p-6 pb-0">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              {v.nickname && (
-                <p className="text-xs font-semibold uppercase tracking-widest text-petrol">{v.nickname}</p>
-              )}
-              <h1 className="mt-1 text-3xl font-bold">
-                {[v.year, v.make, v.model].filter(Boolean).join(" ")}
-              </h1>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <ShareButton
-                title="Share vehicle"
-                url={typeof window !== "undefined" ? `${window.location.origin}/v/${v.id}` : `/v/${v.id}`}
-              />
-              {isOwner && (
-                <Link className="btn btn-secondary shrink-0" href={`/vehicles/${v.id}/edit`}>
-                  <Pencil size={15} />
-                  Edit
-                </Link>
-              )}
-            </div>
-          </div>
-
-          {v.description && <p className="mt-3 text-slate-600">{v.description}</p>}
-
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              {v.owner && (
-                <Link href={`/u/${v.owner.username}`} className="flex items-center gap-2 hover:text-petrol">
-                  <span className="h-8 w-8 overflow-hidden rounded-full ring-1 ring-slate-200">
-                    <img
-                      src={v.owner.avatar_url || carAvatarUri(v.owner.username)}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = carAvatarUri(v.owner!.username);
-                      }}
-                    />
-                  </span>
-                  <span className="text-sm font-semibold">@{v.owner.username}</span>
-                </Link>
-              )}
-              {isOwner && <span className="chip">{v.visibility}</span>}
-            </div>
-            {isOwner && (
-              <Link className="btn btn-accent px-5 py-2.5 shadow-sm" href={`/vehicles/${v.id}/events/new`}>
-                <Plus size={18} strokeWidth={2.5} />
-                Add event
-              </Link>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-5 flex gap-2 overflow-x-auto border-t border-slate-100 px-4 py-3">
-          {tabs.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => selectTab(item)}
-              className={`tab ${tab === item ? "tab-active" : "tab-idle"}`}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {tab === "posts" && (
-        posts.error ? <p className="text-sm text-red-600">Failed to load posts.</p> :
-        posts.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
-        <div className="space-y-5">{posts.data?.map((post) => <PostCard post={post} key={post.id} />)}</div>
-      )}
-      {tab === "gallery" && (
-        gallery.error ? <p className="text-sm text-red-600">Failed to load gallery.</p> :
-        gallery.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {galleryImages.map((url, i) => (
-            <button
-              type="button"
-              className="aspect-square overflow-hidden rounded-2xl bg-slate-100"
-              key={`${url}-${i}`}
-              onClick={() => setLightbox({ images: galleryImages, index: i })}
-            >
-              <img
-                className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                src={url}
-                alt=""
-                loading="lazy"
-              />
-            </button>
-          ))}
-        </div>
-      )}
-      {tab === "history" && (
-        events.error ? <p className="text-sm text-red-600">Failed to load events.</p> :
-        events.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
-        <div className="space-y-4">
-          {totalCostCents > 0 && (
-            <div className="surface rounded-2xl p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Total spent</p>
-                  <p className="mt-1 text-2xl font-bold">{formatMoney(totalCostCents)}</p>
-                </div>
-                <span className="text-xs text-slate-500">
-                  {allEvents.length} {allEvents.length === 1 ? "event" : "events"}
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {Object.entries(costByType).map(([type, cents]) => (
-                  <span
-                    key={type}
-                    className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(type)}`}
-                  >
-                    {eventTypeLabel(type)} · {formatMoney(cents)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {mileagePoints.length >= 2 && <MileageChart points={mileagePoints} />}
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
-              {presentEventTypes.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setEventFilter("all")}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                      eventFilter === "all"
-                        ? "bg-asphalt text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
-                    All
-                  </button>
-                  {presentEventTypes.map((type) => (
-                    <button
-                      type="button"
-                      key={type}
-                      onClick={() => setEventFilter(type)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition ${eventTypeBadge(type)} ${
-                        eventFilter === type ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
-                      }`}
-                    >
-                      {eventTypeLabel(type)}
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
-            {(events.data?.length ?? 0) > 0 && (
-              <button
-                type="button"
-                onClick={exportHistory}
-                disabled={exporting}
-                className="btn btn-secondary shrink-0 disabled:opacity-60"
-              >
-                <Download size={15} />
-                {exporting ? "Exporting…" : "Export"}
-              </button>
-            )}
-          </div>
-          {exportError && <p className="text-right text-sm text-red-600">{exportError}</p>}
-          {filteredEvents.map((event) => (
-            <article className="surface rounded-2xl p-4" key={event.id}>
-              <div className="flex items-center justify-between gap-2">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(event.event_type)}`}
-                >
-                  {eventTypeLabel(event.event_type)}
-                </span>
-                {isOwner && (
-                  <Link
-                    className="text-xs font-medium text-slate-500 hover:text-petrol"
-                    href={`/vehicles/${vehicleId}/events/${event.id}/edit`}
-                  >
-                    Edit
-                  </Link>
-                )}
-              </div>
-              <h2 className="mt-2 font-bold">{event.title}</h2>
-              <p className="text-sm text-slate-500">
-                {event.event_date ? formatDate(event.event_date) : ""}
-                {event.mileage ? ` · ${event.mileage.toLocaleString()} mi` : ""}
-                {event.cost_cents ? ` · ${formatMoney(event.cost_cents)}` : ""}
-              </p>
-              {event.description && <p className="mt-2 text-sm">{event.description}</p>}
-              {event.media.length > 0 && (
-                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                  {event.media.map((media, i) => (
-                    <button
-                      type="button"
-                      key={media.url}
-                      onClick={() =>
-                        setLightbox({ images: event.media.map((m) => m.url), index: i })
-                      }
-                      className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
-                    >
-                      <img
-                        src={media.thumbnail_url ?? media.url}
-                        alt=""
-                        loading="lazy"
-                        className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {event.documents?.length > 0 && (
-                <ul className="mt-3 space-y-1">
-                  {event.documents.map((doc) => (
-                    <li key={doc.url}>
-                      <a
-                        href={doc.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm text-petrol hover:underline"
-                      >
-                        📄 {doc.filename}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          ))}
-        </div>
-      )}
-      {tab === "specs" && (
-        <dl className="surface grid gap-4 rounded-3xl p-6 text-sm sm:grid-cols-2">
-          {visibleSpecs.map(([label, value]) => (
-            <div key={label}>
-              <dt className="font-semibold">{label}</dt>
-              <dd className="text-slate-600">{value || "Not set"}</dd>
-            </div>
-          ))}
-          {v.description && (
-            <div className="sm:col-span-2">
-              <dt className="font-semibold">Description</dt>
-              <dd className="text-slate-600">{v.description}</dd>
-            </div>
-          )}
-        </dl>
-      )}
-
-      {lightbox && (
-        <Lightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />
-      )}
-    </section>
-  );
+export default function VehiclePage(props: { params: Promise<{ vehicleId: string }> }) {
+  return <VehicleClient {...props} />;
 }

@@ -1,24 +1,48 @@
-"use client";
+import type { Metadata } from "next";
 
-import { useQuery } from "@tanstack/react-query";
-import { use } from "react";
-
-import { api } from "@/lib/api/client";
 import type { Post } from "@/lib/types";
-import { PostCard } from "@/components/PostCard";
-import { Comments } from "@/components/Comments";
-import { LoadErrorCard } from "@/components/LoadErrorCard";
+import { absoluteMediaUrl, serverFetch } from "@/lib/api/serverBase";
+import { PostClient } from "./PostClient";
 
-export default function PostPage({ params }: { params: Promise<{ postId: string }> }) {
-  const { postId } = use(params);
-  const post = useQuery({ queryKey: ["post", postId], queryFn: () => api<Post>(`/posts/${postId}`) });
-  if (post.isLoading) return <div>Loading post...</div>;
-  if (post.error) return <LoadErrorCard error={post.error} noun="post" />;
-  if (!post.data) return <div>Post not found.</div>;
-  return (
-    <>
-      <PostCard post={post.data} />
-      <Comments postId={post.data.id} postAuthorId={post.data.author.id} />
-    </>
-  );
+function truncate(text: string, max = 70): string {
+  const clean = text.trim().replace(/\s+/g, " ");
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+export async function generateMetadata({
+  params
+}: {
+  params: Promise<{ postId: string }>;
+}): Promise<Metadata> {
+  const { postId } = await params;
+  const post = await serverFetch<Post>(`/posts/${postId}`);
+  if (!post) return { title: "CeCeCar" };
+
+  const username = post.author?.username ? `@${post.author.username}` : "@someone";
+  const caption = post.caption?.trim();
+  const title = caption ? `${truncate(caption)} — CeCeCar` : `Post by ${username} — CeCeCar`;
+  const description = caption || `A post by ${username} on CeCeCar.`;
+  const image = absoluteMediaUrl(post.media?.[0]?.url) ?? absoluteMediaUrl(post.author?.avatar_url);
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: "article",
+      url: `/posts/${post.id}`,
+      images: image ? [{ url: image }] : undefined
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: image ? [image] : undefined
+    }
+  };
+}
+
+export default function PostPage(props: { params: Promise<{ postId: string }> }) {
+  return <PostClient {...props} />;
 }
