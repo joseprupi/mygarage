@@ -19,8 +19,13 @@ import { ShareButton } from "@/components/ShareButton";
 import { VehicleModForm } from "@/components/VehicleModForm";
 import type { VehicleMod } from "@/lib/types";
 
-const tabs = ["posts", "gallery", "history", "build", "specs"] as const;
+const tabs = ["posts", "gallery", "history", "specs"] as const;
 type Tab = (typeof tabs)[number];
+
+// Filter sentinel for the History type filter: show only mods.
+const MODS_FILTER = "mods";
+// Badge styling for mod entries (timeline + filter chip).
+const MOD_BADGE = "bg-indigo-100 text-indigo-700";
 
 // Group an already-category-sorted mod list into [category, mods][] by walking
 // consecutive runs — preserves the backend's category/sort_order ordering.
@@ -54,7 +59,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
-  // Build tab: which form is open ("new" to add, a mod id to edit, null to hide).
+  // Mods (Specs tab): which form is open ("new" to add, a mod id to edit, null to hide).
   const [modForm, setModForm] = useState<"new" | string | null>(null);
   const [modError, setModError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -66,7 +71,8 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   // Specs also needs events: when the vehicle has no mileage of its own we
   // derive it from the latest recorded reading in the history.
   const events = useQuery({ queryKey: ["vehicleEvents", vehicleId], queryFn: () => vehicleApi.events(vehicleId), enabled: tab === "history" || tab === "specs" });
-  const mods = useQuery({ queryKey: ["vehicleMods", vehicleId], queryFn: () => vehicleApi.mods(vehicleId), enabled: tab === "build" });
+  // Mods feed both the Specs tab (full CRUD list) and the History timeline/chart.
+  const mods = useQuery({ queryKey: ["vehicleMods", vehicleId], queryFn: () => vehicleApi.mods(vehicleId), enabled: tab === "specs" || tab === "history" });
 
   async function deleteMod(modId: string) {
     if (!window.confirm("Delete this mod? This cannot be undone.")) return;
@@ -121,6 +127,35 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     (e) => eventFilter === "all" || e.event_type === eventFilter
   );
 
+  // Mods that carry an install date show on the History timeline; the rest still
+  // live in the Specs Mods section. `hasDatedMods` drives the "Mods" filter chip.
+  const allMods = mods.data ?? [];
+  const datedMods = allMods.filter((m) => m.installed_date);
+  const hasDatedMods = datedMods.length > 0;
+  // Unified, date-descending timeline of events + mods. When a specific event
+  // type is selected, filteredEvents is already narrowed and mods are hidden;
+  // when "mods" is selected, filteredEvents is empty (no event_type === "mods").
+  const showModsInTimeline = eventFilter === "all" || eventFilter === MODS_FILTER;
+  const timeline: (
+    | { kind: "event"; key: string; date: string; event: (typeof filteredEvents)[number] }
+    | { kind: "mod"; key: string; date: string; mod: VehicleMod }
+  )[] = [
+    ...filteredEvents.map((event) => ({
+      kind: "event" as const,
+      key: `event-${event.id}`,
+      date: event.event_date ?? "",
+      event
+    })),
+    ...(showModsInTimeline
+      ? datedMods.map((mod) => ({
+          kind: "mod" as const,
+          key: `mod-${mod.id}`,
+          date: mod.installed_date ?? "",
+          mod
+        }))
+      : [])
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
   // Cost summary over ALL events (ignores the active type filter).
   const allEvents = events.data ?? [];
   const totalCostCents = allEvents.reduce((sum, e) => sum + (e.cost_cents ?? 0), 0);
@@ -128,15 +163,20 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     if (e.cost_cents) acc[e.event_type] = (acc[e.event_type] ?? 0) + e.cost_cents;
     return acc;
   }, {});
-  // Mileage points for the timeline chart: one per date. On multiple readings for
-  // the same date, take the highest (odometer reading) so it's deterministic
-  // regardless of event order.
-  const mileageByDate = allEvents.reduce<Record<string, number>>((acc, e) => {
+  // Mileage points for the timeline chart: one per date, from BOTH events and
+  // mods. On multiple readings for the same date, take the highest (odometer
+  // reading) so it's deterministic regardless of order.
+  const mileageByDate: Record<string, number> = {};
+  for (const e of allEvents) {
     if (e.event_date && e.mileage != null) {
-      acc[e.event_date] = Math.max(acc[e.event_date] ?? e.mileage, e.mileage);
+      mileageByDate[e.event_date] = Math.max(mileageByDate[e.event_date] ?? e.mileage, e.mileage);
     }
-    return acc;
-  }, {});
+  }
+  for (const m of allMods) {
+    if (m.installed_date && m.mileage != null) {
+      mileageByDate[m.installed_date] = Math.max(mileageByDate[m.installed_date] ?? m.mileage, m.mileage);
+    }
+  }
   const mileagePoints = Object.entries(mileageByDate)
     .map(([date, miles]) => ({ date, miles }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -300,7 +340,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
           {mileagePoints.length >= 2 && <MileageChart points={mileagePoints} />}
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap gap-2">
-              {presentEventTypes.length > 1 && (
+              {presentEventTypes.length + (hasDatedMods ? 1 : 0) > 1 && (
                 <>
                   <button
                     type="button"
@@ -325,6 +365,17 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                       {eventTypeLabel(type)}
                     </button>
                   ))}
+                  {hasDatedMods && (
+                    <button
+                      type="button"
+                      onClick={() => setEventFilter(MODS_FILTER)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition ${MOD_BADGE} ${
+                        eventFilter === MODS_FILTER ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
+                      }`}
+                    >
+                      Mods
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -341,78 +392,142 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
             )}
           </div>
           {exportError && <p className="text-right text-sm text-red-600">{exportError}</p>}
-          {filteredEvents.map((event) => (
-            <article className="surface rounded-2xl p-4" key={event.id}>
-              <div className="flex items-center justify-between gap-2">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(event.event_type)}`}
-                >
-                  {eventTypeLabel(event.event_type)}
-                </span>
-                {isOwner && (
-                  <Link
-                    className="text-xs font-medium text-slate-500 hover:text-petrol"
-                    href={`/vehicles/${vehicleId}/events/${event.id}/edit`}
-                  >
-                    Edit
-                  </Link>
-                )}
-              </div>
-              <h2 className="mt-2 font-bold">{event.title}</h2>
-              <p className="text-sm text-slate-500">
-                {event.event_date ? formatDate(event.event_date) : ""}
-                {event.mileage ? ` · ${event.mileage.toLocaleString()} mi` : ""}
-                {event.cost_cents ? ` · ${formatMoney(event.cost_cents)}` : ""}
-              </p>
-              {event.description && <p className="mt-2 text-sm">{event.description}</p>}
-              {event.media.length > 0 && (
-                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                  {event.media.map((media, i) => (
-                    <button
-                      type="button"
-                      key={media.url}
-                      onClick={() =>
-                        setLightbox({ images: event.media.map((m) => m.url), index: i })
-                      }
-                      className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
-                    >
-                      <img
-                        src={media.thumbnail_url ?? media.url}
-                        alt=""
-                        loading="lazy"
-                        className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-              {event.documents?.length > 0 && (
-                <ul className="mt-3 space-y-1">
-                  {event.documents.map((doc) => (
-                    <li key={doc.url}>
-                      <a
-                        href={doc.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm text-petrol hover:underline"
+          {timeline.map((entry) =>
+            entry.kind === "event" ? (
+              (() => {
+                const event = entry.event;
+                return (
+                  <article className="surface rounded-2xl p-4" key={entry.key}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(event.event_type)}`}
                       >
-                        📄 {doc.filename}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          ))}
+                        {eventTypeLabel(event.event_type)}
+                      </span>
+                      {isOwner && (
+                        <Link
+                          className="text-xs font-medium text-slate-500 hover:text-petrol"
+                          href={`/vehicles/${vehicleId}/events/${event.id}/edit`}
+                        >
+                          Edit
+                        </Link>
+                      )}
+                    </div>
+                    <h2 className="mt-2 font-bold">{event.title}</h2>
+                    <p className="text-sm text-slate-500">
+                      {event.event_date ? formatDate(event.event_date) : ""}
+                      {event.mileage ? ` · ${event.mileage.toLocaleString()} mi` : ""}
+                      {event.cost_cents ? ` · ${formatMoney(event.cost_cents)}` : ""}
+                    </p>
+                    {event.description && <p className="mt-2 text-sm">{event.description}</p>}
+                    {event.media.length > 0 && (
+                      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                        {event.media.map((media, i) => (
+                          <button
+                            type="button"
+                            key={media.url}
+                            onClick={() =>
+                              setLightbox({ images: event.media.map((m) => m.url), index: i })
+                            }
+                            className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                          >
+                            <img
+                              src={media.thumbnail_url ?? media.url}
+                              alt=""
+                              loading="lazy"
+                              className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {event.documents?.length > 0 && (
+                      <ul className="mt-3 space-y-1">
+                        {event.documents.map((doc) => (
+                          <li key={doc.url}>
+                            <a
+                              href={doc.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-sm text-petrol hover:underline"
+                            >
+                              📄 {doc.filename}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </article>
+                );
+              })()
+            ) : (
+              (() => {
+                const mod = entry.mod;
+                return (
+                  <article className="surface rounded-2xl p-4" key={entry.key}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${MOD_BADGE}`}>Mod</span>
+                      <span className="text-xs font-medium text-slate-400">{mod.category}</span>
+                    </div>
+                    <h2 className="mt-2 font-bold">{mod.name}</h2>
+                    <p className="text-sm text-slate-500">
+                      {[
+                        mod.installed_date ? formatDate(mod.installed_date) : null,
+                        mod.brand || null,
+                        mod.mileage != null ? `${mod.mileage.toLocaleString()} mi` : null,
+                        mod.cost_cents != null ? formatMoney(mod.cost_cents) : null
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                    {mod.notes && <p className="mt-2 text-sm">{mod.notes}</p>}
+                    {mod.media.length > 0 && (
+                      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                        {mod.media.map((media, i) => (
+                          <button
+                            type="button"
+                            key={media.url}
+                            onClick={() => setLightbox({ images: mod.media.map((m) => m.url), index: i })}
+                            className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                          >
+                            <img
+                              src={media.thumbnail_url ?? media.url}
+                              alt=""
+                              loading="lazy"
+                              className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                );
+              })()
+            )
+          )}
         </div>
       )}
-      {tab === "build" && (
-        mods.error ? <p className="text-sm text-red-600">Failed to load build details.</p> :
-        mods.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
-        <div className="space-y-4">
-          {isOwner && (
-            <div className="flex justify-end">
-              {modForm !== "new" && (
+      {tab === "specs" && (
+        <div className="space-y-6">
+          <dl className="surface grid gap-4 rounded-3xl p-6 text-sm sm:grid-cols-2">
+            {visibleSpecs.map(([label, value]) => (
+              <div key={label}>
+                <dt className="font-semibold">{label}</dt>
+                <dd className="text-slate-600">{value || "Not set"}</dd>
+              </div>
+            ))}
+            {v.description && (
+              <div className="sm:col-span-2">
+                <dt className="font-semibold">Description</dt>
+                <dd className="text-slate-600">{v.description}</dd>
+              </div>
+            )}
+          </dl>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-bold">Mods</h2>
+              {isOwner && modForm !== "new" && (
                 <button
                   type="button"
                   className="btn btn-accent px-5 py-2.5 shadow-sm"
@@ -423,111 +538,123 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                 </button>
               )}
             </div>
-          )}
-          {modForm === "new" && (
-            <VehicleModForm vehicleId={vehicleId} onClose={() => setModForm(null)} />
-          )}
-          {modError && <p className="text-sm text-red-600">{modError}</p>}
-          {(mods.data?.length ?? 0) === 0 && modForm !== "new" ? (
-            <div className="surface rounded-2xl p-6 text-center">
-              <p className="text-sm text-slate-600">No build details yet.</p>
-              {isOwner && (
-                <button
-                  type="button"
-                  className="btn btn-accent mt-3 px-5 py-2.5"
-                  onClick={() => setModForm("new")}
-                >
-                  <Plus size={18} strokeWidth={2.5} />
-                  Add the first mod
-                </button>
-              )}
-            </div>
-          ) : (
-            // The list comes back category-sorted, so consecutive grouping yields
-            // one header per category.
-            groupMods(mods.data ?? []).map(([category, items]) => (
-              <div key={category} className="space-y-2">
-                <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500">{category}</h2>
-                <div className="space-y-2">
-                  {items.map((mod) =>
-                    modForm === mod.id ? (
-                      <VehicleModForm
-                        key={mod.id}
-                        vehicleId={vehicleId}
-                        mod={mod}
-                        onClose={() => setModForm(null)}
-                      />
-                    ) : (
-                      <article className="surface rounded-2xl p-4" key={mod.id}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <h3 className="font-bold">{mod.name}</h3>
-                            {mod.brand && <p className="text-sm text-slate-500">{mod.brand}</p>}
-                          </div>
-                          {isOwner && (
-                            <div className="flex shrink-0 items-center gap-3">
-                              <button
-                                type="button"
-                                className="text-xs font-medium text-slate-500 hover:text-petrol"
-                                onClick={() => setModForm(mod.id)}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="text-xs font-medium text-slate-500 hover:text-red-600"
-                                onClick={() => deleteMod(mod.id)}
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        {(mod.cost_cents != null || mod.installed_date) && (
-                          <p className="mt-1 text-sm text-slate-500">
-                            {[
-                              mod.cost_cents != null ? formatMoney(mod.cost_cents) : null,
-                              mod.installed_date ? formatDate(mod.installed_date) : null
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
+            {mods.error ? (
+              <p className="text-sm text-red-600">Failed to load mods.</p>
+            ) : mods.isLoading ? (
+              <p className="text-sm text-slate-500">Loading...</p>
+            ) : (
+              <>
+                {modForm === "new" && (
+                  <VehicleModForm vehicleId={vehicleId} onClose={() => setModForm(null)} />
+                )}
+                {modError && <p className="text-sm text-red-600">{modError}</p>}
+                {(mods.data?.length ?? 0) === 0 && modForm !== "new" ? (
+                  <div className="surface rounded-2xl p-6 text-center">
+                    <p className="text-sm text-slate-600">No mods yet.</p>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        className="btn btn-accent mt-3 px-5 py-2.5"
+                        onClick={() => setModForm("new")}
+                      >
+                        <Plus size={18} strokeWidth={2.5} />
+                        Add the first mod
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  // The list comes back category-sorted, so consecutive grouping yields
+                  // one header per category.
+                  groupMods(mods.data ?? []).map(([category, items]) => (
+                    <div key={category} className="space-y-2">
+                      <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500">{category}</h3>
+                      <div className="space-y-2">
+                        {items.map((mod) =>
+                          modForm === mod.id ? (
+                            <VehicleModForm
+                              key={mod.id}
+                              vehicleId={vehicleId}
+                              mod={mod}
+                              onClose={() => setModForm(null)}
+                            />
+                          ) : (
+                            <article className="surface rounded-2xl p-4" key={mod.id}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <h4 className="font-bold">{mod.name}</h4>
+                                  {mod.brand && <p className="text-sm text-slate-500">{mod.brand}</p>}
+                                </div>
+                                {isOwner && (
+                                  <div className="flex shrink-0 items-center gap-3">
+                                    <button
+                                      type="button"
+                                      className="text-xs font-medium text-slate-500 hover:text-petrol"
+                                      onClick={() => setModForm(mod.id)}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="text-xs font-medium text-slate-500 hover:text-red-600"
+                                      onClick={() => deleteMod(mod.id)}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                              {(mod.cost_cents != null || mod.installed_date || mod.mileage != null) && (
+                                <p className="mt-1 text-sm text-slate-500">
+                                  {[
+                                    mod.installed_date ? formatDate(mod.installed_date) : null,
+                                    mod.mileage != null ? `${mod.mileage.toLocaleString()} mi` : null,
+                                    mod.cost_cents != null ? formatMoney(mod.cost_cents) : null
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </p>
+                              )}
+                              {mod.notes && <p className="mt-2 text-sm">{mod.notes}</p>}
+                              {mod.link && (
+                                <a
+                                  href={mod.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-2 inline-flex items-center gap-1 text-sm text-petrol hover:underline"
+                                >
+                                  View part <ExternalLink size={13} />
+                                </a>
+                              )}
+                              {mod.media.length > 0 && (
+                                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                                  {mod.media.map((media, i) => (
+                                    <button
+                                      type="button"
+                                      key={media.url}
+                                      onClick={() => setLightbox({ images: mod.media.map((m) => m.url), index: i })}
+                                      className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                                    >
+                                      <img
+                                        src={media.thumbnail_url ?? media.url}
+                                        alt=""
+                                        loading="lazy"
+                                        className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                                      />
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </article>
+                          )
                         )}
-                        {mod.notes && <p className="mt-2 text-sm">{mod.notes}</p>}
-                        {mod.link && (
-                          <a
-                            href={mod.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-2 inline-flex items-center gap-1 text-sm text-petrol hover:underline"
-                          >
-                            View part <ExternalLink size={13} />
-                          </a>
-                        )}
-                      </article>
-                    )
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </>
+            )}
+          </div>
         </div>
-      )}
-      {tab === "specs" && (
-        <dl className="surface grid gap-4 rounded-3xl p-6 text-sm sm:grid-cols-2">
-          {visibleSpecs.map(([label, value]) => (
-            <div key={label}>
-              <dt className="font-semibold">{label}</dt>
-              <dd className="text-slate-600">{value || "Not set"}</dd>
-            </div>
-          ))}
-          {v.description && (
-            <div className="sm:col-span-2">
-              <dt className="font-semibold">Description</dt>
-              <dd className="text-slate-600">{v.description}</dd>
-            </div>
-          )}
-        </dl>
       )}
 
       {lightbox && (

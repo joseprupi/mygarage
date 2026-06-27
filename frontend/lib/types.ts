@@ -116,7 +116,9 @@ export type VehicleMod = {
   currency: string;
   link?: string | null;
   installed_date?: string | null;
+  mileage?: number | null;
   notes?: string | null;
+  media: Media[];
   sort_order: number;
   created_at: string;
   updated_at: string;
