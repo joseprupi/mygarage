@@ -1,9 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
-import { authApi } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 
 // Wraps pages that require a signed-in user. While the ["me"] query is
 // pending it shows a light loading state (so logged-in users don't flash
@@ -16,7 +15,7 @@ export function AuthGate({
   children: React.ReactNode;
   message?: string;
 }) {
-  const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const me = useMe();
 
   if (me.isPending) {
     return <div className="surface rounded-3xl p-6 text-sm text-slate-500">Loading...</div>;

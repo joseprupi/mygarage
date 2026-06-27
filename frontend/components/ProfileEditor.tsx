@@ -1,12 +1,13 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
 import { LocationInput } from "@/components/LocationInput";
 import { authApi, mediaApi, setToken } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 
 export function ProfileEditor() {
@@ -24,11 +25,7 @@ export function ProfileEditor() {
     router.push("/auth");
   }
 
-  const { data, isLoading, error: loadError } = useQuery({
-    queryKey: ["me"],
-    queryFn: authApi.me,
-    retry: false
-  });
+  const { data, isLoading, error: loadError } = useMe();
   const user = data as
     | {
         id: string;

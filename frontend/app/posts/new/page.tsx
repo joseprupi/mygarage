@@ -6,7 +6,8 @@ import { useState } from "react";
 import Link from "next/link";
 
 import { ImageUploader } from "@/components/ImageUploader";
-import { api, authApi, postApi } from "@/lib/api/client";
+import { api, postApi } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 import type { Media, Vehicle } from "@/lib/types";
 
 export default function NewPostPage() {
@@ -17,7 +18,7 @@ export default function NewPostPage() {
   const [vehicleIds, setVehicleIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const me = useMe();
   const user = me.data as { id: string } | undefined;
   const vehicles = useQuery({
     queryKey: ["myVehiclesForPost", user?.id],

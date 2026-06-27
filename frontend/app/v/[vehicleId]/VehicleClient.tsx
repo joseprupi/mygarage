@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, use, useState } from "react";
 import { Download, Pencil, Plus } from "lucide-react";
 
-import { authApi, getToken, vehicleApi } from "@/lib/api/client";
+import { getToken, vehicleApi } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -40,7 +41,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
-  const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const me = useMe();
   const currentUser = me.data as { id: string } | undefined;
   const posts = useQuery({ queryKey: ["vehiclePosts", vehicleId], queryFn: () => vehicleApi.posts(vehicleId), enabled: tab === "posts" });
   const gallery = useQuery({ queryKey: ["vehicleGallery", vehicleId], queryFn: () => vehicleApi.gallery(vehicleId), enabled: tab === "gallery" });

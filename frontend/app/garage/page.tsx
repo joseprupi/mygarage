@@ -3,11 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
-import { api, authApi } from "@/lib/api/client";
+import { api } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 import type { Vehicle } from "@/lib/types";
 
 export default function GaragePage() {
-  const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const me = useMe();
   const user = me.data as { id: string } | undefined;
   const vehicles = useQuery({
     queryKey: ["garage", user?.id],

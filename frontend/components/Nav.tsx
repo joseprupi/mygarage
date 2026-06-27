@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { Car, Home, LogIn, PlusSquare, Search, UserRound } from "lucide-react";
 
-import { authApi } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 
 const items = [
   { href: "/", label: "Home", icon: Home },
@@ -21,7 +20,7 @@ export function Nav() {
 
   // Show a subtle "Log in" affordance only to guests (once the query has settled,
   // so it doesn't flash for logged-in users on first paint).
-  const { data, error, isPending } = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const { data, error, isPending } = useMe();
   const isGuest = !isPending && (!data || !!error);
 
   return (

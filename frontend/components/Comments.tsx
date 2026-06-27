@@ -5,7 +5,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { Heart, Trash2 } from "lucide-react";
 
-import { authApi, postApi } from "@/lib/api/client";
+import { postApi } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 import { formatDateTime } from "@/lib/format";
 import type { Comment } from "@/lib/types";
 
@@ -86,7 +87,7 @@ function CommentRow({
 
 export function Comments({ postId, postAuthorId }: { postId: string; postAuthorId: string }) {
   const queryClient = useQueryClient();
-  const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const me = useMe();
   const currentUser = me.data as { id: string } | undefined;
   const [body, setBody] = useState("");
   const comments = useQuery({ queryKey: ["comments", postId], queryFn: () => postApi.comments(postId) });
