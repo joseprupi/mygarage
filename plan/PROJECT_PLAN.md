@@ -19,7 +19,7 @@ Goal: make My Garage unmistakably "the place to keep your car."
 - [x] Cost summary / total spend on History tab (S–M).
 - [x] Share button on vehicle + post (S) — copy-link.
 - [~] ~~Public "service record" page~~ — SKIPPED (decided `/v/[id]` + Copy link is enough).
-- [ ] Build sheet / mods list (M).
+- [x] Build sheet / mods list (M). `vehicle_mods` table + owner CRUD (`/vehicles/{id}/mods`, `/mods/{id}`); Build tab on `/v` (category-grouped, URL-shareable `?tab=build`, owner add/edit/delete). Backend `2048005`, frontend `eb19ace`.
 - [ ] Receipts/PDF document attachments on events (M).
 
 ## Phase 2 — Light social amplifiers (P1)
