@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { Car, Home, LogIn, PlusSquare, Search, UserRound } from "lucide-react";
 
-import { authApi } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 
 const items = [
   { href: "/", label: "Home", icon: Home },
@@ -21,7 +20,7 @@ export function Nav() {
 
   // Show a subtle "Log in" affordance only to guests (once the query has settled,
   // so it doesn't flash for logged-in users on first paint).
-  const { data, error, isPending } = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const { data, error, isPending } = useMe();
   const isGuest = !isPending && (!data || !!error);
 
   return (
@@ -30,7 +29,7 @@ export function Nav() {
       <aside className="group fixed inset-y-0 left-0 z-30 hidden w-16 flex-col overflow-hidden bg-white p-2 transition-[width] duration-200 ease-out hover:w-60 md:flex">
         <Link href="/" className="flex items-center rounded-xl p-1.5">
           <span className="block h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-1 ring-slate-200">
-            <img src="/logo.svg" alt="Car Social" className="h-full w-full object-cover" />
+            <img src="/logo.svg" alt="CeCeCar" className="h-full w-full object-cover" />
           </span>
         </Link>
         {isGuest && (

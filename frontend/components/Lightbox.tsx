@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
+import { useDialogFocus } from "@/lib/useDialogFocus";
+
 export function Lightbox({
   images,
   startIndex = 0,
@@ -13,6 +15,7 @@ export function Lightbox({
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(startIndex);
+  const dialogRef = useDialogFocus<HTMLDivElement>();
 
   useEffect(() => setIndex(startIndex), [startIndex]);
 
@@ -34,6 +37,11 @@ export function Lightbox({
 
   return (
     <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image viewer"
+      tabIndex={-1}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
       onClick={onClose}
     >

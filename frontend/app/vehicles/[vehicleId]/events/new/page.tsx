@@ -1,3 +1,4 @@
+import { AuthGate } from "@/components/AuthGate";
 import { VehicleEventForm } from "@/components/VehicleEventForm";
 
 export default async function NewVehicleEventPage({
@@ -6,5 +7,9 @@ export default async function NewVehicleEventPage({
   params: Promise<{ vehicleId: string }>;
 }) {
   const { vehicleId } = await params;
-  return <VehicleEventForm vehicleId={vehicleId} />;
+  return (
+    <AuthGate message="Log in to add an event.">
+      <VehicleEventForm vehicleId={vehicleId} />
+    </AuthGate>
+  );
 }

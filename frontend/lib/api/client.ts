@@ -24,6 +24,18 @@ function formatApiError(body: unknown, status: number): string {
   return `Request failed: ${status}`;
 }
 
+// Error thrown for non-OK API responses. Carries the HTTP status so callers
+// (and the QueryClient retry policy) can distinguish 4xx from transient errors.
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export function getToken() {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem("carSocialToken");
@@ -43,7 +55,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(formatApiError(body, response.status));
+    throw new ApiError(formatApiError(body, response.status), response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -79,6 +91,7 @@ export const vehicleApi = {
     api<Vehicle>("/vehicles", { method: "POST", body: JSON.stringify(body) }),
   update: (id: string, body: Partial<Vehicle>) =>
     api<Vehicle>(`/vehicles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  delete: (id: string) => api<void>(`/vehicles/${id}`, { method: "DELETE" }),
   get: (id: string) => api<Vehicle>(`/vehicles/${id}`),
   myVehicles: (userId: string) => api<Vehicle[]>(`/users/${userId}/vehicles`),
   posts: (id: string) => api<Post[]>(`/vehicles/${id}/posts`),
@@ -161,5 +174,6 @@ export const eventApi = {
     api<VehicleEvent>(`/vehicle-events/${eventId}`, {
       method: "PATCH",
       body: JSON.stringify(body)
-    })
+    }),
+  delete: (eventId: string) => api<void>(`/vehicle-events/${eventId}`, { method: "DELETE" })
 };

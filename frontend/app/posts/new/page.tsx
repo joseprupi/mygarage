@@ -3,9 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import Link from "next/link";
 
 import { ImageUploader } from "@/components/ImageUploader";
-import { api, authApi, postApi } from "@/lib/api/client";
+import { api, postApi } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 import type { Media, Vehicle } from "@/lib/types";
 
 export default function NewPostPage() {
@@ -15,7 +17,8 @@ export default function NewPostPage() {
   const [media, setMedia] = useState<Media[]>([]);
   const [vehicleIds, setVehicleIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const [submitting, setSubmitting] = useState(false);
+  const me = useMe();
   const user = me.data as { id: string } | undefined;
   const vehicles = useQuery({
     queryKey: ["myVehiclesForPost", user?.id],
@@ -23,9 +26,17 @@ export default function NewPostPage() {
     queryFn: () => api<Vehicle[]>(`/users/${user!.id}/vehicles`)
   });
 
+  const hasContent = caption.trim().length > 0 || media.length > 0;
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (submitting) return;
     setError(null);
+    if (!hasContent) {
+      setError("Add a caption or a photo before publishing.");
+      return;
+    }
+    setSubmitting(true);
     try {
       const post = await postApi.create({
         caption,
@@ -36,7 +47,23 @@ export default function NewPostPage() {
       router.push(`/posts/${post.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create post");
+      setSubmitting(false);
     }
+  }
+
+  if (me.isPending) {
+    return <div className="surface rounded-3xl p-6 text-sm text-slate-500">Loading...</div>;
+  }
+
+  if (!user) {
+    return (
+      <div className="surface rounded-3xl p-6">
+        <p className="mb-4">Log in to share a post.</p>
+        <Link className="btn btn-primary" href="/auth">
+          Log in
+        </Link>
+      </div>
+    );
   }
 
   return (
@@ -70,6 +97,7 @@ export default function NewPostPage() {
               }
             />
             {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ")}
+            {vehicle.nickname ? ` · “${vehicle.nickname}”` : ""}
           </label>
         ))}
       </div>
@@ -82,8 +110,13 @@ export default function NewPostPage() {
         </select>
       </label>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn btn-primary px-5 py-3" type="submit">
-        Publish
+      {!hasContent && <p className="text-sm text-slate-500">Add a caption or a photo to publish.</p>}
+      <button
+        className="btn btn-primary px-5 py-3 disabled:opacity-60"
+        disabled={submitting || !hasContent}
+        type="submit"
+      >
+        {submitting ? "Publishing…" : "Publish"}
       </button>
     </form>
   );

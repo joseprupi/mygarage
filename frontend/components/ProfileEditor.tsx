@@ -1,11 +1,13 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
+import { LocationInput } from "@/components/LocationInput";
 import { authApi, mediaApi, setToken } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 
 export function ProfileEditor() {
@@ -13,6 +15,8 @@ export function ProfileEditor() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [fields, setFields] = useState({ display_name: "", bio: "", location: "" });
 
   function logOut() {
     setToken(null);
@@ -21,11 +25,7 @@ export function ProfileEditor() {
     router.push("/auth");
   }
 
-  const { data, isLoading, error: loadError } = useQuery({
-    queryKey: ["me"],
-    queryFn: authApi.me,
-    retry: false
-  });
+  const { data, isLoading, error: loadError } = useMe();
   const user = data as
     | {
         id: string;
@@ -48,6 +48,16 @@ export function ProfileEditor() {
       void queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Could not update photo")
+  });
+
+  const saveProfile = useMutation({
+    mutationFn: () => authApi.updateProfile(fields),
+    onSuccess: () => {
+      setError(null);
+      setEditing(false);
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Could not update profile")
   });
 
   if (isLoading) return <div className="surface rounded-3xl p-6">Loading profile...</div>;
@@ -74,6 +84,9 @@ export function ProfileEditor() {
                 src={user.avatar_url || carAvatarUri(user.username)}
                 alt=""
                 className="h-full w-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.src = carAvatarUri(user.username);
+                }}
               />
             </div>
             <button
@@ -102,12 +115,70 @@ export function ProfileEditor() {
             <p className="text-slate-600">{user.display_name}</p>
             <p className="text-sm text-slate-500">{user.location}</p>
           </div>
-          <button type="button" className="btn btn-secondary shrink-0" onClick={logOut}>
-            Log out
-          </button>
+          <div className="flex shrink-0 gap-2">
+            {!editing && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setFields({
+                    display_name: user.display_name ?? "",
+                    bio: user.bio ?? "",
+                    location: user.location ?? ""
+                  });
+                  setError(null);
+                  setEditing(true);
+                }}
+              >
+                Edit profile
+              </button>
+            )}
+            <button type="button" className="btn btn-secondary" onClick={logOut}>
+              Log out
+            </button>
+          </div>
         </div>
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-        {user.bio && <p className="mt-4 text-sm leading-6">{user.bio}</p>}
+        {editing ? (
+          <form
+            className="mt-4 space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!saveProfile.isPending) saveProfile.mutate();
+            }}
+          >
+            <label className="block space-y-1 text-sm">
+              <span>Display name</span>
+              <input
+                className="input"
+                value={fields.display_name}
+                onChange={(event) => setFields({ ...fields, display_name: event.target.value })}
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span>Bio</span>
+              <textarea
+                className="input min-h-24"
+                value={fields.bio}
+                onChange={(event) => setFields({ ...fields, bio: event.target.value })}
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span>Location</span>
+              <LocationInput value={fields.location} onChange={(v) => setFields({ ...fields, location: v })} />
+            </label>
+            <div className="flex gap-2">
+              <button className="btn btn-primary disabled:opacity-60" disabled={saveProfile.isPending} type="submit">
+                {saveProfile.isPending ? "Saving…" : "Save profile"}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditing(false)}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          user.bio && <p className="mt-4 text-sm leading-6">{user.bio}</p>
+        )}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Link className="hover-lift flex items-center justify-center rounded-2xl bg-asphalt p-4 font-semibold text-white" href="/vehicles/new">

@@ -1,14 +1,16 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { InfiniteData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { Heart, MessageCircle, Trash2 } from "lucide-react";
 
-import { authApi, postApi } from "@/lib/api/client";
+import { getToken, postApi } from "@/lib/api/client";
+import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
-import type { Post } from "@/lib/types";
+import { formatDateTime } from "@/lib/format";
+import type { FeedPage, Post } from "@/lib/types";
 import { ImageCarousel } from "@/components/ImageCarousel";
 import { ShareButton } from "@/components/ShareButton";
 import { UserListModal } from "@/components/UserListModal";
@@ -17,18 +19,53 @@ export function PostCard({ post }: { post: Post }) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
-  const me = useQuery({ queryKey: ["me"], queryFn: authApi.me, retry: false });
+  const me = useMe();
   const currentUser = me.data as { id: string } | undefined;
-  const [liked, setLiked] = useState(post.viewer_has_liked);
-  const [likeCount, setLikeCount] = useState(post.like_count);
-  const [liking, setLiking] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [likersOpen, setLikersOpen] = useState(false);
+  // Liked state + count are read straight off the `post` prop, which is the
+  // cached value from whichever query rendered this card (feed/post/vehicle/
+  // user lists). Driving the toggle through the query cache (below) keeps it
+  // consistent when the virtualized feed unmounts and remounts a card.
+  const liked = post.viewer_has_liked;
+  const likeCount = post.like_count;
   const likers = useQuery({
     queryKey: ["post", post.id, "likers"],
     queryFn: () => postApi.likers(post.id),
     enabled: likersOpen
   });
+
+  // Apply an optimistic like toggle to every cache that can hold this post.
+  // The `apply` mapper is idempotent per target value (it no-ops once a post
+  // already matches `nextLiked`), so the same call safely patches the post
+  // wherever it appears and is reusable for rollback.
+  function patchLike(nextLiked: boolean) {
+    const apply = (p: Post): Post =>
+      p.id !== post.id || p.viewer_has_liked === nextLiked
+        ? p
+        : { ...p, viewer_has_liked: nextLiked, like_count: Math.max(0, p.like_count + (nextLiked ? 1 : -1)) };
+    queryClient.setQueryData<Post>(["post", post.id], (old) => (old ? apply(old) : old));
+    queryClient.setQueryData<InfiniteData<FeedPage>>(["feed"], (old) =>
+      old ? { ...old, pages: old.pages.map((page) => ({ ...page, items: page.items.map(apply) })) } : old
+    );
+    queryClient.setQueriesData<Post[]>({ queryKey: ["vehiclePosts"] }, (old) => (old ? old.map(apply) : old));
+    queryClient.setQueriesData<Post[]>({ queryKey: ["userPosts"] }, (old) => (old ? old.map(apply) : old));
+  }
+
+  const likeMutation = useMutation({
+    mutationFn: (nextLiked: boolean) => (nextLiked ? postApi.like(post.id) : postApi.unlike(post.id)),
+    // Optimistic: write the new state to the cache up front (instant toggle),
+    // remembering the previous flag so we can roll back if the request fails.
+    onMutate: (nextLiked: boolean) => {
+      const previous = post.viewer_has_liked;
+      patchLike(nextLiked);
+      return { previous };
+    },
+    onError: (_err, _nextLiked, context) => {
+      if (context) patchLike(context.previous);
+    }
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => postApi.delete(post.id),
     onSuccess: async () => {
@@ -42,24 +79,17 @@ export function PostCard({ post }: { post: Post }) {
     }
   });
 
-  async function handleLike() {
-    if (liking) return;
-    const wasLiked = liked;
-    setLiked(!wasLiked);
-    setLikeCount(wasLiked ? likeCount - 1 : likeCount + 1);
-    setLiking(true);
-    try {
-      if (wasLiked) {
-        await postApi.unlike(post.id);
-      } else {
-        await postApi.like(post.id);
-      }
-    } catch {
-      setLiked(wasLiked);
-      setLikeCount(likeCount);
-    } finally {
-      setLiking(false);
+  function handleLike() {
+    if (likeMutation.isPending) return;
+    if (!currentUser) {
+      // No token = guest: invite them to log in instead of firing a 401.
+      // (Token present but ["me"] not resolved yet: ignore the click —
+      // on the virtualized feed the query observer can report pending
+      // right after a remount even when the user is known.)
+      if (!getToken()) router.push("/auth");
+      return;
     }
+    likeMutation.mutate(!liked);
   }
 
   if (hidden) return null;
@@ -73,13 +103,16 @@ export function PostCard({ post }: { post: Post }) {
               src={post.author.avatar_url || carAvatarUri(post.author.username)}
               alt=""
               className="h-full w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = carAvatarUri(post.author.username);
+              }}
             />
           </div>
           <div>
             <Link className="font-semibold hover:text-petrol" href={`/u/${post.author.username}`}>
               @{post.author.username}
             </Link>
-            <p className="text-xs text-slate-500">{new Date(post.created_at).toLocaleString()}</p>
+            <p className="text-xs text-slate-500">{formatDateTime(post.created_at)}</p>
           </div>
         </div>
         {currentUser?.id === post.author.id && (
@@ -118,7 +151,7 @@ export function PostCard({ post }: { post: Post }) {
         <div className="flex items-center rounded-full hover:bg-red-50">
           <button
             className="flex items-center rounded-full px-2 py-1 disabled:opacity-50"
-            disabled={liking}
+            disabled={likeMutation.isPending}
             onClick={handleLike}
             aria-label={liked ? "Unlike" : "Like"}
             type="button"
