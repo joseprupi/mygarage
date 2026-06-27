@@ -162,7 +162,7 @@ def test_vehicle_history_only_editable_by_owner():
     event = client.post(
         f"/vehicles/{vehicle['id']}/events",
         headers=auth_headers(owner["accessToken"]),
-        json={"eventType": "maintenance", "title": "Oil change", "visibility": "public", "media": []},
+        json={"eventType": "maintenance", "title": "Oil change", "eventDate": "2026-01-15", "visibility": "public", "media": []},
     )
     assert event.status_code == 200, event.text
 
@@ -172,3 +172,127 @@ def test_vehicle_history_only_editable_by_owner():
         json={"title": "Changed"},
     )
     assert denied.status_code == 403
+
+
+def test_owner_can_create_and_list_vehicle_mod():
+    owner = signup("modowner", "modowner@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+
+    created = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "category": "Suspension",
+            "name": "Ohlins R&T coilovers",
+            "brand": "Ohlins",
+            "costCents": 250000,
+        },
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["category"] == "Suspension"
+    assert body["name"] == "Ohlins R&T coilovers"
+    assert body["cost_cents"] == 250000
+    assert body["currency"] == "USD"
+
+    listed = client.get(f"/vehicles/{vehicle['id']}/mods")
+    assert listed.status_code == 200, listed.text
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["id"] == body["id"]
+
+
+def test_non_owner_cannot_create_update_or_delete_mod():
+    owner = signup("modowner2", "modowner2@example.com")
+    other = signup("modother2", "modother2@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+
+    denied_create = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(other["accessToken"]),
+        json={"category": "Wheels & Tires", "name": "Not mine"},
+    )
+    assert denied_create.status_code == 403
+
+    mod = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(owner["accessToken"]),
+        json={"category": "Exhaust", "name": "Akrapovic"},
+    ).json()
+
+    denied_update = client.patch(
+        f"/mods/{mod['id']}",
+        headers=auth_headers(other["accessToken"]),
+        json={"name": "Changed"},
+    )
+    denied_delete = client.delete(
+        f"/mods/{mod['id']}", headers=auth_headers(other["accessToken"])
+    )
+    assert denied_update.status_code == 403
+    assert denied_delete.status_code == 403
+
+
+def test_private_vehicle_mods_hidden_from_others():
+    owner = signup("modprivowner", "modprivowner@example.com")
+    other = signup("modprivother", "modprivother@example.com")
+    vehicle = create_vehicle(owner["accessToken"], visibility="private")
+    mod = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(owner["accessToken"]),
+        json={"category": "Engine", "name": "Stage 2 tune"},
+    )
+    assert mod.status_code == 200, mod.text
+
+    anon = client.get(f"/vehicles/{vehicle['id']}/mods")
+    other_view = client.get(
+        f"/vehicles/{vehicle['id']}/mods", headers=auth_headers(other["accessToken"])
+    )
+    owner_view = client.get(
+        f"/vehicles/{vehicle['id']}/mods", headers=auth_headers(owner["accessToken"])
+    )
+    assert anon.status_code == 404
+    assert other_view.status_code == 404
+    assert owner_view.status_code == 200
+    assert len(owner_view.json()) == 1
+
+
+def test_mod_update_is_partial_and_delete_soft_deletes():
+    owner = signup("modeditowner", "modeditowner@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    mod = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(owner["accessToken"]),
+        json={"category": "Intake", "name": "K&N", "brand": "K&N"},
+    ).json()
+
+    updated = client.patch(
+        f"/mods/{mod['id']}",
+        headers=auth_headers(owner["accessToken"]),
+        json={"name": "AEM cold air intake"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "AEM cold air intake"
+    # brand untouched by the partial update
+    assert updated.json()["brand"] == "K&N"
+
+    deleted = client.delete(
+        f"/mods/{mod['id']}", headers=auth_headers(owner["accessToken"])
+    )
+    assert deleted.status_code == 204
+    remaining = client.get(f"/vehicles/{vehicle['id']}/mods").json()
+    assert all(m["id"] != mod["id"] for m in remaining)
+
+
+def test_deleting_vehicle_with_mods_succeeds():
+    owner = signup("modvehdel", "modvehdel@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    created = client.post(
+        f"/vehicles/{vehicle['id']}/mods",
+        headers=auth_headers(owner["accessToken"]),
+        json={"category": "Brakes", "name": "Brembo BBK"},
+    )
+    assert created.status_code == 200, created.text
+
+    deleted = client.delete(
+        f"/vehicles/{vehicle['id']}", headers=auth_headers(owner["accessToken"])
+    )
+    assert deleted.status_code == 204, deleted.text

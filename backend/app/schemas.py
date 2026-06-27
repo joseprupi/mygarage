@@ -266,6 +266,53 @@ class VehicleEventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class VehicleModCreate(BaseModel):
+    category: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=160)
+    brand: str | None = Field(default=None, max_length=120)
+    cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    link: str | None = Field(default=None, max_length=500)
+    installed_date: date | None = Field(default=None, alias="installedDate")
+    notes: str | None = Field(default=None, max_length=4000)
+    sort_order: int = Field(default=0, ge=0, alias="sortOrder")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class VehicleModUpdate(BaseModel):
+    category: str | None = Field(default=None, min_length=1, max_length=40)
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    brand: str | None = Field(default=None, max_length=120)
+    cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    link: str | None = Field(default=None, max_length=500)
+    installed_date: date | None = Field(default=None, alias="installedDate")
+    notes: str | None = Field(default=None, max_length=4000)
+    sort_order: int | None = Field(default=None, ge=0, alias="sortOrder")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class VehicleModRead(BaseModel):
+    id: str
+    vehicle_id: str
+    author_user_id: str
+    category: str
+    name: str
+    brand: str | None = None
+    cost_cents: int | None = None
+    currency: str
+    link: str | None = None
+    installed_date: date | None = None
+    notes: str | None = None
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=1000)
     parent_comment_id: str | None = Field(default=None, alias="parentCommentId")

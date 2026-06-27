@@ -104,3 +104,20 @@ export type VehicleEvent = {
   documents: EventDocument[];
   created_at: string;
 };
+
+export type VehicleMod = {
+  id: string;
+  vehicle_id: string;
+  author_user_id: string;
+  category: string;
+  name: string;
+  brand?: string | null;
+  cost_cents?: number | null;
+  currency: string;
+  link?: string | null;
+  installed_date?: string | null;
+  notes?: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};

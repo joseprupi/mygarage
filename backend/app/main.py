@@ -31,6 +31,9 @@ from app.schemas import (
     VehicleEventCreate,
     VehicleEventRead,
     VehicleEventUpdate,
+    VehicleModCreate,
+    VehicleModRead,
+    VehicleModUpdate,
     VehicleRead,
     VehicleUpdate,
 )
@@ -368,6 +371,46 @@ def delete_vehicle_event(
 ) -> None:
     event = services.get_vehicle_event_or_404(db, event_id, user)
     services.delete_vehicle_event(db, event, user)
+
+
+@app.post("/vehicles/{vehicle_id}/mods", response_model=VehicleModRead)
+def create_vehicle_mod(
+    vehicle_id: str,
+    data: VehicleModCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, user)
+    return services.create_vehicle_mod(db, vehicle, user, data)
+
+
+@app.get("/vehicles/{vehicle_id}/mods", response_model=list[VehicleModRead])
+def vehicle_mods(
+    vehicle_id: str,
+    db: Session = Depends(get_db),
+    viewer: User | None = Depends(get_optional_user),
+):
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, viewer)
+    return services.list_vehicle_mods(db, vehicle, viewer)
+
+
+@app.patch("/mods/{mod_id}", response_model=VehicleModRead)
+def update_vehicle_mod(
+    mod_id: str,
+    data: VehicleModUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mod = services.get_vehicle_mod_or_404(db, mod_id, user)
+    return services.update_vehicle_mod(db, mod, user, data)
+
+
+@app.delete("/mods/{mod_id}", status_code=204)
+def delete_vehicle_mod(
+    mod_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> None:
+    mod = services.get_vehicle_mod_or_404(db, mod_id, user)
+    services.delete_vehicle_mod(db, mod, user)
 
 
 @app.post("/posts/{post_id}/like", status_code=204)
