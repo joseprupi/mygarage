@@ -12,12 +12,17 @@ import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
 import { formatDate, formatMoney } from "@/lib/format";
 import { PostCard } from "@/components/PostCard";
-import { Lightbox } from "@/components/Lightbox";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { LoadErrorCard } from "@/components/LoadErrorCard";
 import { MileageChart } from "@/components/MileageChart";
 import { ShareButton } from "@/components/ShareButton";
+import { PlayBadge } from "@/components/VideoPlayer";
 import { VehicleModForm } from "@/components/VehicleModForm";
-import type { VehicleMod } from "@/lib/types";
+import type { Media, VehicleMod } from "@/lib/types";
+
+// Map a media list to lightbox items (video → iframe url, image → full url).
+const toLightboxItems = (media: Media[]): LightboxItem[] =>
+  media.map((m) => ({ url: m.url, type: m.media_type }));
 
 const tabs = ["posts", "gallery", "history", "specs"] as const;
 type Tab = (typeof tabs)[number];
@@ -56,7 +61,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const tabParam = searchParams.get("tab");
   const tab: Tab = (tabs as readonly string[]).includes(tabParam ?? "") ? (tabParam as Tab) : "posts";
   const [eventFilter, setEventFilter] = useState<string>("all");
-  const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   // Mods (Specs tab): which form is open ("new" to add, a mod id to edit, null to hide).
@@ -121,7 +126,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   // Owners see every row (so they know what's left to fill in); visitors only
   // see rows with real values — a wall of "Not set" reads as a thin history.
   const visibleSpecs = isOwner ? specs : specs.filter(([, value]) => value);
-  const galleryImages = gallery.data?.flatMap((post) => post.media.map((m) => m.url)) ?? [];
+  const galleryMedia = gallery.data?.flatMap((post) => post.media) ?? [];
   const presentEventTypes = Array.from(new Set(events.data?.map((e) => e.event_type) ?? []));
   const filteredEvents = (events.data ?? []).filter(
     (e) => eventFilter === "all" || e.event_type === eventFilter
@@ -293,19 +298,20 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
         gallery.error ? <p className="text-sm text-red-600">Failed to load gallery.</p> :
         gallery.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {galleryImages.map((url, i) => (
+          {galleryMedia.map((item, i) => (
             <button
               type="button"
-              className="aspect-square overflow-hidden rounded-2xl bg-slate-100"
-              key={`${url}-${i}`}
-              onClick={() => setLightbox({ images: galleryImages, index: i })}
+              className="relative aspect-square overflow-hidden rounded-2xl bg-slate-100"
+              key={`${item.url}-${i}`}
+              onClick={() => setLightbox({ items: toLightboxItems(galleryMedia), index: i })}
             >
               <img
                 className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                src={url}
+                src={item.thumbnail_url ?? item.url}
                 alt=""
                 loading="lazy"
               />
+              {item.media_type === "video" && <PlayBadge />}
             </button>
           ))}
         </div>
@@ -427,9 +433,9 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                             type="button"
                             key={media.url}
                             onClick={() =>
-                              setLightbox({ images: event.media.map((m) => m.url), index: i })
+                              setLightbox({ items: toLightboxItems(event.media), index: i })
                             }
-                            className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                            className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
                           >
                             <img
                               src={media.thumbnail_url ?? media.url}
@@ -437,6 +443,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                               loading="lazy"
                               className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
                             />
+                            {media.media_type === "video" && <PlayBadge size="sm" />}
                           </button>
                         ))}
                       </div>
@@ -487,8 +494,8 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                           <button
                             type="button"
                             key={media.url}
-                            onClick={() => setLightbox({ images: mod.media.map((m) => m.url), index: i })}
-                            className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                            onClick={() => setLightbox({ items: toLightboxItems(mod.media), index: i })}
+                            className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
                           >
                             <img
                               src={media.thumbnail_url ?? media.url}
@@ -496,6 +503,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                               loading="lazy"
                               className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
                             />
+                            {media.media_type === "video" && <PlayBadge size="sm" />}
                           </button>
                         ))}
                       </div>
@@ -631,8 +639,8 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                                     <button
                                       type="button"
                                       key={media.url}
-                                      onClick={() => setLightbox({ images: mod.media.map((m) => m.url), index: i })}
-                                      className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                                      onClick={() => setLightbox({ items: toLightboxItems(mod.media), index: i })}
+                                      className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
                                     >
                                       <img
                                         src={media.thumbnail_url ?? media.url}
@@ -640,6 +648,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                                         loading="lazy"
                                         className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
                                       />
+                                      {media.media_type === "video" && <PlayBadge size="sm" />}
                                     </button>
                                   ))}
                                 </div>
@@ -658,7 +667,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
       )}
 
       {lightbox && (
-        <Lightbox images={lightbox.images} startIndex={lightbox.index} onClose={() => setLightbox(null)} />
+        <Lightbox items={lightbox.items} startIndex={lightbox.index} onClose={() => setLightbox(null)} />
       )}
     </section>
   );

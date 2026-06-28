@@ -43,6 +43,7 @@ export type Media = {
   thumbnail_url?: string | null;
   width?: number | null;
   height?: number | null;
+  duration_seconds?: number | null;
   sort_order?: number;
 };
 

@@ -150,8 +150,56 @@ export const mediaApi = {
       throw new Error(body.detail ?? `Upload failed: ${response.status}`);
     }
     return response.json() as Promise<{ url: string; objectKey: string }>;
-  }
+  },
+  // Reserve a Cloudflare Stream direct-creator-upload slot. Returns the upload
+  // target plus the derived playback URLs. The backend answers 503 (ApiError
+  // with status 503) when Stream isn't configured — callers handle that
+  // gracefully rather than treating it as a hard failure.
+  videoDirectUpload: (maxDurationSeconds?: number) =>
+    api<{
+      uid: string;
+      uploadUrl: string;
+      playbackUrl: string;
+      hlsUrl: string;
+      iframeUrl: string;
+      thumbnailUrl: string;
+    }>("/media/video/direct-upload", {
+      method: "POST",
+      body: JSON.stringify(maxDurationSeconds ? { maxDurationSeconds } : {})
+    }),
+  // Poll a reserved video's processing status until `ready` is true.
+  videoStatus: (uid: string) =>
+    api<{ ready: boolean; state: string; durationSeconds: number | null }>(
+      `/media/video/${uid}/status`
+    )
 };
+
+// POST a File to an arbitrary absolute URL (Cloudflare's upload.videodelivery.net
+// target). This deliberately does NOT go through API_BASE — it talks straight to
+// Cloudflare. Uses XMLHttpRequest so we can surface upload progress.
+export function uploadFileToUrl(
+  uploadUrl: string,
+  file: File,
+  onProgress?: (fraction: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", uploadUrl, true);
+    if (onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(event.loaded / event.total);
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error("Upload failed"));
+    const form = new FormData();
+    form.append("file", file);
+    xhr.send(form);
+  });
+}
 
 export const catalogApi = {
   makes: () => api<string[]>("/catalog/makes"),

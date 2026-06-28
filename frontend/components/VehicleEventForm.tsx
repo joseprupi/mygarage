@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ImageUploader } from "@/components/ImageUploader";
+import { VideoUploader } from "@/components/VideoUploader";
+import { PlayBadge } from "@/components/VideoPlayer";
 import { DocumentUploader } from "@/components/DocumentUploader";
 import { LocationInput } from "@/components/LocationInput";
 import { eventApi } from "@/lib/api/client";
@@ -167,15 +169,16 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         onChange={(event) => setForm({ ...form, description: event.target.value })}
       />
       <div className="space-y-2">
-        <span className="text-sm">Photos</span>
+        <span className="text-sm">Photos &amp; videos</span>
         {media.length > 0 && (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
             {media.map((item, index) => (
               <div className="relative" key={item.url}>
                 <img className="aspect-square w-full rounded-xl object-cover" src={item.thumbnail_url ?? item.url} alt="" />
+                {item.media_type === "video" && <PlayBadge size="sm" />}
                 <button
                   type="button"
-                  aria-label="Remove photo"
+                  aria-label="Remove media"
                   className="absolute right-1 top-1 rounded-full bg-black/60 px-2 text-sm font-bold leading-6 text-white"
                   onClick={() => setMedia((items) => items.filter((_, i) => i !== index))}
                 >
@@ -185,7 +188,10 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
             ))}
           </div>
         )}
-        <ImageUploader purpose="vehicle_event_media" onUploaded={(item) => setMedia((items) => [...items, item])} />
+        <div className="grid gap-2 sm:grid-cols-2">
+          <ImageUploader purpose="vehicle_event_media" onUploaded={(item) => setMedia((items) => [...items, item])} />
+          <VideoUploader onUploaded={(item) => setMedia((items) => [...items, item])} />
+        </div>
       </div>
       <div className="space-y-2">
         <span className="text-sm">Documents (PDF)</span>

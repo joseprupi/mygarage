@@ -6,6 +6,8 @@ import { useState } from "react";
 import Link from "next/link";
 
 import { ImageUploader } from "@/components/ImageUploader";
+import { VideoUploader } from "@/components/VideoUploader";
+import { PlayBadge } from "@/components/VideoPlayer";
 import { api, postApi } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import type { Media, Vehicle } from "@/lib/types";
@@ -69,14 +71,28 @@ export default function NewPostPage() {
   return (
     <form className="surface space-y-5 rounded-3xl p-6" onSubmit={submit}>
       <h1 className="text-2xl font-bold">Create post</h1>
-      <ImageUploader purpose="post_media" onUploaded={(item) => setMedia((items) => [...items, item])} />
-      <div className="grid grid-cols-3 gap-2">
-        {media.map((item) => (
-          <div className="aspect-square overflow-hidden rounded-xl bg-slate-100" key={item.url}>
-            <img className="h-full w-full object-cover" src={item.thumbnail_url ?? item.url} alt="" />
-          </div>
-        ))}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <ImageUploader purpose="post_media" onUploaded={(item) => setMedia((items) => [...items, item])} />
+        <VideoUploader onUploaded={(item) => setMedia((items) => [...items, item])} />
       </div>
+      {media.length > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          {media.map((item, index) => (
+            <div className="relative aspect-square overflow-hidden rounded-xl bg-slate-100" key={item.url}>
+              <img className="h-full w-full object-cover" src={item.thumbnail_url ?? item.url} alt="" />
+              {item.media_type === "video" && <PlayBadge size="sm" />}
+              <button
+                type="button"
+                aria-label="Remove media"
+                className="absolute right-1 top-1 rounded-full bg-black/60 px-2 text-sm font-bold leading-6 text-white"
+                onClick={() => setMedia((items) => items.filter((_, i) => i !== index))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <textarea
         className="input min-h-32"
         placeholder="Caption"
