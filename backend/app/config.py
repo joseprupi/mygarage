@@ -34,6 +34,21 @@ class Settings(BaseSettings):
     public_media_base_url: str = "http://localhost:9000/car-social"
     max_upload_bytes: int = 10 * 1024 * 1024
 
+    # --- Cloudflare Stream (video) — all optional; video uploads stay disabled
+    # until all three are set. The customer code is the "<CODE>" in
+    # customer-<CODE>.cloudflarestream.com; the API token is a secret.
+    cloudflare_account_id: str | None = None
+    cloudflare_stream_api_token: str | None = None
+    cloudflare_stream_customer_code: str | None = None
+
+    @property
+    def stream_enabled(self) -> bool:
+        return bool(
+            self.cloudflare_account_id
+            and self.cloudflare_stream_api_token
+            and self.cloudflare_stream_customer_code
+        )
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

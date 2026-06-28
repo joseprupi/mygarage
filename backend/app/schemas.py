@@ -367,4 +367,33 @@ class MediaUploadResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class VideoDirectUploadRequest(BaseModel):
+    """Optional body for reserving a Cloudflare Stream direct upload."""
+
+    max_duration_seconds: int = Field(default=600, ge=1, alias="maxDurationSeconds")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class VideoDirectUploadResponse(BaseModel):
+    """A reserved Stream upload target plus the derived playback URLs."""
+
+    uid: str
+    upload_url: str = Field(alias="uploadUrl")
+    playback_url: str = Field(alias="playbackUrl")
+    hls_url: str = Field(alias="hlsUrl")
+    iframe_url: str = Field(alias="iframeUrl")
+    thumbnail_url: str = Field(alias="thumbnailUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class VideoStatusResponse(BaseModel):
+    ready: bool
+    state: str
+    duration_seconds: int | None = Field(default=None, alias="durationSeconds")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 TokenResponse.model_rebuild()

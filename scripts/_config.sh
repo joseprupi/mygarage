@@ -15,3 +15,9 @@ GA_MEASUREMENT_ID="G-QRNM94B2EE"
 # Origins allowed to call the API (comma-separated). Add the custom domain here when live:
 #   ...,https://cececar.com,https://www.cececar.com
 CORS_ORIGINS="https://${PROJECT_ID}.web.app,https://${PROJECT_ID}.firebaseapp.com,https://cececar.com,https://www.cececar.com"
+# Cloudflare Stream (video) — non-secret. Owner fills these in once a Stream
+# account exists; the API token is a Secret Manager secret (see deploy-backend.sh).
+# CLOUDFLARE_ACCOUNT_ID = the Cloudflare account id; CLOUDFLARE_STREAM_CUSTOMER_CODE
+# = the "<CODE>" in customer-<CODE>.cloudflarestream.com. Empty = video disabled.
+CLOUDFLARE_ACCOUNT_ID=""
+CLOUDFLARE_STREAM_CUSTOMER_CODE=""

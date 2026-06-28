@@ -374,3 +374,124 @@ def test_deleting_vehicle_whose_mod_has_a_photo_succeeds():
         f"/vehicles/{vehicle['id']}", headers=auth_headers(owner["accessToken"])
     )
     assert deleted.status_code == 204, deleted.text
+
+
+# --- Cloudflare Stream video uploads -----------------------------------------
+
+import httpx as _httpx  # noqa: E402
+
+from app import services as _services  # noqa: E402
+from app.config import get_settings as _get_settings  # noqa: E402
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def _enable_stream(monkeypatch):
+    settings = _get_settings()
+    monkeypatch.setattr(settings, "cloudflare_account_id", "acct-123", raising=False)
+    monkeypatch.setattr(settings, "cloudflare_stream_api_token", "token-xyz", raising=False)
+    monkeypatch.setattr(settings, "cloudflare_stream_customer_code", "abc123def", raising=False)
+
+
+def test_video_direct_upload_returns_uid_and_derived_urls(monkeypatch):
+    user = signup("videomaker", "videomaker@example.com")
+    _enable_stream(monkeypatch)
+
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        return _FakeResponse(
+            {"success": True, "result": {"uploadURL": "https://upload.videodelivery.net/UID999", "uid": "UID999"}}
+        )
+
+    monkeypatch.setattr(_httpx, "post", fake_post)
+
+    resp = client.post(
+        "/media/video/direct-upload",
+        headers=auth_headers(user["accessToken"]),
+        json={"maxDurationSeconds": 120},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["uid"] == "UID999"
+    assert body["uploadUrl"] == "https://upload.videodelivery.net/UID999"
+    base = "https://customer-abc123def.cloudflarestream.com/UID999"
+    assert body["hlsUrl"] == f"{base}/manifest/video.m3u8"
+    assert body["playbackUrl"] == f"{base}/manifest/video.m3u8"
+    assert body["iframeUrl"] == f"{base}/iframe"
+    assert body["thumbnailUrl"] == f"{base}/thumbnails/thumbnail.jpg"
+    assert captured["json"] == {"maxDurationSeconds": 120}
+
+
+def test_video_direct_upload_clamps_max_duration(monkeypatch):
+    user = signup("videoclamp", "videoclamp@example.com")
+    _enable_stream(monkeypatch)
+
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return _FakeResponse(
+            {"success": True, "result": {"uploadURL": "https://upload.videodelivery.net/UIDc", "uid": "UIDc"}}
+        )
+
+    monkeypatch.setattr(_httpx, "post", fake_post)
+
+    resp = client.post(
+        "/media/video/direct-upload",
+        headers=auth_headers(user["accessToken"]),
+        json={"maxDurationSeconds": 99999},
+    )
+    assert resp.status_code == 200, resp.text
+    assert captured["json"] == {"maxDurationSeconds": _services._STREAM_MAX_DURATION_CAP}
+
+
+def test_video_direct_upload_503_when_not_configured(monkeypatch):
+    user = signup("videodisabled", "videodisabled@example.com")
+    settings = _get_settings()
+    monkeypatch.setattr(settings, "cloudflare_account_id", None, raising=False)
+    monkeypatch.setattr(settings, "cloudflare_stream_api_token", None, raising=False)
+    monkeypatch.setattr(settings, "cloudflare_stream_customer_code", None, raising=False)
+
+    resp = client.post(
+        "/media/video/direct-upload",
+        headers=auth_headers(user["accessToken"]),
+        json={"maxDurationSeconds": 120},
+    )
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["detail"] == "Video uploads are not configured"
+
+
+def test_video_direct_upload_requires_auth():
+    resp = client.post("/media/video/direct-upload", json={"maxDurationSeconds": 120})
+    assert resp.status_code == 401
+
+
+def test_video_status_reports_ready_and_duration(monkeypatch):
+    user = signup("videostatus", "videostatus@example.com")
+    _enable_stream(monkeypatch)
+
+    def fake_get(url, headers=None, timeout=None):
+        return _FakeResponse(
+            {"success": True, "result": {"readyToStream": True, "status": {"state": "ready"}, "duration": 42}}
+        )
+
+    monkeypatch.setattr(_httpx, "get", fake_get)
+
+    resp = client.get(
+        "/media/video/UID999/status", headers=auth_headers(user["accessToken"])
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body == {"ready": True, "state": "ready", "durationSeconds": 42}

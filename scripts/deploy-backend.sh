@@ -13,8 +13,8 @@ gcloud run deploy "${BACKEND_SERVICE}" \
   --service-account "${SERVICE_ACCOUNT}" \
   --add-cloudsql-instances "${SQL_INSTANCE}" \
   --allow-unauthenticated \
-  --set-secrets "DATABASE_URL=database-url:latest,JWT_SECRET=jwt-secret:latest,STORAGE_ACCESS_KEY_ID=storage-hmac-access:latest,STORAGE_SECRET_ACCESS_KEY=storage-hmac-secret:latest" \
-  --set-env-vars "^@^STORAGE_ENDPOINT_URL=https://storage.googleapis.com@STORAGE_REGION=${REGION}@STORAGE_BUCKET=${MEDIA_BUCKET}@PUBLIC_MEDIA_BASE_URL=https://storage.googleapis.com/${MEDIA_BUCKET}@GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}@CORS_ORIGINS=${CORS_ORIGINS}"
+  --set-secrets "DATABASE_URL=database-url:latest,JWT_SECRET=jwt-secret:latest,STORAGE_ACCESS_KEY_ID=storage-hmac-access:latest,STORAGE_SECRET_ACCESS_KEY=storage-hmac-secret:latest,CLOUDFLARE_STREAM_API_TOKEN=cloudflare-stream-token:latest" \
+  --set-env-vars "^@^STORAGE_ENDPOINT_URL=https://storage.googleapis.com@STORAGE_REGION=${REGION}@STORAGE_BUCKET=${MEDIA_BUCKET}@PUBLIC_MEDIA_BASE_URL=https://storage.googleapis.com/${MEDIA_BUCKET}@GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}@CORS_ORIGINS=${CORS_ORIGINS}@CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}@CLOUDFLARE_STREAM_CUSTOMER_CODE=${CLOUDFLARE_STREAM_CUSTOMER_CODE}"
 
 echo "✓ Backend deployed: ${BACKEND_URL}"
 echo "  Smoke test: curl -s ${BACKEND_URL}/health"

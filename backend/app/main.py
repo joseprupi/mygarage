@@ -25,6 +25,9 @@ from app.schemas import (
     MediaUploadResponse,
     UploadUrlRequest,
     UploadUrlResponse,
+    VideoDirectUploadRequest,
+    VideoDirectUploadResponse,
+    VideoStatusResponse,
     UserRead,
     UserUpdate,
     VehicleCreate,
@@ -283,6 +286,23 @@ async def upload_media(
         content, file.content_type, file.filename or "upload", purpose
     )
     return MediaUploadResponse(url=url, objectKey=object_key)
+
+
+@app.post("/media/video/direct-upload", response_model=VideoDirectUploadResponse)
+def video_direct_upload(
+    data: VideoDirectUploadRequest | None = None,
+    _user: User = Depends(get_current_user),
+) -> VideoDirectUploadResponse:
+    payload = data or VideoDirectUploadRequest()
+    result = services.create_stream_direct_upload(payload.max_duration_seconds)
+    return VideoDirectUploadResponse(**result)
+
+
+@app.get("/media/video/{uid}/status", response_model=VideoStatusResponse)
+def video_status(
+    uid: str, _user: User = Depends(get_current_user)
+) -> VideoStatusResponse:
+    return VideoStatusResponse(**services.get_stream_video_status(uid))
 
 
 @app.get("/catalog/makes", response_model=list[str])

@@ -6,6 +6,8 @@ import re
 import urllib.request
 import uuid
 import zipfile
+
+import httpx
 from pathlib import Path
 from urllib.parse import urlencode
 from datetime import UTC, datetime
@@ -879,6 +881,88 @@ def geo_search(query: str) -> list[str]:
             seen.add(label)
             results.append(label)
     return results
+
+
+# --- Video uploads (Cloudflare Stream, direct creator uploads) ---------------
+
+_STREAM_API_BASE = "https://api.cloudflare.com/client/v4"
+_STREAM_MAX_DURATION_CAP = 1800  # 30 min — bounds reserved capacity / cost.
+
+
+def _stream_playback_urls(uid: str, customer_code: str) -> dict[str, str]:
+    """Derive the public playback/thumbnail/iframe URLs from a video uid."""
+    base = f"https://customer-{customer_code}.cloudflarestream.com/{uid}"
+    return {
+        "playback_url": f"{base}/manifest/video.m3u8",
+        "hls_url": f"{base}/manifest/video.m3u8",
+        "iframe_url": f"{base}/iframe",
+        "thumbnail_url": f"{base}/thumbnails/thumbnail.jpg",
+    }
+
+
+def create_stream_direct_upload(max_duration_seconds: int) -> dict:
+    """Reserve a Cloudflare Stream direct-creator-upload slot.
+
+    Returns the upload target plus the derived playback URLs. Raises a 503
+    HTTPException when Stream is not configured (don't 500), and a 502 when the
+    Cloudflare API call fails.
+    """
+    settings = get_settings()
+    if not settings.stream_enabled:
+        raise HTTPException(status_code=503, detail="Video uploads are not configured")
+
+    max_duration = max(1, min(int(max_duration_seconds), _STREAM_MAX_DURATION_CAP))
+    url = f"{_STREAM_API_BASE}/accounts/{settings.cloudflare_account_id}/stream/direct_upload"
+    try:
+        resp = httpx.post(
+            url,
+            headers={"Authorization": f"Bearer {settings.cloudflare_stream_api_token}"},
+            json={"maxDurationSeconds": max_duration},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        body = resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Could not reach the video upload service") from exc
+
+    result = (body or {}).get("result") or {}
+    uid = result.get("uid")
+    upload_url = result.get("uploadURL")
+    if not body.get("success") or not uid or not upload_url:
+        raise HTTPException(status_code=502, detail="Video upload service returned an unexpected response")
+
+    return {
+        "uid": uid,
+        "upload_url": upload_url,
+        **_stream_playback_urls(uid, settings.cloudflare_stream_customer_code),
+    }
+
+
+def get_stream_video_status(uid: str) -> dict:
+    """Poll a Cloudflare Stream video's processing status. Graceful on error."""
+    settings = get_settings()
+    if not settings.stream_enabled:
+        raise HTTPException(status_code=503, detail="Video uploads are not configured")
+
+    url = f"{_STREAM_API_BASE}/accounts/{settings.cloudflare_account_id}/stream/{uid}"
+    try:
+        resp = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {settings.cloudflare_stream_api_token}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        result = (resp.json() or {}).get("result") or {}
+    except Exception:
+        return {"ready": False, "state": "unknown", "duration_seconds": None}
+
+    state = ((result.get("status") or {}).get("state")) or "unknown"
+    duration = result.get("duration")
+    return {
+        "ready": bool(result.get("readyToStream")),
+        "state": state,
+        "duration_seconds": int(duration) if isinstance(duration, (int, float)) and duration >= 0 else None,
+    }
 
 
 # --- History export (ZIP of CSV + named images) ------------------------------
