@@ -4,6 +4,7 @@
 # NEXT_PUBLIC_* are baked at build time, so they MUST be exported before `firebase deploy`.
 #   - NEXT_PUBLIC_API_BASE_URL: browser calls Cloud Run directly (the Next /api rewrite hangs under Firebase SSR).
 #   - NEXT_PUBLIC_GOOGLE_CLIENT_ID: Google Sign-In client.
+#   - NEXT_PUBLIC_GA_ID: GA4 measurement id (prod-only; unset in dev keeps GA off).
 # Prereqs: `firebase login`, and `firebase experiments:enable webframeworks` (once).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -11,6 +12,7 @@ source scripts/_config.sh
 
 export NEXT_PUBLIC_API_BASE_URL="${BACKEND_URL}"
 export NEXT_PUBLIC_GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}"
+export NEXT_PUBLIC_GA_ID="${GA_MEASUREMENT_ID}"
 
 echo "→ Building + deploying frontend to Firebase Hosting (${PROJECT_ID})…"
 echo "  API base: ${NEXT_PUBLIC_API_BASE_URL}"
