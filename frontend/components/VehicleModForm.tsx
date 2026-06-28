@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { ImageUploader } from "@/components/ImageUploader";
 import { modApi } from "@/lib/api/client";
-import type { VehicleMod } from "@/lib/types";
+import type { Media, VehicleMod } from "@/lib/types";
 
 const OTHER = "__other__";
 
-// Suggested build-sheet categories. Free-text "Other…" escape hatch lets owners
+// Suggested mod categories. Free-text "Other…" escape hatch lets owners
 // record anything not in the list (mirrors VehicleForm's make/model pattern).
 const CATEGORIES = [
   "Engine",
@@ -33,6 +34,7 @@ function initialForm(mod?: VehicleMod) {
     cost: mod?.cost_cents != null ? String(mod.cost_cents / 100) : "",
     link: mod?.link ?? "",
     installedDate: mod?.installed_date ?? "",
+    mileage: mod?.mileage != null ? String(mod.mileage) : "",
     notes: mod?.notes ?? ""
   };
 }
@@ -49,6 +51,7 @@ export function VehicleModForm({
   const queryClient = useQueryClient();
   const isEdit = Boolean(mod);
   const [form, setForm] = useState(() => initialForm(mod));
+  const [media, setMedia] = useState<Media[]>(mod?.media ?? []);
   // "Other" free-text mode for category: on when editing a mod whose category
   // isn't one of the suggestions.
   const [categoryOther, setCategoryOther] = useState(
@@ -76,7 +79,9 @@ export function VehicleModForm({
       costCents: form.cost ? Math.round(Number(form.cost) * 100) : null,
       link: form.link.trim() || null,
       installedDate: form.installedDate || null,
-      notes: form.notes.trim() || null
+      mileage: form.mileage ? Number(form.mileage) : null,
+      notes: form.notes.trim() || null,
+      media: media.map((item, index) => ({ ...item, sort_order: index }))
     };
     setSubmitting(true);
     try {
@@ -197,6 +202,40 @@ export function VehicleModForm({
           onChange={(e) => setForm({ ...form, installedDate: e.target.value })}
         />
       </label>
+
+      <label className="block space-y-1 text-sm">
+        <span>Mileage</span>
+        <input
+          className="input"
+          type="text"
+          inputMode="numeric"
+          placeholder="e.g. 42000"
+          value={form.mileage}
+          onChange={(e) => setForm({ ...form, mileage: e.target.value.replace(/[^\d]/g, "") })}
+        />
+      </label>
+
+      <div className="space-y-2">
+        <span className="text-sm">Photos</span>
+        {media.length > 0 && (
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {media.map((item, index) => (
+              <div className="relative" key={item.url}>
+                <img className="aspect-square w-full rounded-xl object-cover" src={item.thumbnail_url ?? item.url} alt="" />
+                <button
+                  type="button"
+                  aria-label="Remove photo"
+                  className="absolute right-1 top-1 rounded-full bg-black/60 px-2 text-sm font-bold leading-6 text-white"
+                  onClick={() => setMedia((items) => items.filter((_, i) => i !== index))}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <ImageUploader purpose="vehicle_mod_media" onUploaded={(item) => setMedia((items) => [...items, item])} />
+      </div>
 
       <label className="block space-y-1 text-sm">
         <span>Notes</span>

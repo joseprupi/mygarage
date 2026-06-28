@@ -5,7 +5,7 @@ import { useState } from "react";
 import { mediaApi } from "@/lib/api/client";
 import type { Media } from "@/lib/types";
 
-type Purpose = "post_media" | "vehicle_cover" | "vehicle_event_media" | "avatar";
+type Purpose = "post_media" | "vehicle_cover" | "vehicle_event_media" | "vehicle_mod_media" | "avatar";
 
 export function ImageUploader({
   purpose,
