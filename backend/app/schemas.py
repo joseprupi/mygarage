@@ -274,8 +274,10 @@ class VehicleModCreate(BaseModel):
     currency: str = Field(default="USD", min_length=3, max_length=3)
     link: str | None = Field(default=None, max_length=500)
     installed_date: date | None = Field(default=None, alias="installedDate")
+    mileage: int | None = Field(default=None, ge=0)
     notes: str | None = Field(default=None, max_length=4000)
     sort_order: int = Field(default=0, ge=0, alias="sortOrder")
+    media: list[MediaCreate] = Field(default_factory=list, max_length=20)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -288,8 +290,10 @@ class VehicleModUpdate(BaseModel):
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     link: str | None = Field(default=None, max_length=500)
     installed_date: date | None = Field(default=None, alias="installedDate")
+    mileage: int | None = Field(default=None, ge=0)
     notes: str | None = Field(default=None, max_length=4000)
     sort_order: int | None = Field(default=None, ge=0, alias="sortOrder")
+    media: list[MediaCreate] | None = Field(default=None, max_length=20)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -305,8 +309,10 @@ class VehicleModRead(BaseModel):
     currency: str
     link: str | None = None
     installed_date: date | None = None
+    mileage: int | None = None
     notes: str | None = None
     sort_order: int
+    media: list[MediaRead] = []
     created_at: datetime
     updated_at: datetime
 

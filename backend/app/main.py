@@ -253,7 +253,7 @@ def upload_url(
 
 
 _ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
-_ALLOWED_PURPOSES = {"post_media", "vehicle_cover", "vehicle_event_media", "avatar"}
+_ALLOWED_PURPOSES = {"post_media", "vehicle_cover", "vehicle_event_media", "vehicle_mod_media", "avatar"}
 _DOCUMENT_PURPOSES = {"vehicle_event_document"}
 _ALLOWED_DOCUMENT_TYPES = {"application/pdf"}
 _MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
