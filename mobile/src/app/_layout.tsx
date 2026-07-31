@@ -8,8 +8,14 @@ export default function RootLayout() {
         headerTintColor: "#2563eb",
       }}
     >
-      <Stack.Screen name="index" options={{ title: "CeCeCar" }} />
-      <Stack.Screen name="login" options={{ title: "Log in", presentation: "modal" }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="login" options={{ title: "Log in", presentation: "modal", headerShown: false }} />
+      <Stack.Screen name="signup" options={{ title: "Sign up", presentation: "modal" }} />
+      <Stack.Screen name="post/[id]" options={{ title: "Post" }} />
+      <Stack.Screen name="post-new" options={{ title: "New post", presentation: "modal" }} />
+      <Stack.Screen name="vehicle/[id]/index" options={{ title: "Vehicle" }} />
+      <Stack.Screen name="vehicle/[id]/event-form" options={{ title: "History event", presentation: "modal" }} />
+      <Stack.Screen name="vehicle/[id]/mod-form" options={{ title: "Mod", presentation: "modal" }} />
     </Stack>
   );
 }

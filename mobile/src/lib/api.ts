@@ -112,6 +112,111 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export type UserProfile = PublicUser & {
+  bio?: string | null;
+  location?: string | null;
+  created_at?: string;
+};
+
+export type Vehicle = {
+  id: string;
+  owner_user_id: string;
+  make: string;
+  model: string;
+  year: number | null;
+  trim: string | null;
+  nickname: string | null;
+  vin: string | null;
+  mileage: number | null;
+  color: string | null;
+  transmission: string | null;
+  engine: string | null;
+  drivetrain: string | null;
+  description: string | null;
+  cover_image_url: string | null;
+  visibility: string;
+  owner?: PublicUser | null;
+};
+
+export type EventDocument = {
+  id?: string;
+  url: string;
+  filename: string;
+  content_type: string;
+  sort_order?: number;
+};
+
+export type VehicleEvent = {
+  id: string;
+  vehicle_id: string;
+  event_type: string;
+  title: string;
+  description: string | null;
+  event_date: string | null;
+  mileage: number | null;
+  cost_cents: number | null;
+  currency: string;
+  shop_name: string | null;
+  location: string | null;
+  visibility: string;
+  media: Media[];
+  documents: EventDocument[];
+};
+
+export type VehicleMod = {
+  id: string;
+  vehicle_id: string;
+  category: string;
+  name: string;
+  brand: string | null;
+  cost_cents: number | null;
+  currency: string;
+  link: string | null;
+  installed_date: string | null;
+  mileage: number | null;
+  notes: string | null;
+  sort_order: number;
+  media: Media[];
+};
+
+export type Comment = {
+  id: string;
+  post_id: string;
+  parent_comment_id: string | null;
+  body: string;
+  created_at: string;
+  author: PublicUser | null;
+  like_count: number;
+  viewer_has_liked: boolean;
+};
+
+export type EventPayload = {
+  eventType: string;
+  title: string;
+  description?: string | null;
+  eventDate: string;
+  mileage?: number | null;
+  costCents?: number | null;
+  currency?: string;
+  shopName?: string | null;
+  location?: string | null;
+  visibility?: string;
+  media?: Media[];
+  documents?: EventDocument[];
+};
+
+export type ModPayload = {
+  category: string;
+  name: string;
+  brand?: string | null;
+  costCents?: number | null;
+  currency?: string;
+  installedDate?: string | null;
+  mileage?: number | null;
+  notes?: string | null;
+  media?: Media[];
+};
+
 export const authApi = {
   async login(email: string, password: string): Promise<TokenResponse> {
     const data = await request<TokenResponse>("/auth/login", {
@@ -131,3 +236,93 @@ export const feedApi = {
   get: (cursor: string | null, limit = 20) =>
     request<CursorPage>(`/feed?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
 };
+
+export const userApi = {
+  me: () => request<UserProfile>("/auth/me"),
+  get: (userId: string) => request<UserProfile>(`/users/${userId}`),
+  update: (patch: Partial<Pick<UserProfile, "username" | "display_name" | "bio" | "location">>) =>
+    request<UserProfile>("/users/me", { method: "PATCH", body: JSON.stringify(patch) }),
+  vehicles: (userId: string) => request<Vehicle[]>(`/users/${userId}/vehicles`),
+  posts: (userId: string) => request<Post[]>(`/users/${userId}/posts`),
+};
+
+export const vehicleApi = {
+  get: (id: string) => request<Vehicle>(`/vehicles/${id}`),
+  posts: (id: string) => request<Post[]>(`/vehicles/${id}/posts`),
+  gallery: (id: string) => request<Post[]>(`/vehicles/${id}/gallery`),
+  events: (id: string) => request<VehicleEvent[]>(`/vehicles/${id}/events`),
+  mods: (id: string) => request<VehicleMod[]>(`/vehicles/${id}/mods`),
+};
+
+export const eventApi = {
+  get: (eventId: string) => request<VehicleEvent>(`/vehicle-events/${eventId}`),
+  create: (vehicleId: string, payload: EventPayload) =>
+    request<VehicleEvent>(`/vehicles/${vehicleId}/events`, { method: "POST", body: JSON.stringify(payload) }),
+  update: (eventId: string, payload: Partial<EventPayload>) =>
+    request<VehicleEvent>(`/vehicle-events/${eventId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  delete: (eventId: string) => request<void>(`/vehicle-events/${eventId}`, { method: "DELETE" }),
+};
+
+export const modApi = {
+  create: (vehicleId: string, payload: ModPayload) =>
+    request<VehicleMod>(`/vehicles/${vehicleId}/mods`, { method: "POST", body: JSON.stringify(payload) }),
+  update: (modId: string, payload: Partial<ModPayload>) =>
+    request<VehicleMod>(`/mods/${modId}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  delete: (modId: string) => request<void>(`/mods/${modId}`, { method: "DELETE" }),
+};
+
+export const postApi = {
+  get: (id: string) => request<Post>(`/posts/${id}`),
+  create: (payload: { caption: string | null; vehicleIds: string[]; media: Media[] }) =>
+    request<Post>("/posts", { method: "POST", body: JSON.stringify(payload) }),
+  delete: (id: string) => request<void>(`/posts/${id}`, { method: "DELETE" }),
+  like: (id: string) => request<void>(`/posts/${id}/like`, { method: "POST" }),
+  unlike: (id: string) => request<void>(`/posts/${id}/like`, { method: "DELETE" }),
+  likers: (id: string) => request<PublicUser[]>(`/posts/${id}/likes`),
+  comments: (id: string) => request<Comment[]>(`/posts/${id}/comments`),
+  addComment: (id: string, body: string, parentCommentId?: string) =>
+    request<Comment>(`/posts/${id}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body, parentCommentId: parentCommentId ?? null }),
+    }),
+  deleteComment: (commentId: string) => request<void>(`/comments/${commentId}`, { method: "DELETE" }),
+};
+
+/**
+ * Upload an image picked with expo-image-picker.
+ * Native: FormData with a {uri, name, type} file part. Web: fetch the blob first.
+ */
+export async function uploadImage(
+  asset: { uri: string; mimeType?: string | null; fileName?: string | null },
+  purpose: string,
+): Promise<Media> {
+  const token = await getToken();
+  const form = new FormData();
+  const name = asset.fileName ?? `photo-${Date.now()}.jpg`;
+  const type = asset.mimeType ?? "image/jpeg";
+  if (Platform.OS === "web") {
+    const blob = await (await fetch(asset.uri)).blob();
+    form.append("file", new File([blob], name, { type }));
+  } else {
+    // React Native's FormData file part shape
+    form.append("file", { uri: asset.uri, name, type } as unknown as Blob);
+  }
+  form.append("purpose", purpose);
+  const res = await fetch(`${API_BASE}/media/upload`, {
+    method: "POST",
+    headers: token ? { authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = `Upload failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // keep generic message
+    }
+    throw new Error(detail);
+  }
+  const data = (await res.json()) as { url: string };
+  return { url: data.url, media_type: "image" };
+}

@@ -76,6 +76,9 @@ export default function LoginScreen() {
             <Text style={styles.buttonText}>Log in</Text>
           )}
         </Pressable>
+        <Pressable onPress={() => router.push("/signup")} hitSlop={8}>
+          <Text style={styles.signupLink}>New here? Create an account</Text>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
@@ -106,4 +109,5 @@ const styles = StyleSheet.create({
   },
   buttonPressed: { opacity: 0.7 },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  signupLink: { color: "#2563eb", fontSize: 14, fontWeight: "600", textAlign: "center", marginTop: 12 },
 });
