@@ -9,7 +9,7 @@ import { VideoUploader } from "@/components/VideoUploader";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { DocumentUploader } from "@/components/DocumentUploader";
 import { LocationInput } from "@/components/LocationInput";
-import { eventApi } from "@/lib/api/client";
+import { aiApi, eventApi, mediaApi } from "@/lib/api/client";
 import { EVENT_TYPES, eventTypeLabel } from "@/lib/events";
 import type { EventDocument, Media } from "@/lib/types";
 
@@ -35,6 +35,52 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState<string | null>(null);
+
+  async function scanReceipt(files: File[]) {
+    if (files.length === 0 || scanning) return;
+    setScanning(true);
+    setScanNote(null);
+    setError(null);
+    try {
+      // All selected files are pages of ONE bill. Extract fields and attach the
+      // pages (images -> event media, PDFs -> event documents) in parallel.
+      const uploads = files.map(async (file) => {
+        if (file.type === "application/pdf") {
+          const { url } = await mediaApi.upload(file, "vehicle_event_document");
+          setDocuments((items) => [
+            ...items,
+            { url, filename: file.name, content_type: file.type }
+          ]);
+        } else {
+          const { url } = await mediaApi.upload(file, "vehicle_event_media");
+          setMedia((items) => [...items, { url, media_type: "image" }]);
+        }
+      });
+      const [scan] = await Promise.all([aiApi.scanReceipt(files), ...uploads]);
+      setForm((prev) => ({
+        ...prev,
+        eventType: scan.eventType || prev.eventType,
+        title: scan.title || prev.title,
+        eventDate: scan.eventDate ?? prev.eventDate,
+        mileage: scan.mileage != null ? String(scan.mileage) : prev.mileage,
+        cost: scan.costCents != null ? String(scan.costCents / 100) : prev.cost,
+        shopName: scan.shopName ?? prev.shopName,
+        location: scan.location ?? prev.location,
+        description: scan.description ?? prev.description
+      }));
+      setScanNote(
+        scan.confidence === "high"
+          ? "Receipt read — double-check the fields below, then save."
+          : `Receipt was hard to read (confidence: ${scan.confidence}${scan.notes ? ` — ${scan.notes}` : ""}). Check every field.`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Receipt scan failed");
+    } finally {
+      setScanning(false);
+    }
+  }
 
   const eventQuery = useQuery({
     queryKey: ["event", eventId],
@@ -112,6 +158,31 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
   return (
     <form className="surface space-y-4 rounded-3xl p-6" onSubmit={submit}>
       <h1 className="text-2xl font-bold">{isEdit ? "Edit history event" : "Add history event"}</h1>
+      {!isEdit && (
+        <div className="space-y-2 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <p className="text-sm font-semibold text-blue-700">✨ Scan a receipt</p>
+          <p className="text-sm text-slate-600">
+            Upload photos or a PDF of the bill (select all pages of the same bill at once) — the
+            form fills itself and the files are attached. You review before saving.
+          </p>
+          <label className="btn btn-secondary inline-flex cursor-pointer items-center gap-2 text-sm">
+            {scanning ? "Reading…" : "Choose files"}
+            <input
+              type="file"
+              className="hidden"
+              multiple
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              disabled={scanning}
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []).slice(0, 5);
+                event.target.value = "";
+                void scanReceipt(files);
+              }}
+            />
+          </label>
+          {scanNote && <p className="text-sm font-semibold text-blue-700">{scanNote}</p>}
+        </div>
+      )}
       <label className="block space-y-1 text-sm">
         <span>Type</span>
         <select

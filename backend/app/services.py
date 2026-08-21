@@ -1086,8 +1086,9 @@ _RECEIPT_SCAN_SCHEMA = {
     "required": ["event_type", "title", "line_items", "confidence"],
 }
 
-_RECEIPT_SCAN_PROMPT = """You are extracting data from a car service receipt/invoice \
-(photo or PDF) for a vehicle history log.
+_RECEIPT_SCAN_PROMPT = """You are extracting data from ONE car service receipt/invoice \
+(photos or PDF) for a vehicle history log. If several images are provided, they are pages \
+or angles of the SAME bill — combine them into ONE result; never split them into multiple.
 - title: short human title for the visit as a whole, e.g. 'Snow tire changeover + alignment'.
 - event_type: categorize the visit overall. Use 'other' only when nothing fits.
 - event_date: ISO YYYY-MM-DD. total: the GRAND TOTAL actually paid, tax included.

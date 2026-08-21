@@ -125,6 +125,41 @@ export const feedApi = {
   }
 };
 
+export type ReceiptScan = {
+  eventType: string;
+  title: string;
+  eventDate: string | null;
+  costCents: number | null;
+  currency: string;
+  mileage: number | null;
+  shopName: string | null;
+  location: string | null;
+  description: string | null;
+  confidence: string;
+  notes: string | null;
+};
+
+export const aiApi = {
+  // Backend-proxied Gemini extraction. 503 (ApiError) when GEMINI_API_KEY is unset.
+  scanReceipt: async (files: File[]) => {
+    const token = getToken();
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const response = await fetch(`${API_BASE}/ai/receipt-scan`, {
+      method: "POST",
+      headers,
+      body: form
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail ?? `Receipt scan failed: ${response.status}`);
+    }
+    return response.json() as Promise<ReceiptScan>;
+  }
+};
+
 export const mediaApi = {
   uploadUrl: (body: { filename: string; contentType: string; purpose: string }) =>
     api<{ uploadUrl: string; publicUrl: string; objectKey: string; maxUploadBytes: number }>(

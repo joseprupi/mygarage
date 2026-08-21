@@ -38,6 +38,7 @@ export default function EventFormScreen() {
   const [loaded, setLoaded] = useState(!isEdit);
   const [uploading, setUploading] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [scanPages, setScanPages] = useState<PickedAsset[]>([]);
   const [scanNote, setScanNote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +90,7 @@ export default function EventFormScreen() {
     }
   }
 
-  async function scanReceipt(fromCamera: boolean) {
+  async function addScanPage(fromCamera: boolean) {
     const options: ImagePicker.ImagePickerOptions = { quality: 0.9, allowsMultipleSelection: !fromCamera };
     const result = fromCamera
       ? await (async () => {
@@ -99,15 +100,20 @@ export default function EventFormScreen() {
         })()
       : await ImagePicker.launchImageLibraryAsync(options);
     if (!result || result.canceled) return;
+    setScanPages((prev) => [...prev, ...result.assets].slice(0, 5));
+    setScanNote(null);
+  }
+
+  async function runScan() {
+    if (scanPages.length === 0 || scanning) return;
     setScanning(true);
     setScanNote(null);
     setError(null);
     try {
-      const assets: PickedAsset[] = result.assets;
-      // Extract fields and store the receipt photos as event media, in parallel.
+      // All pages = ONE receipt: extract fields and attach every page as event media.
       const [scan, ...uploaded] = await Promise.all([
-        aiApi.scanReceipt(assets),
-        ...assets.map((a) => uploadImage(a, "vehicle_event_media")),
+        aiApi.scanReceipt(scanPages),
+        ...scanPages.map((a) => uploadImage(a, "vehicle_event_media")),
       ]);
       setForm((prev) => ({
         ...prev,
@@ -121,6 +127,7 @@ export default function EventFormScreen() {
         description: scan.description ?? prev.description,
       }));
       setMedia((prev) => [...prev, ...uploaded]);
+      setScanPages([]);
       setScanNote(
         scan.confidence === "high"
           ? "Receipt read — double-check the fields below, then save."
@@ -196,24 +203,36 @@ export default function EventFormScreen() {
         <View style={styles.scanBox}>
           <Text style={styles.scanTitle}>✨ Scan a receipt</Text>
           <Text style={styles.scanHint}>
-            Photograph the bill and the form fills itself — you review before saving.
+            Photograph the bill — add every page, then read it. The form fills itself and the
+            pages are attached; you review before saving.
           </Text>
           <View style={styles.row}>
-            <Pressable style={styles.pickBtn} onPress={() => scanReceipt(true)} disabled={scanning || uploading}>
+            <Pressable style={styles.pickBtn} onPress={() => addScanPage(true)} disabled={scanning || uploading}>
               <Ionicons name="camera-outline" size={18} color="#0b1120" />
-              <Text style={styles.pickBtnText}>Camera</Text>
+              <Text style={styles.pickBtnText}>Add page</Text>
             </Pressable>
-            <Pressable style={styles.pickBtn} onPress={() => scanReceipt(false)} disabled={scanning || uploading}>
+            <Pressable style={styles.pickBtn} onPress={() => addScanPage(false)} disabled={scanning || uploading}>
               <Ionicons name="images-outline" size={18} color="#0b1120" />
               <Text style={styles.pickBtnText}>Library</Text>
             </Pressable>
-            {scanning && (
-              <View style={styles.row}>
-                <ActivityIndicator />
-                <Text style={styles.scanHint}>Reading…</Text>
-              </View>
-            )}
           </View>
+          {scanPages.length > 0 && (
+            <View style={styles.row}>
+              <Text style={styles.scanPagesText}>
+                {scanPages.length} {scanPages.length === 1 ? "page" : "pages"} ready
+              </Text>
+              <Pressable onPress={() => setScanPages([])} hitSlop={6} disabled={scanning}>
+                <Text style={styles.scanClear}>clear</Text>
+              </Pressable>
+              <Pressable style={styles.scanRunBtn} onPress={runScan} disabled={scanning || uploading}>
+                {scanning ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.scanRunText}>Read receipt</Text>
+                )}
+              </Pressable>
+            </View>
+          )}
           {scanNote && <Text style={styles.scanNote}>{scanNote}</Text>}
         </View>
       )}
@@ -345,6 +364,16 @@ const styles = StyleSheet.create({
   scanTitle: { fontSize: 15, fontWeight: "700", color: "#1d4ed8" },
   scanHint: { fontSize: 13, color: "#475569" },
   scanNote: { fontSize: 13, color: "#1d4ed8", fontWeight: "600" },
+  scanPagesText: { fontSize: 13, fontWeight: "700", color: "#0b1120" },
+  scanClear: { fontSize: 13, color: "#64748b", textDecorationLine: "underline" },
+  scanRunBtn: {
+    marginLeft: "auto",
+    backgroundColor: "#2563eb",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  scanRunText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
   label: { fontSize: 13, fontWeight: "600", color: "#334155", marginTop: 6 },
   input: {
