@@ -15,6 +15,7 @@ EventType = Literal[
     "upgrade",
     "inspection",
     "detailing",
+    "fuel",
     "accident",
     "note",
     "other",
@@ -397,3 +398,35 @@ class VideoStatusResponse(BaseModel):
 
 
 TokenResponse.model_rebuild()
+
+
+class ReceiptScanResult(BaseModel):
+    """AI-extracted suggestion for a history event, pre-fill only — user confirms."""
+
+    event_type: EventType = Field(alias="eventType")
+    title: str
+    event_date: str | None = Field(default=None, alias="eventDate")
+    cost_cents: int | None = Field(default=None, alias="costCents")
+    currency: str = "USD"
+    mileage: int | None = None
+    shop_name: str | None = Field(default=None, alias="shopName")
+    location: str | None = None
+    description: str | None = None
+    confidence: str = "low"
+    notes: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class FuelScanResult(BaseModel):
+    """AI-extracted fuel-up numbers from pump/odometer photos."""
+
+    total_cents: int | None = Field(default=None, alias="totalCents")
+    gallons: float | None = None
+    price_per_gallon: float | None = Field(default=None, alias="pricePerGallon")
+    station_name: str | None = Field(default=None, alias="stationName")
+    mileage: int | None = None
+    confidence: str = "low"
+    notes: str | None = None
+
+    model_config = ConfigDict(populate_by_name=True)

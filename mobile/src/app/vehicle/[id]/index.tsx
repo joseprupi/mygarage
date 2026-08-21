@@ -155,13 +155,21 @@ export default function VehicleScreen() {
               {totalSpend > 0 ? ` · ${formatMoney(totalSpend)} total` : ""}
             </Text>
             {isOwner && (
-              <Pressable
-                style={styles.addBtn}
-                onPress={() => router.push(`/vehicle/${vehicle.id}/event-form`)}
-              >
-                <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.addBtnText}>Add event</Text>
-              </Pressable>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  style={[styles.addBtn, styles.fuelBtn]}
+                  onPress={() => router.push(`/vehicle/${vehicle.id}/fuel`)}
+                >
+                  <Text style={styles.addBtnText}>⛽ Fuel-up</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.addBtn}
+                  onPress={() => router.push(`/vehicle/${vehicle.id}/event-form`)}
+                >
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text style={styles.addBtnText}>Add event</Text>
+                </Pressable>
+              </View>
             )}
           </View>
           {(events ?? []).map((event) => (
@@ -276,6 +284,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   addBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  fuelBtn: { backgroundColor: "#0b1120" },
   eventRow: {
     flexDirection: "row",
     gap: 12,

@@ -1045,3 +1045,149 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
             ])
         zf.writestr("history.csv", csv_buffer.getvalue())
     return buffer.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# AI extraction (Gemini) — receipt scan + fuel scan
+# Proxied via backend (mobile/web never see the API key). Config-gated:
+# endpoints 503 until GEMINI_API_KEY is set.
+
+_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+_RECEIPT_SCAN_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "event_type": {
+            "type": "STRING",
+            "enum": ["purchase", "sale", "repair", "maintenance", "upgrade",
+                     "inspection", "detailing", "fuel", "accident", "note", "other"],
+        },
+        "title": {"type": "STRING"},
+        "event_date": {"type": "STRING", "nullable": True},
+        "total": {"type": "NUMBER", "nullable": True},
+        "currency": {"type": "STRING", "nullable": True},
+        "mileage": {"type": "INTEGER", "nullable": True},
+        "shop_name": {"type": "STRING", "nullable": True},
+        "location": {"type": "STRING", "nullable": True},
+        "line_items": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "description": {"type": "STRING"},
+                    "cost": {"type": "NUMBER", "nullable": True},
+                },
+                "required": ["description"],
+            },
+        },
+        "confidence": {"type": "STRING", "enum": ["high", "medium", "low"]},
+        "notes": {"type": "STRING", "nullable": True},
+    },
+    "required": ["event_type", "title", "line_items", "confidence"],
+}
+
+_RECEIPT_SCAN_PROMPT = """You are extracting data from a car service receipt/invoice \
+(photo or PDF) for a vehicle history log.
+- title: short human title for the visit as a whole, e.g. 'Snow tire changeover + alignment'.
+- event_type: categorize the visit overall. Use 'other' only when nothing fits.
+- event_date: ISO YYYY-MM-DD. total: the GRAND TOTAL actually paid, tax included.
+- mileage: odometer reading if printed. shop_name: business name. location: address/city.
+- line_items: every distinct repair/service/part.
+- Use null for anything not present or unreadable — NEVER invent values.
+- confidence: low if the image is hard to read; explain problems in notes."""
+
+_FUEL_SCAN_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "total": {"type": "NUMBER", "nullable": True},
+        "gallons": {"type": "NUMBER", "nullable": True},
+        "price_per_gallon": {"type": "NUMBER", "nullable": True},
+        "station_name": {"type": "STRING", "nullable": True},
+        "mileage": {"type": "INTEGER", "nullable": True},
+        "confidence": {"type": "STRING", "enum": ["high", "medium", "low"]},
+        "notes": {"type": "STRING", "nullable": True},
+    },
+    "required": ["confidence"],
+}
+
+_FUEL_SCAN_PROMPT = """You are reading photos taken at a gas station for a vehicle fuel log.
+You may receive a photo of the PUMP DISPLAY (total sale $, gallons, price per gallon and/or a
+printed fuel receipt) and a photo of the car's ODOMETER (mileage).
+- total: total sale amount in dollars. gallons: volume dispensed. price_per_gallon: unit price.
+- mileage: the odometer reading (the large main number, not the trip meter if both are visible).
+- station_name: brand/station if visible on the pump, receipt, or signage.
+- Use null for anything not visible or unreadable — NEVER invent or guess values.
+- confidence: low if displays are blurry/unreadable; explain in notes."""
+
+
+def _gemini_generate(parts: list[dict], prompt: str, schema: dict) -> dict:
+    """One Gemini generateContent call with a JSON response schema. Raises RuntimeError."""
+    settings = get_settings()
+    if not settings.ai_scan_enabled:
+        raise RuntimeError("AI scan is not configured")
+    body = {
+        "contents": [{"parts": [*parts, {"text": prompt}]}],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "response_schema": schema,
+        },
+    }
+    try:
+        response = httpx.post(
+            _GEMINI_URL.format(model=settings.gemini_model),
+            headers={"x-goog-api-key": settings.gemini_api_key},
+            json=body,
+            timeout=60,
+        )
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"AI service unreachable: {exc}") from exc
+    if response.status_code != 200:
+        raise RuntimeError(f"AI service error ({response.status_code})")
+    try:
+        text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return json.loads(text)
+    except (KeyError, IndexError, ValueError) as exc:
+        raise RuntimeError("AI service returned an unexpected response") from exc
+
+
+def _inline_parts(files: list[tuple[bytes, str]]) -> list[dict]:
+    return [
+        {"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode()}}
+        for data, mime in files
+    ]
+
+
+def scan_receipt(files: list[tuple[bytes, str]]) -> dict:
+    """Extract a history-event suggestion from receipt photos/PDFs."""
+    raw = _gemini_generate(_inline_parts(files), _RECEIPT_SCAN_PROMPT, _RECEIPT_SCAN_SCHEMA)
+    lines = [
+        f"- {item.get('description')}" + (f" — ${item['cost']:.2f}" if item.get("cost") is not None else "")
+        for item in raw.get("line_items", [])
+    ]
+    return {
+        "eventType": raw.get("event_type") or "other",
+        "title": (raw.get("title") or "Service visit")[:160],
+        "eventDate": raw.get("event_date"),
+        "costCents": round(raw["total"] * 100) if raw.get("total") is not None else None,
+        "currency": (raw.get("currency") or "USD")[:3].upper(),
+        "mileage": raw.get("mileage"),
+        "shopName": raw.get("shop_name"),
+        "location": raw.get("location"),
+        "description": "\n".join(lines) or None,
+        "confidence": raw.get("confidence", "low"),
+        "notes": raw.get("notes"),
+    }
+
+
+def scan_fuel(files: list[tuple[bytes, str]]) -> dict:
+    """Extract fuel-up numbers from pump/odometer photos."""
+    raw = _gemini_generate(_inline_parts(files), _FUEL_SCAN_PROMPT, _FUEL_SCAN_SCHEMA)
+    return {
+        "totalCents": round(raw["total"] * 100) if raw.get("total") is not None else None,
+        "gallons": raw.get("gallons"),
+        "pricePerGallon": raw.get("price_per_gallon"),
+        "stationName": raw.get("station_name"),
+        "mileage": raw.get("mileage"),
+        "confidence": raw.get("confidence", "low"),
+        "notes": raw.get("notes"),
+    }

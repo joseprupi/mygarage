@@ -295,33 +295,29 @@ export const postApi = {
   deleteComment: (commentId: string) => request<void>(`/comments/${commentId}`, { method: "DELETE" }),
 };
 
-/**
- * Upload an image picked with expo-image-picker.
- * Native: FormData with a {uri, name, type} file part. Web: fetch the blob first.
- */
-export async function uploadImage(
-  asset: { uri: string; mimeType?: string | null; fileName?: string | null },
-  purpose: string,
-): Promise<Media> {
-  const token = await getToken();
-  const form = new FormData();
+export type PickedAsset = { uri: string; mimeType?: string | null; fileName?: string | null };
+
+async function appendAsset(form: FormData, field: string, asset: PickedAsset): Promise<void> {
   const name = asset.fileName ?? `photo-${Date.now()}.jpg`;
   const type = asset.mimeType ?? "image/jpeg";
   if (Platform.OS === "web") {
     const blob = await (await fetch(asset.uri)).blob();
-    form.append("file", new File([blob], name, { type }));
+    form.append(field, new File([blob], name, { type }));
   } else {
     // React Native's FormData file part shape
-    form.append("file", { uri: asset.uri, name, type } as unknown as Blob);
+    form.append(field, { uri: asset.uri, name, type } as unknown as Blob);
   }
-  form.append("purpose", purpose);
-  const res = await fetch(`${API_BASE}/media/upload`, {
+}
+
+async function postForm<T>(path: string, form: FormData, errorLabel: string): Promise<T> {
+  const token = await getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: token ? { authorization: `Bearer ${token}` } : undefined,
     body: form,
   });
   if (!res.ok) {
-    let detail = `Upload failed (${res.status})`;
+    let detail = `${errorLabel} (${res.status})`;
     try {
       const body = await res.json();
       if (typeof body?.detail === "string") detail = body.detail;
@@ -330,6 +326,56 @@ export async function uploadImage(
     }
     throw new Error(detail);
   }
-  const data = (await res.json()) as { url: string };
+  return res.json() as Promise<T>;
+}
+
+/**
+ * Upload an image picked with expo-image-picker.
+ * Native: FormData with a {uri, name, type} file part. Web: fetch the blob first.
+ */
+export async function uploadImage(asset: PickedAsset, purpose: string): Promise<Media> {
+  const form = new FormData();
+  await appendAsset(form, "file", asset);
+  form.append("purpose", purpose);
+  const data = await postForm<{ url: string }>("/media/upload", form, "Upload failed");
   return { url: data.url, media_type: "image" };
 }
+
+// --- AI scanning (backend-proxied Gemini) ---
+
+export type ReceiptScan = {
+  eventType: string;
+  title: string;
+  eventDate: string | null;
+  costCents: number | null;
+  currency: string;
+  mileage: number | null;
+  shopName: string | null;
+  location: string | null;
+  description: string | null;
+  confidence: string;
+  notes: string | null;
+};
+
+export type FuelScan = {
+  totalCents: number | null;
+  gallons: number | null;
+  pricePerGallon: number | null;
+  stationName: string | null;
+  mileage: number | null;
+  confidence: string;
+  notes: string | null;
+};
+
+async function scanFiles<T>(path: string, assets: PickedAsset[], label: string): Promise<T> {
+  const form = new FormData();
+  for (const asset of assets) await appendAsset(form, "files", asset);
+  return postForm<T>(path, form, label);
+}
+
+export const aiApi = {
+  scanReceipt: (assets: PickedAsset[]) =>
+    scanFiles<ReceiptScan>("/ai/receipt-scan", assets, "Receipt scan failed"),
+  scanFuel: (assets: PickedAsset[]) =>
+    scanFiles<FuelScan>("/ai/fuel-scan", assets, "Fuel scan failed"),
+};

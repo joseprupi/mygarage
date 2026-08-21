@@ -11,6 +11,8 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import User
 from app.schemas import (
+    FuelScanResult,
+    ReceiptScanResult,
     CommentCreate,
     CommentRead,
     CursorPage,
@@ -503,3 +505,51 @@ def unlike_comment(
 ) -> None:
     comment = services.get_comment_or_404(db, comment_id, user)
     services.unlike_comment(db, comment, user)
+
+
+_ALLOWED_SCAN_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
+
+
+def _read_scan_files(files: list[UploadFile], contents: list[bytes]) -> list[tuple[bytes, str]]:
+    out: list[tuple[bytes, str]] = []
+    for file, content in zip(files, contents):
+        if file.content_type not in _ALLOWED_SCAN_TYPES:
+            raise HTTPException(status_code=422, detail="Unsupported file type for scanning")
+        if len(content) > settings.max_upload_bytes:
+            raise HTTPException(status_code=413, detail="File is too large")
+        out.append((content, file.content_type))
+    return out
+
+
+@app.post("/ai/receipt-scan", response_model=ReceiptScanResult)
+async def ai_receipt_scan(
+    files: list[UploadFile] = File(...),
+    _user: User = Depends(get_current_user),
+) -> ReceiptScanResult:
+    if not settings.ai_scan_enabled:
+        raise HTTPException(status_code=503, detail="AI scanning is not configured")
+    if not 1 <= len(files) <= 5:
+        raise HTTPException(status_code=422, detail="Send 1-5 files")
+    contents = [await f.read() for f in files]
+    try:
+        result = services.scan_receipt(_read_scan_files(files, contents))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ReceiptScanResult(**result)
+
+
+@app.post("/ai/fuel-scan", response_model=FuelScanResult)
+async def ai_fuel_scan(
+    files: list[UploadFile] = File(...),
+    _user: User = Depends(get_current_user),
+) -> FuelScanResult:
+    if not settings.ai_scan_enabled:
+        raise HTTPException(status_code=503, detail="AI scanning is not configured")
+    if not 1 <= len(files) <= 3:
+        raise HTTPException(status_code=422, detail="Send 1-3 files")
+    contents = [await f.read() for f in files]
+    try:
+        result = services.scan_fuel(_read_scan_files(files, contents))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return FuelScanResult(**result)

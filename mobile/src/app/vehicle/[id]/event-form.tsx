@@ -15,7 +15,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { eventApi, mediaUrl, uploadImage, type Media } from "@/lib/api";
+import { aiApi, eventApi, mediaUrl, uploadImage, type Media, type PickedAsset } from "@/lib/api";
 import { EVENT_TYPES, eventTypeLabel } from "@/lib/events";
 
 const emptyForm = {
@@ -37,6 +37,8 @@ export default function EventFormScreen() {
   const [media, setMedia] = useState<Media[]>([]);
   const [loaded, setLoaded] = useState(!isEdit);
   const [uploading, setUploading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,6 +86,50 @@ export default function EventFormScreen() {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function scanReceipt(fromCamera: boolean) {
+    const options: ImagePicker.ImagePickerOptions = { quality: 0.9, allowsMultipleSelection: !fromCamera };
+    const result = fromCamera
+      ? await (async () => {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (!perm.granted) return null;
+          return ImagePicker.launchCameraAsync(options);
+        })()
+      : await ImagePicker.launchImageLibraryAsync(options);
+    if (!result || result.canceled) return;
+    setScanning(true);
+    setScanNote(null);
+    setError(null);
+    try {
+      const assets: PickedAsset[] = result.assets;
+      // Extract fields and store the receipt photos as event media, in parallel.
+      const [scan, ...uploaded] = await Promise.all([
+        aiApi.scanReceipt(assets),
+        ...assets.map((a) => uploadImage(a, "vehicle_event_media")),
+      ]);
+      setForm((prev) => ({
+        ...prev,
+        eventType: scan.eventType || prev.eventType,
+        title: scan.title || prev.title,
+        eventDate: scan.eventDate ?? prev.eventDate,
+        mileage: scan.mileage != null ? String(scan.mileage) : prev.mileage,
+        cost: scan.costCents != null ? String(scan.costCents / 100) : prev.cost,
+        shopName: scan.shopName ?? prev.shopName,
+        location: scan.location ?? prev.location,
+        description: scan.description ?? prev.description,
+      }));
+      setMedia((prev) => [...prev, ...uploaded]);
+      setScanNote(
+        scan.confidence === "high"
+          ? "Receipt read — double-check the fields below, then save."
+          : `Receipt was hard to read (confidence: ${scan.confidence}${scan.notes ? ` — ${scan.notes}` : ""}). Check every field.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Receipt scan failed");
+    } finally {
+      setScanning(false);
     }
   }
 
@@ -145,6 +191,32 @@ export default function EventFormScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Stack.Screen options={{ title: isEdit ? "Edit event" : "Add event" }} />
+
+      {!isEdit && (
+        <View style={styles.scanBox}>
+          <Text style={styles.scanTitle}>✨ Scan a receipt</Text>
+          <Text style={styles.scanHint}>
+            Photograph the bill and the form fills itself — you review before saving.
+          </Text>
+          <View style={styles.row}>
+            <Pressable style={styles.pickBtn} onPress={() => scanReceipt(true)} disabled={scanning || uploading}>
+              <Ionicons name="camera-outline" size={18} color="#0b1120" />
+              <Text style={styles.pickBtnText}>Camera</Text>
+            </Pressable>
+            <Pressable style={styles.pickBtn} onPress={() => scanReceipt(false)} disabled={scanning || uploading}>
+              <Ionicons name="images-outline" size={18} color="#0b1120" />
+              <Text style={styles.pickBtnText}>Library</Text>
+            </Pressable>
+            {scanning && (
+              <View style={styles.row}>
+                <ActivityIndicator />
+                <Text style={styles.scanHint}>Reading…</Text>
+              </View>
+            )}
+          </View>
+          {scanNote && <Text style={styles.scanNote}>{scanNote}</Text>}
+        </View>
+      )}
 
       <Text style={styles.label}>Type</Text>
       <View style={styles.typeWrap}>
@@ -262,6 +334,17 @@ export default function EventFormScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 16, gap: 8, maxWidth: 560, width: "100%", alignSelf: "center", paddingBottom: 48 },
+  scanBox: {
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    borderRadius: 14,
+    padding: 12,
+    gap: 8,
+  },
+  scanTitle: { fontSize: 15, fontWeight: "700", color: "#1d4ed8" },
+  scanHint: { fontSize: 13, color: "#475569" },
+  scanNote: { fontSize: 13, color: "#1d4ed8", fontWeight: "600" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
   label: { fontSize: 13, fontWeight: "600", color: "#334155", marginTop: 6 },
   input: {

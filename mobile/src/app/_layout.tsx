@@ -16,6 +16,7 @@ export default function RootLayout() {
       <Stack.Screen name="vehicle/[id]/index" options={{ title: "Vehicle" }} />
       <Stack.Screen name="vehicle/[id]/event-form" options={{ title: "History event", presentation: "modal" }} />
       <Stack.Screen name="vehicle/[id]/mod-form" options={{ title: "Mod", presentation: "modal" }} />
+      <Stack.Screen name="vehicle/[id]/fuel" options={{ title: "Fuel-up", presentation: "modal" }} />
     </Stack>
   );
 }

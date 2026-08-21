@@ -49,6 +49,15 @@ class Settings(BaseSettings):
             and self.cloudflare_stream_customer_code
         )
 
+    # --- AI extraction (Gemini) — optional; scan endpoints stay disabled
+    # until the API key is set.
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-flash-latest"
+
+    @property
+    def ai_scan_enabled(self) -> bool:
+        return bool(self.gemini_api_key)
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

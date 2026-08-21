@@ -146,7 +146,7 @@ class VehicleEvent(TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint(
             "event_type in ('purchase', 'sale', 'repair', 'maintenance', 'upgrade', "
-            "'inspection', 'detailing', 'track_day', 'road_trip', 'accident', 'note', 'other')",
+            "'inspection', 'detailing', 'fuel', 'track_day', 'road_trip', 'accident', 'note', 'other')",
             name="ck_vehicle_event_type",
         ),
         CheckConstraint("visibility in ('public', 'private')", name="ck_vehicle_event_visibility"),
