@@ -17,6 +17,7 @@ export type Vehicle = {
   nickname?: string | null;
   vin?: string | null;
   mileage?: number | null;
+  purchase_date?: string | null;
   color?: string | null;
   transmission?: string | null;
   engine?: string | null;

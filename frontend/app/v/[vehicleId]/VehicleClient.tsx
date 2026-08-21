@@ -182,6 +182,9 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
       mileageByDate[m.installed_date] = Math.max(mileageByDate[m.installed_date] ?? m.mileage, m.mileage);
     }
   }
+  if (v.purchase_date && v.mileage != null) {
+    mileageByDate[v.purchase_date] = Math.max(mileageByDate[v.purchase_date] ?? v.mileage, v.mileage);
+  }
   const mileagePoints = Object.entries(mileageByDate)
     .map(([date, miles]) => ({ date, miles }))
     .sort((a, b) => a.date.localeCompare(b.date));

@@ -66,6 +66,7 @@ class Vehicle(TimestampMixin, Base):
     slug: Mapped[str | None] = mapped_column(String(160), index=True)
     vin: Mapped[str | None] = mapped_column(String(32))
     mileage: Mapped[int | None] = mapped_column(Integer)
+    purchase_date: Mapped[date | None] = mapped_column(Date)
     color: Mapped[str | None] = mapped_column(String(80))
     transmission: Mapped[str | None] = mapped_column(String(80))
     engine: Mapped[str | None] = mapped_column(String(120))

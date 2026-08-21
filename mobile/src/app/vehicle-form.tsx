@@ -22,6 +22,7 @@ const emptyForm = {
   nickname: "",
   trim: "",
   vin: "",
+  purchaseDate: "",
   mileage: "",
   visibility: "public",
 };
@@ -56,6 +57,7 @@ export default function VehicleFormScreen() {
           nickname: v.nickname ?? "",
           trim: v.trim ?? "",
           vin: v.vin ?? "",
+          purchaseDate: v.purchase_date ?? "",
           mileage: v.mileage != null ? String(v.mileage) : "",
           visibility: v.visibility,
         });
@@ -111,6 +113,8 @@ export default function VehicleFormScreen() {
     setError(null);
     if (!form.make.trim()) return setError("Make is required.");
     if (!form.model.trim()) return setError("Model is required.");
+    if (form.purchaseDate && !/^\d{4}-\d{2}-\d{2}$/.test(form.purchaseDate))
+      return setError("Purchase date must be YYYY-MM-DD.");
     setSaving(true);
     const payload: Parameters<typeof vehicleApi.create>[0] = {
       make: form.make.trim(),
@@ -121,10 +125,11 @@ export default function VehicleFormScreen() {
       vin: form.vin.trim().toUpperCase() || null,
       cover_image_url: coverUrl,
       visibility: form.visibility,
+      // "When you got it": a fixed historical pair, editable any time. The ongoing
+      // odometer story lives in fuel-ups and history events, not here.
+      purchase_date: form.purchaseDate || null,
+      mileage: form.mileage ? Number(form.mileage) : null,
     };
-    // Mileage is only asked at add time ("initial mileage"); edits never touch it —
-    // the ongoing odometer story lives in fuel-ups and history events.
-    if (!isEdit) payload.mileage = form.mileage ? Number(form.mileage) : null;
     try {
       if (isEdit && vehicleId) {
         await vehicleApi.update(vehicleId, payload);
@@ -255,17 +260,28 @@ export default function VehicleFormScreen() {
         onChangeText={(v) => setForm({ ...form, vin: v.replace(/[^A-Za-z0-9]/g, "").slice(0, 32) })}
       />
 
-      {!isEdit && (
-        <>
-          <Text style={styles.label}>Initial mileage (when you got the car)</Text>
+      <Text style={styles.label}>When you got the car</Text>
+      <View style={styles.row}>
+        <View style={{ flex: 1 }}>
+          <TextInput
+            style={styles.input}
+            placeholder="Purchase date YYYY-MM-DD"
+            placeholderTextColor="#94a3b8"
+            value={form.purchaseDate}
+            onChangeText={(v) => setForm({ ...form, purchaseDate: v })}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
           <TextInput
             style={styles.input}
             keyboardType="number-pad"
+            placeholder="Mileage then"
+            placeholderTextColor="#94a3b8"
             value={form.mileage}
             onChangeText={(v) => setForm({ ...form, mileage: v.replace(/[^\d]/g, "") })}
           />
-        </>
-      )}
+        </View>
+      </View>
 
       <Text style={styles.label}>Visibility</Text>
       <View style={styles.row}>

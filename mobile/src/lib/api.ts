@@ -135,6 +135,7 @@ export type Vehicle = {
   nickname: string | null;
   vin: string | null;
   mileage: number | null;
+  purchase_date: string | null;
   color: string | null;
   transmission: string | null;
   engine: string | null;
@@ -261,6 +262,7 @@ export type VehiclePayload = {
   nickname?: string | null;
   vin?: string | null;
   mileage?: number | null;
+  purchase_date?: string | null;
   color?: string | null;
   description?: string | null;
   cover_image_url?: string | null;

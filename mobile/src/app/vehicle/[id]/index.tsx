@@ -214,7 +214,14 @@ export default function VehicleScreen() {
               </Pressable>
             </View>
           )}
-          <MileageChart events={events ?? []} />
+          <MileageChart
+            events={events ?? []}
+            origin={
+              vehicle.purchase_date && vehicle.mileage != null
+                ? { date: vehicle.purchase_date, miles: vehicle.mileage }
+                : undefined
+            }
+          />
           {(events ?? []).map((event) => (
             <EventRow
               key={event.id}

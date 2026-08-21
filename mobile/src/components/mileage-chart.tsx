@@ -21,14 +21,17 @@ const GRID = "#e2e8f0";
 const INK_MUTED = "#64748b";
 
 function shortDate(t: number): string {
-  return new Date(t).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  return new Date(t).toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }
 
-export function MileageChart({ events }: { events: VehicleEvent[] }) {
-  const points: Point[] = events
+export type MileageOrigin = { date: string; miles: number };
+
+export function MileageChart({ events, origin }: { events: VehicleEvent[]; origin?: MileageOrigin }) {
+  const raw: Point[] = events
     .filter((e) => e.mileage != null && e.event_date)
-    .map((e) => ({ t: Date.parse(`${e.event_date}T00:00:00Z`), miles: e.mileage as number }))
-    .sort((a, b) => a.t - b.t);
+    .map((e) => ({ t: Date.parse(`${e.event_date}T00:00:00Z`), miles: e.mileage as number }));
+  if (origin) raw.push({ t: Date.parse(`${origin.date}T00:00:00Z`), miles: origin.miles });
+  const points = raw.sort((a, b) => a.t - b.t);
   if (points.length < 2) return null;
 
   const plotW = W - PAD_LEFT - PAD_RIGHT;

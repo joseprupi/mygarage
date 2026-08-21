@@ -16,6 +16,7 @@ const emptyVehicle = {
   trim: "",
   nickname: "",
   vin: "",
+  purchase_date: "",
   mileage: "",
   color: "",
   transmission: "",
@@ -31,7 +32,8 @@ const textFields: [keyof typeof emptyVehicle, string][] = [
   ["trim", "Trim"],
   ["nickname", "Nickname"],
   ["vin", "VIN"],
-  ["mileage", "Mileage"],
+  ["purchase_date", "Purchase date (YYYY-MM-DD)"],
+  ["mileage", "Initial mileage (at purchase)"],
   ["color", "Color"],
   ["transmission", "Transmission"],
   ["engine", "Engine"],
@@ -81,6 +83,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
       trim: v.trim ?? "",
       nickname: v.nickname ?? "",
       vin: v.vin ?? "",
+      purchase_date: v.purchase_date ?? "",
       mileage: v.mileage != null ? String(v.mileage) : "",
       color: v.color ?? "",
       transmission: v.transmission ?? "",
@@ -136,6 +139,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
     const body: Partial<Vehicle> = {
       ...form,
       year: form.year ? Number(form.year) : null,
+      purchase_date: form.purchase_date || null,
       mileage: form.mileage ? Number(form.mileage) : null,
       visibility: form.visibility as Vehicle["visibility"]
     };

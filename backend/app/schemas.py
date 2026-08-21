@@ -92,6 +92,7 @@ class VehicleBase(BaseModel):
     nickname: str | None = Field(default=None, max_length=120)
     vin: str | None = Field(default=None, max_length=32)
     mileage: int | None = Field(default=None, ge=0)
+    purchase_date: date | None = None
     color: str | None = Field(default=None, max_length=80)
     transmission: str | None = Field(default=None, max_length=80)
     engine: str | None = Field(default=None, max_length=120)
@@ -113,6 +114,7 @@ class VehicleUpdate(BaseModel):
     nickname: str | None = Field(default=None, max_length=120)
     vin: str | None = Field(default=None, max_length=32)
     mileage: int | None = Field(default=None, ge=0)
+    purchase_date: date | None = None
     color: str | None = Field(default=None, max_length=80)
     transmission: str | None = Field(default=None, max_length=80)
     engine: str | None = Field(default=None, max_length=120)
