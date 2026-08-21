@@ -253,8 +253,32 @@ export const userApi = {
   posts: (userId: string) => request<Post[]>(`/users/${userId}/posts`),
 };
 
+export type VehiclePayload = {
+  make: string;
+  model: string;
+  year?: number | null;
+  trim?: string | null;
+  nickname?: string | null;
+  vin?: string | null;
+  mileage?: number | null;
+  color?: string | null;
+  description?: string | null;
+  cover_image_url?: string | null;
+  visibility?: string;
+};
+
+export const catalogApi = {
+  makes: () => request<string[]>("/catalog/makes"),
+  models: (make: string, year: number) =>
+    request<string[]>(`/catalog/models?make=${encodeURIComponent(make)}&year=${year}`),
+};
+
 export const vehicleApi = {
   get: (id: string) => request<Vehicle>(`/vehicles/${id}`),
+  create: (payload: VehiclePayload) =>
+    request<Vehicle>("/vehicles", { method: "POST", body: JSON.stringify(payload) }),
+  update: (id: string, payload: Partial<VehiclePayload>) =>
+    request<Vehicle>(`/vehicles/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   delete: (id: string) => request<void>(`/vehicles/${id}`, { method: "DELETE" }),
   posts: (id: string) => request<Post[]>(`/vehicles/${id}/posts`),
   gallery: (id: string) => request<Post[]>(`/vehicles/${id}/gallery`),

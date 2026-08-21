@@ -146,9 +146,17 @@ export default function VehicleScreen() {
           title,
           headerRight: isOwner
             ? () => (
-                <Pressable onPress={confirmDeleteVehicle} hitSlop={8}>
-                  <Ionicons name="trash-outline" size={20} color="#dc2626" />
-                </Pressable>
+                <View style={{ flexDirection: "row", gap: 18 }}>
+                  <Pressable
+                    onPress={() => router.push(`/vehicle-form?vehicleId=${vehicle.id}`)}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="pencil-outline" size={20} color="#2563eb" />
+                  </Pressable>
+                  <Pressable onPress={confirmDeleteVehicle} hitSlop={8}>
+                    <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                  </Pressable>
+                </View>
               )
             : undefined,
         }}

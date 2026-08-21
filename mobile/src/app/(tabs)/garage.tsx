@@ -18,6 +18,17 @@ function vehicleTitle(v: Vehicle): string {
   return v.nickname || [v.year, v.make, v.model].filter(Boolean).join(" ");
 }
 
+// Deterministic placeholder color per vehicle so the garage isn't a wall of grey.
+const PLACEHOLDER_COLORS = ["#dbeafe", "#d1fae5", "#fef3c7", "#ede9fe", "#ffe4e6", "#ccfbf1", "#fef9c3"];
+const PLACEHOLDER_ICON = ["#1d4ed8", "#047857", "#b45309", "#6d28d9", "#be123c", "#0f766e", "#a16207"];
+
+function placeholderColors(id: string): { bg: string; icon: string } {
+  let hash = 0;
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) % 997;
+  const i = hash % PLACEHOLDER_COLORS.length;
+  return { bg: PLACEHOLDER_COLORS[i], icon: PLACEHOLDER_ICON[i] };
+}
+
 export default function GarageScreen() {
   const router = useRouter();
   const [vehicles, setVehicles] = useState<Vehicle[] | null>(null);
@@ -77,15 +88,22 @@ export default function GarageScreen() {
           }}
         />
       }
+      ListHeaderComponent={
+        <Pressable style={styles.addVehicleBtn} onPress={() => router.push("/vehicle-form")}>
+          <Ionicons name="add" size={20} color="#fff" />
+          <Text style={styles.addVehicleText}>Add vehicle</Text>
+        </Pressable>
+      }
       renderItem={({ item }) => {
         const cover = mediaUrl(item.cover_image_url);
+        const colors = placeholderColors(item.id);
         return (
           <Pressable style={styles.card} onPress={() => router.push(`/vehicle/${item.id}`)}>
             {cover ? (
               <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" />
             ) : (
-              <View style={[styles.cover, styles.coverPlaceholder]}>
-                <Ionicons name="car-sport" size={40} color="#94a3b8" />
+              <View style={[styles.cover, styles.coverPlaceholder, { backgroundColor: colors.bg }]}>
+                <Ionicons name="car-sport" size={40} color={colors.icon} />
               </View>
             )}
             <View style={styles.cardBody}>
@@ -135,4 +153,14 @@ const styles = StyleSheet.create({
   emptyDetail: { fontSize: 14, color: "#64748b", textAlign: "center" },
   retry: { backgroundColor: "#2563eb", borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, marginTop: 8 },
   retryText: { color: "#fff", fontWeight: "700" },
+  addVehicleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#2563eb",
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  addVehicleText: { color: "#fff", fontWeight: "700", fontSize: 15 },
 });
