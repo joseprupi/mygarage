@@ -255,6 +255,7 @@ export const userApi = {
 
 export const vehicleApi = {
   get: (id: string) => request<Vehicle>(`/vehicles/${id}`),
+  delete: (id: string) => request<void>(`/vehicles/${id}`, { method: "DELETE" }),
   posts: (id: string) => request<Post[]>(`/vehicles/${id}/posts`),
   gallery: (id: string) => request<Post[]>(`/vehicles/${id}/gallery`),
   events: (id: string) => request<VehicleEvent[]>(`/vehicles/${id}/events`),

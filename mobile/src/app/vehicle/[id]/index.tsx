@@ -1,6 +1,8 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -104,6 +106,28 @@ export default function VehicleScreen() {
   }
 
   const isOwner = meId !== null && meId === vehicle.owner_user_id;
+
+  function confirmDeleteVehicle() {
+    if (!vehicle) return;
+    const doDelete = async () => {
+      try {
+        await vehicleApi.delete(vehicle.id);
+        router.replace("/garage");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't delete vehicle");
+      }
+    };
+    const warning = "This deletes the vehicle AND its entire history. This cannot be undone.";
+    if (Platform.OS === "web") {
+      if (window.confirm(`Delete this vehicle?\n\n${warning}`)) void doDelete();
+    } else {
+      Alert.alert("Delete this vehicle?", warning, [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => void doDelete() },
+      ]);
+    }
+  }
+
   const title = vehicle.nickname || [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
   const cover = mediaUrl(vehicle.cover_image_url);
   const totalSpend = (events ?? []).reduce((sum, e) => sum + (e.cost_cents ?? 0), 0);
@@ -117,7 +141,18 @@ export default function VehicleScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Stack.Screen options={{ title }} />
+      <Stack.Screen
+        options={{
+          title,
+          headerRight: isOwner
+            ? () => (
+                <Pressable onPress={confirmDeleteVehicle} hitSlop={8}>
+                  <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                </Pressable>
+              )
+            : undefined,
+        }}
+      />
       {cover && <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" />}
       <View style={styles.header}>
         <Text style={styles.title}>{title}</Text>
@@ -149,29 +184,27 @@ export default function VehicleScreen() {
 
       {tab === "History" && (
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionInfo}>
-              {(events ?? []).length} events
-              {totalSpend > 0 ? ` · ${formatMoney(totalSpend)} total` : ""}
-            </Text>
-            {isOwner && (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <Pressable
-                  style={[styles.addBtn, styles.fuelBtn]}
-                  onPress={() => router.push(`/vehicle/${vehicle.id}/fuel`)}
-                >
-                  <Text style={styles.addBtnText}>⛽ Fuel-up</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.addBtn}
-                  onPress={() => router.push(`/vehicle/${vehicle.id}/event-form`)}
-                >
-                  <Ionicons name="add" size={18} color="#fff" />
-                  <Text style={styles.addBtnText}>Add event</Text>
-                </Pressable>
-              </View>
-            )}
-          </View>
+          <Text style={styles.sectionInfo}>
+            {(events ?? []).length} events
+            {totalSpend > 0 ? ` · ${formatMoney(totalSpend)} total` : ""}
+          </Text>
+          {isOwner && (
+            <View style={styles.actionRow}>
+              <Pressable
+                style={[styles.addBtn, styles.fuelBtn]}
+                onPress={() => router.push(`/vehicle/${vehicle.id}/fuel`)}
+              >
+                <Text style={styles.addBtnText}>⛽ Fuel-up</Text>
+              </Pressable>
+              <Pressable
+                style={styles.addBtn}
+                onPress={() => router.push(`/vehicle/${vehicle.id}/event-form`)}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+                <Text style={styles.addBtnText}>Add event</Text>
+              </Pressable>
+            </View>
+          )}
           {(events ?? []).map((event) => (
             <EventRow
               key={event.id}
@@ -191,9 +224,9 @@ export default function VehicleScreen() {
 
       {tab === "Build" && (
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionInfo}>{(mods ?? []).length} mods</Text>
-            {isOwner && (
+          <Text style={styles.sectionInfo}>{(mods ?? []).length} mods</Text>
+          {isOwner && (
+            <View style={styles.actionRow}>
               <Pressable
                 style={styles.addBtn}
                 onPress={() => router.push(`/vehicle/${vehicle.id}/mod-form`)}
@@ -201,8 +234,8 @@ export default function VehicleScreen() {
                 <Ionicons name="add" size={18} color="#fff" />
                 <Text style={styles.addBtnText}>Add mod</Text>
               </Pressable>
-            )}
-          </View>
+            </View>
+          )}
           {[...modsByCategory.entries()].map(([category, list]) => (
             <View key={category} style={{ gap: 4 }}>
               <Text style={styles.category}>{category}</Text>
@@ -272,16 +305,18 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 14, fontWeight: "600", color: "#475569" },
   tabTextActive: { color: "#fff" },
   section: { padding: 16, gap: 10 },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionInfo: { fontSize: 13, color: "#64748b", fontWeight: "600" },
+  actionRow: { flexDirection: "row", gap: 8 },
   addBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 4,
     backgroundColor: "#2563eb",
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 10,
   },
   addBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   fuelBtn: { backgroundColor: "#0b1120" },
