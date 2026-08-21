@@ -69,11 +69,14 @@ Keep this list honest: when a feature ships, mark ✅ and add a one-liner to `LO
 - [ ] **Google sign-in on mobile** — BLOCKED on dev build: Google auth libs need custom native code, impossible in Expo Go. Do it in the TestFlight phase (paid Apple Developer account + EAS dev build). Backend /auth/google already works.
 - [x] Mileage chart on mobile (react-native-svg, mirrors web geometry).
 
-## Vehicle stats / richer mileage chart (backlog, 2026-08-03 — user request)
-Data is already captured (fuel events carry gallons+$ in description, mileage, dates; purchase origin). Candidate "Car stats" panel next to/under the chart:
-- [ ] **Fuel consumption (MPG)**: miles between consecutive fuel-ups ÷ gallons. NOTE: needs gallons as a structured field — today gallons/price-per-gal live in the event description text; consider `fuel_gallons`/`fuel_price_cents` columns on vehicle_events (or a JSON detail field) before building this.
-- [ ] **Cost per mile**: total history spend ÷ miles driven since purchase (needs purchase_date+initial mileage, already in DB). Variant: fuel-only $/mi.
-- [ ] **$/gal trend** over time (line, from fuel events).
-- [ ] **Miles/year pace**: projected annual mileage from the chart slope.
-- [ ] **Spend by category**: maintenance vs repair vs fuel vs mods (bars).
-- [ ] **Ownership summary card**: total miles driven, total spend, avg MPG, cost/mile — the "what does this car really cost me" headline. Strong moat/seller-story feature.
+## Vehicle stats (backlog, 2026-08-03 — user request; UX decided)
+**UX shape (owner's call):** do NOT build a wall of stats. Two levels:
+1. **History tab** keeps the mileage chart + ONE headline stat next to it (pick the single most telling number — candidate: cost/mile or avg MPG).
+2. **"Stats" detail screen** (link from the chart/History tab): a full table for geeks/number-neurotics — every derivable figure, updated as data grows.
+
+Stats to derive (detail screen; headline picks one):
+- Fuel consumption (MPG): miles between consecutive fuel-ups ÷ gallons — per fill-up + rolling average.
+- Cost per mile: total history spend ÷ miles since purchase (purchase_date + initial mileage in DB). Variant: fuel-only $/mi.
+- $/gal paid over time. Miles/year pace (chart slope). Spend by category (maintenance/repair/fuel/mods). Totals: miles driven, spend, days owned.
+
+**Prerequisite:** gallons + price/gal are currently text in the fuel event description — add structured fields (e.g. `fuel_gallons`, `fuel_price_cents` on vehicle_events) BEFORE building MPG math; backfill the few existing fuel events by parsing descriptions.
