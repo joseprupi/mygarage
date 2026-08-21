@@ -20,6 +20,7 @@ const emptyForm = {
   model: "",
   year: "",
   nickname: "",
+  trim: "",
   vin: "",
   mileage: "",
   visibility: "public",
@@ -53,6 +54,7 @@ export default function VehicleFormScreen() {
           model: v.model,
           year: v.year != null ? String(v.year) : "",
           nickname: v.nickname ?? "",
+          trim: v.trim ?? "",
           vin: v.vin ?? "",
           mileage: v.mileage != null ? String(v.mileage) : "",
           visibility: v.visibility,
@@ -115,6 +117,7 @@ export default function VehicleFormScreen() {
       model: form.model.trim(),
       year: form.year ? Number(form.year) : null,
       nickname: form.nickname.trim() || null,
+      trim: form.trim.trim() || null,
       vin: form.vin.trim().toUpperCase() || null,
       cover_image_url: coverUrl,
       visibility: form.visibility,
@@ -221,6 +224,16 @@ export default function VehicleFormScreen() {
           ))}
         </View>
       )}
+
+      <Text style={styles.label}>Trim / version</Text>
+      <TextInput
+        style={styles.input}
+        value={form.trim}
+        placeholder="Limited 4WD"
+        placeholderTextColor="#94a3b8"
+        autoCapitalize="words"
+        onChangeText={(v) => setForm({ ...form, trim: v })}
+      />
 
       <Text style={styles.label}>Nickname</Text>
       <TextInput
