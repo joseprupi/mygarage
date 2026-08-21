@@ -18,3 +18,7 @@ coverage/
 
 # TS incremental build cache
 *.tsbuildinfo
+
+# huge exported conversation dumps — grep only, never commit
+plan/archive.txt
+plan/archive/
