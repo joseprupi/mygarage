@@ -23,6 +23,7 @@ import {
   type VehicleMod,
 } from "@/lib/api";
 import { eventTypeColors, eventTypeLabel, formatDate, formatMoney } from "@/lib/events";
+import { computeVehicleStats } from "@/lib/stats";
 import { MileageChart } from "@/components/mileage-chart";
 import { PostCard } from "@/components/post-card";
 
@@ -131,7 +132,7 @@ export default function VehicleScreen() {
 
   const title = vehicle.nickname || [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
   const cover = mediaUrl(vehicle.cover_image_url);
-  const totalSpend = (events ?? []).reduce((sum, e) => sum + (e.cost_cents ?? 0), 0);
+  const stats = computeVehicleStats(vehicle, events ?? []);
 
   const modsByCategory = new Map<string, VehicleMod[]>();
   for (const mod of mods ?? []) {
@@ -193,10 +194,21 @@ export default function VehicleScreen() {
 
       {tab === "History" && (
         <View style={styles.section}>
-          <Text style={styles.sectionInfo}>
-            {(events ?? []).length} events
-            {totalSpend > 0 ? ` · ${formatMoney(totalSpend)} total` : ""}
-          </Text>
+          <View style={styles.statsRow}>
+            <View style={styles.statTile}>
+              <Text style={styles.statValue}>{(events ?? []).length}</Text>
+              <Text style={styles.statLabel}>Events</Text>
+            </View>
+            {stats.summary.map((row) => (
+              <View key={row.label} style={styles.statTile}>
+                <Text style={styles.statValue}>{row.value}</Text>
+                <Text style={styles.statLabel}>{row.label}</Text>
+              </View>
+            ))}
+          </View>
+          <Pressable onPress={() => router.push(`/vehicle/${vehicle.id}/stats`)} hitSlop={6}>
+            <Text style={styles.allStatsLink}>All stats →</Text>
+          </Pressable>
           {isOwner && (
             <View style={styles.actionRow}>
               <Pressable
@@ -323,6 +335,21 @@ const styles = StyleSheet.create({
   tabTextActive: { color: "#fff" },
   section: { padding: 16, gap: 10 },
   sectionInfo: { fontSize: 15, color: "#64748b", fontWeight: "600" },
+  statsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statTile: {
+    flexGrow: 1,
+    minWidth: 96,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    gap: 1,
+  },
+  statValue: { fontSize: 17, fontWeight: "800", color: "#0b1120" },
+  statLabel: { fontSize: 12, color: "#64748b", fontWeight: "600" },
+  allStatsLink: { fontSize: 15, color: "#2563eb", fontWeight: "700", textAlign: "right" },
   actionRow: { flexDirection: "row", gap: 8 },
   addBtn: {
     flex: 1,

@@ -117,6 +117,8 @@ export default function FuelScreen() {
         title: gallons != null ? `Fuel-up — ${gallons} gal` : "Fuel-up",
         eventDate: form.date,
         costCents: form.total ? Math.round(Number(form.total) * 100) : null,
+        fuelGallons: gallons,
+        fuelPriceCents: ppg != null ? Math.round(ppg * 100) : null,
         mileage: form.mileage ? Number(form.mileage) : null,
         shopName: form.station.trim() || null,
         description: details.length ? details.join(" · ") : null,

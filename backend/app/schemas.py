@@ -220,6 +220,8 @@ class VehicleEventCreate(BaseModel):
     event_date: date = Field(alias="eventDate")
     mileage: int | None = Field(default=None, ge=0)
     cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
+    fuel_gallons: float | None = Field(default=None, ge=0, alias="fuelGallons")
+    fuel_price_cents: int | None = Field(default=None, ge=0, alias="fuelPriceCents")
     currency: str = Field(default="USD", min_length=3, max_length=3)
     shop_name: str | None = Field(default=None, max_length=160, alias="shopName")
     location: str | None = Field(default=None, max_length=160)
@@ -237,6 +239,8 @@ class VehicleEventUpdate(BaseModel):
     event_date: date | None = Field(default=None, alias="eventDate")
     mileage: int | None = Field(default=None, ge=0)
     cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
+    fuel_gallons: float | None = Field(default=None, ge=0, alias="fuelGallons")
+    fuel_price_cents: int | None = Field(default=None, ge=0, alias="fuelPriceCents")
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     shop_name: str | None = Field(default=None, max_length=160, alias="shopName")
     location: str | None = Field(default=None, max_length=160)
@@ -257,6 +261,8 @@ class VehicleEventRead(BaseModel):
     event_date: date | None = None
     mileage: int | None = None
     cost_cents: int | None = None
+    fuel_gallons: float | None = None
+    fuel_price_cents: int | None = None
     currency: str
     shop_name: str | None = None
     location: str | None = None
