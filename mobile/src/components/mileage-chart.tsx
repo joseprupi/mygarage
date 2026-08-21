@@ -75,7 +75,7 @@ export function MileageChart({ events, origin }: { events: VehicleEvent[]; origi
             key={`ylab-${m}`}
             x={PAD_LEFT - 8}
             y={y(m) + 4}
-            fontSize={12}
+            fontSize={14}
             fill={INK_MUTED}
             textAnchor="end"
           >
@@ -92,7 +92,7 @@ export function MileageChart({ events, origin }: { events: VehicleEvent[]; origi
             key={`xlab-${i}`}
             x={coords[i].px}
             y={H - 8}
-            fontSize={12}
+            fontSize={14}
             fill={INK_MUTED}
             textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"}
           >

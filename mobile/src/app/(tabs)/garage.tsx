@@ -146,11 +146,11 @@ const styles = StyleSheet.create({
   cover: { width: 84, height: 64, borderRadius: 10, backgroundColor: "#f1f5f9" },
   coverPlaceholder: { alignItems: "center", justifyContent: "center" },
   cardBody: { flex: 1, gap: 2 },
-  title: { fontSize: 16, fontWeight: "700", color: "#0b1120" },
-  subtitle: { fontSize: 13, color: "#64748b" },
-  meta: { fontSize: 12, color: "#94a3b8" },
-  emptyTitle: { fontSize: 17, fontWeight: "700", color: "#0b1120" },
-  emptyDetail: { fontSize: 14, color: "#64748b", textAlign: "center" },
+  title: { fontSize: 18, fontWeight: "700", color: "#0b1120" },
+  subtitle: { fontSize: 15, color: "#64748b" },
+  meta: { fontSize: 14, color: "#94a3b8" },
+  emptyTitle: { fontSize: 19, fontWeight: "700", color: "#0b1120" },
+  emptyDetail: { fontSize: 16, color: "#64748b", textAlign: "center" },
   retry: { backgroundColor: "#2563eb", borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, marginTop: 8 },
   retryText: { color: "#fff", fontWeight: "700" },
   addVehicleBtn: {
@@ -162,5 +162,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 12,
   },
-  addVehicleText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  addVehicleText: { color: "#fff", fontWeight: "700", fontSize: 17 },
 });

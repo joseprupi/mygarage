@@ -143,8 +143,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 8, minHeight: 300 },
   list: { paddingVertical: 8, maxWidth: 560, width: "100%", alignSelf: "center", paddingBottom: 80 },
-  errorTitle: { fontSize: 17, fontWeight: "700", color: "#0b1120" },
-  errorDetail: { fontSize: 14, color: "#64748b", textAlign: "center" },
+  errorTitle: { fontSize: 19, fontWeight: "700", color: "#0b1120" },
+  errorDetail: { fontSize: 16, color: "#64748b", textAlign: "center" },
   retry: { backgroundColor: "#2563eb", borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, marginTop: 8 },
   retryText: { color: "#fff", fontWeight: "700" },
   fab: {

@@ -68,3 +68,12 @@ Keep this list honest: when a feature ships, mark ✅ and add a one-liner to `LO
 ## Mobile follow-ups (2026-08-03)
 - [ ] **Google sign-in on mobile** — BLOCKED on dev build: Google auth libs need custom native code, impossible in Expo Go. Do it in the TestFlight phase (paid Apple Developer account + EAS dev build). Backend /auth/google already works.
 - [x] Mileage chart on mobile (react-native-svg, mirrors web geometry).
+
+## Vehicle stats / richer mileage chart (backlog, 2026-08-03 — user request)
+Data is already captured (fuel events carry gallons+$ in description, mileage, dates; purchase origin). Candidate "Car stats" panel next to/under the chart:
+- [ ] **Fuel consumption (MPG)**: miles between consecutive fuel-ups ÷ gallons. NOTE: needs gallons as a structured field — today gallons/price-per-gal live in the event description text; consider `fuel_gallons`/`fuel_price_cents` columns on vehicle_events (or a JSON detail field) before building this.
+- [ ] **Cost per mile**: total history spend ÷ miles driven since purchase (needs purchase_date+initial mileage, already in DB). Variant: fuel-only $/mi.
+- [ ] **$/gal trend** over time (line, from fuel events).
+- [ ] **Miles/year pace**: projected annual mileage from the chart slope.
+- [ ] **Spend by category**: maintenance vs repair vs fuel vs mods (bars).
+- [ ] **Ownership summary card**: total miles driven, total spend, avg MPG, cost/mile — the "what does this car really cost me" headline. Strong moat/seller-story feature.
