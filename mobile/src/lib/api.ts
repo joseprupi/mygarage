@@ -6,6 +6,7 @@
  * backend's CORS_ORIGINS env.
  */
 import { Platform } from "react-native";
+import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 
 const HOST = "10.0.3.15";
@@ -98,6 +99,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       ...(options.headers as Record<string, string> | undefined),
     },
   });
+  if (res.status === 401 && token) {
+    // Stored token is expired or invalid — clear it and send the user to login.
+    await setToken(null);
+    router.replace("/login");
+    throw new Error("Session expired — please log in again.");
+  }
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
     try {
