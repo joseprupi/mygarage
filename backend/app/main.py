@@ -130,13 +130,22 @@ def update_me(
     return services.update_user(db, user, data)
 
 
+
+def _vehicle_out(vehicle, viewer: User | None) -> VehicleRead:
+    """Serialize a vehicle, masking the VIN for anyone but the owner."""
+    out = VehicleRead.model_validate(vehicle)
+    if viewer is None or viewer.id != vehicle.owner_user_id:
+        out.vin = None
+    return out
+
+
 @app.get("/users/{user_id}/vehicles", response_model=list[VehicleRead])
 def user_vehicles(
     user_id: str,
     db: Session = Depends(get_db),
     viewer: User | None = Depends(get_optional_user),
 ) -> list:
-    return services.list_user_vehicles(db, user_id, viewer)
+    return [_vehicle_out(v, viewer) for v in services.list_user_vehicles(db, user_id, viewer)]
 
 
 @app.get("/users/{user_id}/posts", response_model=list[PostRead])
@@ -161,7 +170,7 @@ def get_vehicle(
     db: Session = Depends(get_db),
     viewer: User | None = Depends(get_optional_user),
 ):
-    return services.get_vehicle_or_404(db, vehicle_id, viewer)
+    return _vehicle_out(services.get_vehicle_or_404(db, vehicle_id, viewer), viewer)
 
 
 @app.patch("/vehicles/{vehicle_id}", response_model=VehicleRead)

@@ -495,3 +495,34 @@ def test_video_status_reports_ready_and_duration(monkeypatch):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body == {"ready": True, "state": "ready", "durationSeconds": 42}
+
+
+def test_vin_is_masked_for_everyone_but_the_owner():
+    owner = signup("vin-owner", "vin-owner@example.com")
+    other = signup("vin-other", "vin-other@example.com")
+    response = client.post(
+        "/vehicles",
+        headers=auth_headers(owner["accessToken"]),
+        json={"make": "Toyota", "model": "4Runner", "year": 2004, "vin": "JTEBT17R748010246"},
+    )
+    assert response.status_code == 200, response.text
+    vehicle_id = response.json()["id"]
+
+    # Owner sees the VIN
+    as_owner = client.get(f"/vehicles/{vehicle_id}", headers=auth_headers(owner["accessToken"]))
+    assert as_owner.json()["vin"] == "JTEBT17R748010246"
+
+    # Another logged-in user does not
+    as_other = client.get(f"/vehicles/{vehicle_id}", headers=auth_headers(other["accessToken"]))
+    assert as_other.json()["vin"] is None
+
+    # Anonymous does not
+    as_guest = client.get(f"/vehicles/{vehicle_id}")
+    assert as_guest.json()["vin"] is None
+
+    # The owner's public vehicle list masks it for others too
+    owner_id = owner["user"]["id"]
+    listed = client.get(f"/users/{owner_id}/vehicles", headers=auth_headers(other["accessToken"]))
+    assert all(v["vin"] is None for v in listed.json())
+    listed_own = client.get(f"/users/{owner_id}/vehicles", headers=auth_headers(owner["accessToken"]))
+    assert any(v["vin"] == "JTEBT17R748010246" for v in listed_own.json())

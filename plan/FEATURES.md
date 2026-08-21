@@ -58,3 +58,9 @@ Legend: ✅ done · 🔜 next · 💤 backlog
 
 ---
 Keep this list honest: when a feature ships, mark ✅ and add a one-liner to `LOG.md`. When priorities shift, edit here.
+
+## VIN roadmap (decided 2026-08-03 — slice 1 shipped, rest queued)
+- [x] **VIN privacy** (S): API masks `vin` for everyone but the owner (`_vehicle_out` in main.py + pytest). Field itself has existed since FE-4.
+- [ ] **VIN exact-match search** (S–M): `GET /vehicles/by-vin/{vin}`, exact match only (no prefix/partial — prevents enumeration), public vehicles only. Search box on web + mobile. The "buyer checks the history" moat feature.
+- [ ] **VIN decode on vehicle create** (M): NHTSA vPIC (free, no key) proxied via backend — type VIN, auto-fill make/model/year/engine/transmission. Same pattern as catalog/geo.
+- [ ] **Ownership transfer** (L, own design session): seller generates one-time transfer code → buyer redeems → vehicle + full history move accounts. Events keep `author_user_id` (provenance). Auto-log `sale` event for seller, `purchase` for buyer. Needs transfers table + permission rules.
