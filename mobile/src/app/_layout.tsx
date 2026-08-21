@@ -1,4 +1,6 @@
-import { Stack } from "expo-router";
+import { Pressable } from "react-native";
+import { Stack, router } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 export default function RootLayout() {
   return (
@@ -6,7 +8,14 @@ export default function RootLayout() {
       screenOptions={{
         headerTitleStyle: { fontWeight: "700" },
         headerTintColor: "#2563eb",
-        headerBackTitle: "Back",
+        // Explicit back control: native back behavior proved unreliable after the
+        // SDK pin, and modals otherwise have no visible way to close.
+        headerLeft: ({ canGoBack }) =>
+          canGoBack ? (
+            <Pressable onPress={() => router.back()} hitSlop={10} style={{ paddingRight: 10 }}>
+              <Ionicons name="chevron-back" size={26} color="#2563eb" />
+            </Pressable>
+          ) : null,
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

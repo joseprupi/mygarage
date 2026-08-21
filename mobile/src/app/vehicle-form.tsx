@@ -20,6 +20,7 @@ const emptyForm = {
   model: "",
   year: "",
   nickname: "",
+  vin: "",
   mileage: "",
   visibility: "public",
 };
@@ -52,6 +53,7 @@ export default function VehicleFormScreen() {
           model: v.model,
           year: v.year != null ? String(v.year) : "",
           nickname: v.nickname ?? "",
+          vin: v.vin ?? "",
           mileage: v.mileage != null ? String(v.mileage) : "",
           visibility: v.visibility,
         });
@@ -108,15 +110,18 @@ export default function VehicleFormScreen() {
     if (!form.make.trim()) return setError("Make is required.");
     if (!form.model.trim()) return setError("Model is required.");
     setSaving(true);
-    const payload = {
+    const payload: Parameters<typeof vehicleApi.create>[0] = {
       make: form.make.trim(),
       model: form.model.trim(),
       year: form.year ? Number(form.year) : null,
       nickname: form.nickname.trim() || null,
-      mileage: form.mileage ? Number(form.mileage) : null,
+      vin: form.vin.trim().toUpperCase() || null,
       cover_image_url: coverUrl,
       visibility: form.visibility,
     };
+    // Mileage is only asked at add time ("initial mileage"); edits never touch it —
+    // the ongoing odometer story lives in fuel-ups and history events.
+    if (!isEdit) payload.mileage = form.mileage ? Number(form.mileage) : null;
     try {
       if (isEdit && vehicleId) {
         await vehicleApi.update(vehicleId, payload);
@@ -226,13 +231,28 @@ export default function VehicleFormScreen() {
         onChangeText={(v) => setForm({ ...form, nickname: v })}
       />
 
-      <Text style={styles.label}>Mileage</Text>
+      <Text style={styles.label}>VIN</Text>
       <TextInput
         style={styles.input}
-        keyboardType="number-pad"
-        value={form.mileage}
-        onChangeText={(v) => setForm({ ...form, mileage: v.replace(/[^\d]/g, "") })}
+        value={form.vin}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        placeholder="Only you can see this"
+        placeholderTextColor="#94a3b8"
+        onChangeText={(v) => setForm({ ...form, vin: v.replace(/[^A-Za-z0-9]/g, "").slice(0, 32) })}
       />
+
+      {!isEdit && (
+        <>
+          <Text style={styles.label}>Initial mileage (when you got the car)</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="number-pad"
+            value={form.mileage}
+            onChangeText={(v) => setForm({ ...form, mileage: v.replace(/[^\d]/g, "") })}
+          />
+        </>
+      )}
 
       <Text style={styles.label}>Visibility</Text>
       <View style={styles.row}>
