@@ -64,3 +64,7 @@ Keep this list honest: when a feature ships, mark ✅ and add a one-liner to `LO
 - [ ] **VIN exact-match search** (S–M): `GET /vehicles/by-vin/{vin}`, exact match only (no prefix/partial — prevents enumeration), public vehicles only. Search box on web + mobile. The "buyer checks the history" moat feature.
 - [ ] **VIN decode on vehicle create** (M): NHTSA vPIC (free, no key) proxied via backend — type VIN, auto-fill make/model/year/engine/transmission. Same pattern as catalog/geo.
 - [ ] **Ownership transfer** (L, own design session): seller generates one-time transfer code → buyer redeems → vehicle + full history move accounts. Events keep `author_user_id` (provenance). Auto-log `sale` event for seller, `purchase` for buyer. Needs transfers table + permission rules.
+
+## Mobile follow-ups (2026-08-03)
+- [ ] **Google sign-in on mobile** — BLOCKED on dev build: Google auth libs need custom native code, impossible in Expo Go. Do it in the TestFlight phase (paid Apple Developer account + EAS dev build). Backend /auth/google already works.
+- [x] Mileage chart on mobile (react-native-svg, mirrors web geometry).

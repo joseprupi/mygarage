@@ -23,6 +23,7 @@ import {
   type VehicleMod,
 } from "@/lib/api";
 import { eventTypeColors, eventTypeLabel, formatDate, formatMoney } from "@/lib/events";
+import { MileageChart } from "@/components/mileage-chart";
 import { PostCard } from "@/components/post-card";
 
 const TABS = ["History", "Build", "Posts"] as const;
@@ -213,6 +214,7 @@ export default function VehicleScreen() {
               </Pressable>
             </View>
           )}
+          <MileageChart events={events ?? []} />
           {(events ?? []).map((event) => (
             <EventRow
               key={event.id}
