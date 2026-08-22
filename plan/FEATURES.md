@@ -80,3 +80,9 @@ Stats to derive (detail screen; headline picks one):
 - $/gal paid over time. Miles/year pace (chart slope). Spend by category (maintenance/repair/fuel/mods). Totals: miles driven, spend, days owned.
 
 **Prerequisite:** gallons + price/gal are currently text in the fuel event description — add structured fields (e.g. `fuel_gallons`, `fuel_price_cents` on vehicle_events) BEFORE building MPG math; backfill the few existing fuel events by parsing descriptions.
+
+## Fuel log correctness — skipped fill-ups (backlog, 2026-08-22 — owner flagged)
+Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the mileage delta span two tanks → MPG ~doubles (sanity cap only catches absurd values). Fix (Fuelly-style):
+- [ ] add `fuel_full_tank: bool` (default true) and `fuel_missed_previous: bool` (default false) to fuel events; fuel-up screen gets two toggles ("Filled the tank" / "I skipped logging a fill-up since last time").
+- [ ] MPG only between consecutive **full** fills with no gap flagged; partial fills accumulate gallons into the next full-fill segment.
+- [ ] Stats screen shows "n segments excluded (gaps/partials)" so the number is honest.
