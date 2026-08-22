@@ -1,4 +1,11 @@
-# STATE — MyGarage handoff
+# STATE — CarFable (formerly MyGarage / CeCeCar) handoff
+
+## 2026-08-22 — REBRAND + PRODUCTION REFRESH (branch `carfable-rename`)
+- Product is now **CarFable** (carfable.com bought by owner; Cloudflare). Bundle id `com.carfable.app`. cececar.com still serves during transition (kept in CORS).
+- **Prod backend redeployed** with everything since spring: mods, fuel event type, purchase_date, fuel fields, AI receipt/fuel scan (GEMINI_API_KEY in Secret Manager), VIN masking. Cloud SQL migrated to 0009. `httpx` added to runtime deps (image had crashed without it). Cloudflare Stream stays OFF in prod (config empty; video untested).
+- **Prod frontend redeployed** (Firebase). PENDING owner steps: add carfable.com as Firebase custom domain + Cloudflare DNS (grey-cloud!), Google OAuth origins for carfable.com, rotate the leaked Google client secret.
+- **Mobile prod path**: API base env-driven (prod default; `mobile/.env.development` → home stack). `eas.json` ready. Next: EAS Update via Expo Go (needs owner's EXPO_TOKEN), then TestFlight once Apple Developer enrollment clears.
+- Dev stack reminder: Metro must be started from `mobile/` so `.env.development` loads; otherwise the dev app hits PROD.
 
 _Last updated: 2026-07-31. Newest-first details live in `plan/LOG.md`; this is the quick orientation._
 
