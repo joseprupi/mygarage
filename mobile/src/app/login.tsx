@@ -39,7 +39,7 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.card}>
-        <Text style={styles.brand}>CeCeCar</Text>
+        <Text style={styles.brand}>CarFable</Text>
         <Text style={styles.subtitle}>Your car&apos;s life, in one place.</Text>
 
         <TextInput

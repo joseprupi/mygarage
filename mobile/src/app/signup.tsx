@@ -51,7 +51,7 @@ export default function SignupScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={styles.card}>
-        <Text style={styles.brand}>Join CeCeCar</Text>
+        <Text style={styles.brand}>Join CarFable</Text>
         <TextInput
           style={styles.input}
           placeholder="Email"

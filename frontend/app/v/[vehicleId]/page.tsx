@@ -11,14 +11,14 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { vehicleId } = await params;
   const vehicle = await serverFetch<Vehicle>(`/vehicles/${vehicleId}`);
-  if (!vehicle) return { title: "CeCeCar" };
+  if (!vehicle) return { title: "CarFable" };
 
   const name = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
-  const title = `${name || "Vehicle"} — CeCeCar`;
+  const title = `${name || "Vehicle"} — CarFable`;
   const owner = vehicle.owner?.username ? `@${vehicle.owner.username}` : "an owner";
   const description =
     vehicle.description?.trim() ||
-    `${name || "This vehicle"}'s full history on CeCeCar, kept by ${owner}.`;
+    `${name || "This vehicle"}'s full history on CarFable, kept by ${owner}.`;
   const image = absoluteMediaUrl(vehicle.cover_image_url) ?? absoluteMediaUrl(vehicle.owner?.avatar_url);
 
   return {

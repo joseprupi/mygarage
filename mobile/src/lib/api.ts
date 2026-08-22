@@ -1,5 +1,5 @@
 /**
- * CeCeCar API client for the mobile app.
+ * CarFable API client for the mobile app.
  *
  * Dev networking: phone/browser reach the dev backend over the VPN.
  * Native apps have no CORS; the web build's origin is allowed by the
@@ -9,21 +9,24 @@ import { Platform } from "react-native";
 import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 
-const HOST = "10.0.3.15";
-export const API_BASE = `http://${HOST}:8010`;
-const MEDIA_BASE = `http://${HOST}:9000/car-social`;
+// Production by default (Cloud Run). Dev overrides via mobile/.env.development
+// (EXPO_PUBLIC_* vars are inlined by Expo at bundle time).
+const PROD_API = "https://mygarage-backend-147573336932.us-central1.run.app";
+export const API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? PROD_API;
+// Dev stack stores relative "/media/..." URLs that map to the local MinIO bucket;
+// production stores absolute GCS URLs, which pass straight through.
+const MEDIA_BASE = process.env.EXPO_PUBLIC_MEDIA_BASE ?? "";
 
-/** Stored media URLs are relative ("/media/...") — map them to the MinIO bucket. */
 export function mediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (url.startsWith("http")) return url;
-  if (url.startsWith("/media/")) return MEDIA_BASE + url.slice("/media".length);
+  if (url.startsWith("/media/") && MEDIA_BASE) return MEDIA_BASE + url.slice("/media".length);
   return API_BASE + url;
 }
 
 // --- token storage: SecureStore on device, localStorage on web ---
 
-const TOKEN_KEY = "cececar_token";
+const TOKEN_KEY = "carfable_token";
 
 export async function getToken(): Promise<string | null> {
   if (Platform.OS === "web") return typeof localStorage === "undefined" ? null : localStorage.getItem(TOKEN_KEY);

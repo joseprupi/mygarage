@@ -16,12 +16,12 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { postId } = await params;
   const post = await serverFetch<Post>(`/posts/${postId}`);
-  if (!post) return { title: "CeCeCar" };
+  if (!post) return { title: "CarFable" };
 
   const username = post.author?.username ? `@${post.author.username}` : "@someone";
   const caption = post.caption?.trim();
-  const title = caption ? `${truncate(caption)} — CeCeCar` : `Post by ${username} — CeCeCar`;
-  const description = caption || `A post by ${username} on CeCeCar.`;
+  const title = caption ? `${truncate(caption)} — CarFable` : `Post by ${username} — CarFable`;
+  const description = caption || `A post by ${username} on CarFable.`;
   const image = absoluteMediaUrl(post.media?.[0]?.url) ?? absoluteMediaUrl(post.author?.avatar_url);
 
   return {

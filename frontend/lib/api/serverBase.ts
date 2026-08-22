@@ -5,7 +5,7 @@
 
 // Canonical public site origin. Stored media URLs are often relative
 // ("/media/..."), so og:image needs this prefix to become absolute.
-export const SITE_ORIGIN = "https://cececar.com";
+export const SITE_ORIGIN = "https://carfable.com";
 
 // Resolve the backend origin reachable from the server (SSR/Node), NOT the
 // browser. In prod NEXT_PUBLIC_API_BASE_URL is the absolute Cloud Run URL

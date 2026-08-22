@@ -11,12 +11,12 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { username } = await params;
   const user = await serverFetch<PublicUser>(`/users/by-username/${username}`);
-  if (!user) return { title: "CeCeCar" };
+  if (!user) return { title: "CarFable" };
 
   const handle = `@${user.username}`;
   const label = user.display_name?.trim() ? `${user.display_name} (${handle})` : handle;
-  const title = `${label} — CeCeCar`;
-  const description = user.bio?.trim() || `${handle}'s garage and vehicle history on CeCeCar.`;
+  const title = `${label} — CarFable`;
+  const description = user.bio?.trim() || `${handle}'s garage and vehicle history on CarFable.`;
   const image = absoluteMediaUrl(user.avatar_url);
 
   return {
