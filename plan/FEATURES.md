@@ -86,3 +86,11 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [ ] add `fuel_full_tank: bool` (default true) and `fuel_missed_previous: bool` (default false) to fuel events; fuel-up screen gets two toggles ("Filled the tank" / "I skipped logging a fill-up since last time").
 - [ ] MPG only between consecutive **full** fills with no gap flagged; partial fills accumulate gallons into the next full-fill segment.
 - [ ] Stats screen shows "n segments excluded (gaps/partials)" so the number is honest.
+
+## Owner feedback 2026-08-22 (post-launch)
+- [x] Web: Log out visible in nav; event cards keep description newlines and show shop/location to everyone; export button relabeled "Export CSV + photos".
+- [x] Mobile: delete own posts (trash on post screen).
+- [ ] **Mobile: read-only event detail** — visitors (and owners) can tap an event to see full details (shop, location, notes, photos, documents) without edit rights; today only owners can open (edit form).
+- [ ] **Mobile: history export** (CSV + photos ZIP) — web has it; mobile doesn't.
+- [ ] **Password change / set password** in profile (web + mobile) — needed for Google-created accounts to use the phone app; owner's prod password was set via DB.
+- [ ] cececar.com → 301 redirect to carfable.com; add www.carfable.com.

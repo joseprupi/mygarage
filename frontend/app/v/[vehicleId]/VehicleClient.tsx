@@ -396,7 +396,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                 className="btn btn-secondary shrink-0 disabled:opacity-60"
               >
                 <Download size={15} />
-                {exporting ? "Exporting…" : "Export"}
+                {exporting ? "Exporting…" : "Export CSV + photos"}
               </button>
             )}
           </div>
@@ -428,7 +428,14 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                       {event.mileage ? ` · ${event.mileage.toLocaleString()} mi` : ""}
                       {event.cost_cents ? ` · ${formatMoney(event.cost_cents)}` : ""}
                     </p>
-                    {event.description && <p className="mt-2 text-sm">{event.description}</p>}
+                    {(event.shop_name || event.location) && (
+                      <p className="text-sm text-slate-500">
+                        {[event.shop_name, event.location].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                    {event.description && (
+                      <p className="mt-2 whitespace-pre-line text-sm">{event.description}</p>
+                    )}
                     {event.media.length > 0 && (
                       <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                         {event.media.map((media, i) => (
