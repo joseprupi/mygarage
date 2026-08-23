@@ -43,6 +43,13 @@
         "NSCameraUsageDescription": "CarFable uses the camera to photograph receipts, fuel pumps, and your car.",
         "NSPhotoLibraryUsageDescription": "CarFable needs your photo library to attach photos to your car's history."
       }
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e549ac51-eebd-4b0c-8c7a-6755f692a668"
+      }
+    },
+    "owner": "joseprupi"
   }
 }
