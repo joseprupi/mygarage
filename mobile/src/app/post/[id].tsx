@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -10,14 +11,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { postApi, type Comment, type Post } from "@/lib/api";
+import { postApi, userApi, type Comment, type Post } from "@/lib/api";
 import { Avatar, PostCard, timeAgo } from "@/components/post-card";
 
 export default function PostDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const [meId, setMeId] = useState<string | null>(null);
   const [post, setPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [draft, setDraft] = useState("");
@@ -27,9 +30,14 @@ export default function PostDetailScreen() {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [p, c] = await Promise.all([postApi.get(id), postApi.comments(id)]);
+      const [p, c, me] = await Promise.all([
+        postApi.get(id),
+        postApi.comments(id),
+        userApi.me().catch(() => null),
+      ]);
       setPost(p);
       setComments(c);
+      setMeId(me?.id ?? null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't load the post");
@@ -51,6 +59,26 @@ export default function PostDetailScreen() {
       like_count: post.like_count + (liked ? -1 : 1),
     });
     void (liked ? postApi.unlike(post.id) : postApi.like(post.id)).catch(() => void load());
+  }
+
+  function confirmDelete() {
+    if (!post) return;
+    const doDelete = async () => {
+      try {
+        await postApi.delete(post.id);
+        router.back();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't delete post");
+      }
+    };
+    if (Platform.OS === "web") {
+      if (window.confirm("Delete this post?")) void doDelete();
+    } else {
+      Alert.alert("Delete this post?", "This cannot be undone.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => void doDelete() },
+      ]);
+    }
   }
 
   async function sendComment() {
@@ -82,6 +110,18 @@ export default function PostDetailScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={90}
     >
+      <Stack.Screen
+        options={{
+          headerRight:
+            meId && meId === post.author.id
+              ? () => (
+                  <Pressable onPress={confirmDelete} hitSlop={8}>
+                    <Ionicons name="trash-outline" size={20} color="#dc2626" />
+                  </Pressable>
+                )
+              : undefined,
+        }}
+      />
       <FlatList
         data={comments}
         keyExtractor={(c) => c.id}

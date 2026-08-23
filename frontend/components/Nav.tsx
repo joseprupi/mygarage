@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Car, Home, LogIn, PlusSquare, Search, UserRound } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { Car, Home, LogIn, LogOut, PlusSquare, Search, UserRound } from "lucide-react";
 
+import { setToken } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 
 const items = [
@@ -22,6 +24,16 @@ export function Nav() {
   // so it doesn't flash for logged-in users on first paint).
   const { data, error, isPending } = useMe();
   const isGuest = !isPending && (!data || !!error);
+  const isLoggedIn = !isPending && !!data && !error;
+  const queryClient = useQueryClient();
+  const router = useRouter();
+
+  function logOut() {
+    setToken(null);
+    queryClient.invalidateQueries({ queryKey: ["me"] });
+    queryClient.invalidateQueries({ queryKey: ["feed"] });
+    router.push("/auth");
+  }
 
   return (
     <>
@@ -62,6 +74,18 @@ export function Nav() {
             );
           })}
         </div>
+        {isLoggedIn && (
+          <button
+            type="button"
+            onClick={logOut}
+            className="mb-1 flex items-center gap-3 rounded-xl p-2.5 text-slate-500 hover:bg-slate-100 hover:text-asphalt"
+          >
+            <LogOut size={22} strokeWidth={2} className="shrink-0" />
+            <span className="whitespace-nowrap text-sm font-medium opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+              Log out
+            </span>
+          </button>
+        )}
       </aside>
 
       {/* Mobile: bottom tab bar. */}
@@ -90,6 +114,16 @@ export function Nav() {
               <LogIn size={20} strokeWidth={2} />
               <span>Log in</span>
             </Link>
+          )}
+          {isLoggedIn && (
+            <button
+              type="button"
+              onClick={logOut}
+              className="flex flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-asphalt"
+            >
+              <LogOut size={20} strokeWidth={2} />
+              <span>Log out</span>
+            </button>
           )}
         </div>
       </nav>
