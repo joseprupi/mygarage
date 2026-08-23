@@ -50,6 +50,12 @@
         "projectId": "e549ac51-eebd-4b0c-8c7a-6755f692a668"
       }
     },
-    "owner": "joseprupi"
+    "owner": "joseprupi",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e549ac51-eebd-4b0c-8c7a-6755f692a668"
+    }
   }
 }
