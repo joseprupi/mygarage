@@ -30,7 +30,8 @@
       "ios": {
         "ascApiKeyPath": "/root/.carfable/AuthKey_846T97F24S.p8",
         "ascApiKeyIssuerId": "0a09d007-80b1-4beb-bd0a-985989f55282",
-        "ascApiKeyId": "846T97F24S"
+        "ascApiKeyId": "846T97F24S",
+        "ascAppId": "6804418892"
       }
     }
   }
