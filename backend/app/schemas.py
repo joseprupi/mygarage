@@ -7,6 +7,20 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 Visibility = Literal["public", "private", "unlisted"]
 EventVisibility = Literal["public", "private"]
 MediaType = Literal["image", "video"]
+# Service tags — what was worked on. Multiple per event; AI assigns them on receipt scan.
+SERVICE_TAGS = [
+    "oil", "filters", "fluids", "tires", "wheels", "alignment", "brakes", "suspension",
+    "steering", "engine", "transmission", "drivetrain", "cooling", "belts", "exhaust",
+    "fuel_system", "electrical", "battery", "hvac", "lights", "glass", "body", "interior",
+    "inspection", "detailing", "other",
+]
+ServiceTag = Literal[
+    "oil", "filters", "fluids", "tires", "wheels", "alignment", "brakes", "suspension",
+    "steering", "engine", "transmission", "drivetrain", "cooling", "belts", "exhaust",
+    "fuel_system", "electrical", "battery", "hvac", "lights", "glass", "body", "interior",
+    "inspection", "detailing", "other",
+]
+
 EventType = Literal[
     "purchase",
     "sale",
@@ -222,6 +236,7 @@ class VehicleEventCreate(BaseModel):
     cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
     fuel_gallons: float | None = Field(default=None, ge=0, alias="fuelGallons")
     fuel_price_cents: int | None = Field(default=None, ge=0, alias="fuelPriceCents")
+    tags: list[ServiceTag] = Field(default_factory=list, max_length=12)
     currency: str = Field(default="USD", min_length=3, max_length=3)
     shop_name: str | None = Field(default=None, max_length=160, alias="shopName")
     location: str | None = Field(default=None, max_length=160)
@@ -241,6 +256,7 @@ class VehicleEventUpdate(BaseModel):
     cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
     fuel_gallons: float | None = Field(default=None, ge=0, alias="fuelGallons")
     fuel_price_cents: int | None = Field(default=None, ge=0, alias="fuelPriceCents")
+    tags: list[ServiceTag] | None = Field(default=None, max_length=12)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     shop_name: str | None = Field(default=None, max_length=160, alias="shopName")
     location: str | None = Field(default=None, max_length=160)
@@ -263,6 +279,7 @@ class VehicleEventRead(BaseModel):
     cost_cents: int | None = None
     fuel_gallons: float | None = None
     fuel_price_cents: int | None = None
+    tags: list[str] = []
     currency: str
     shop_name: str | None = None
     location: str | None = None
@@ -420,6 +437,7 @@ class ReceiptScanResult(BaseModel):
     shop_name: str | None = Field(default=None, alias="shopName")
     location: str | None = None
     description: str | None = None
+    tags: list[str] = []
     confidence: str = "low"
     notes: str | None = None
 

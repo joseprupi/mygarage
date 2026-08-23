@@ -135,6 +135,7 @@ export type ReceiptScan = {
   shopName: string | null;
   location: string | null;
   description: string | null;
+  tags: string[];
   confidence: string;
   notes: string | null;
 };

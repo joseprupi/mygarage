@@ -15,6 +15,7 @@ import { PostCard } from "@/components/PostCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { LoadErrorCard } from "@/components/LoadErrorCard";
 import { MileageChart } from "@/components/MileageChart";
+import { tagLabel } from "@/lib/events";
 import { ShareButton } from "@/components/ShareButton";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { VehicleModForm } from "@/components/VehicleModForm";
@@ -423,6 +424,15 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                       )}
                     </div>
                     <h2 className="mt-2 font-bold">{event.title}</h2>
+                    {(event.tags?.length ?? 0) > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {event.tags!.map((tag) => (
+                          <span key={tag} className="rounded-full bg-petrol/10 px-2 py-0.5 text-[11px] font-semibold capitalize text-petrol">
+                            {tagLabel(tag)}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-sm text-slate-500">
                       {event.event_date ? formatDate(event.event_date) : ""}
                       {event.mileage ? ` · ${event.mileage.toLocaleString()} mi` : ""}

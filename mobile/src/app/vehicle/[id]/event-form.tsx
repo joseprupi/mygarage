@@ -16,7 +16,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { aiApi, eventApi, mediaUrl, uploadImage, type Media, type PickedAsset } from "@/lib/api";
-import { EVENT_TYPES, eventTypeLabel } from "@/lib/events";
+import { EVENT_TYPES, SERVICE_TAGS, eventTypeLabel, tagLabel } from "@/lib/events";
 
 const emptyForm = {
   eventType: "maintenance",
@@ -35,6 +35,7 @@ export default function EventFormScreen() {
   const isEdit = Boolean(eventId);
   const [form, setForm] = useState(emptyForm);
   const [media, setMedia] = useState<Media[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(!isEdit);
   const [uploading, setUploading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -60,6 +61,7 @@ export default function EventFormScreen() {
             location: e.location ?? "",
           });
           setMedia(e.media);
+          setTags(e.tags ?? []);
           setLoaded(true);
         })
         .catch((err) => setError(err instanceof Error ? err.message : "Couldn't load event"));
@@ -127,6 +129,7 @@ export default function EventFormScreen() {
         description: scan.description ?? prev.description,
       }));
       setMedia((prev) => [...prev, ...uploaded]);
+      if (scan.tags?.length) setTags((prev) => [...new Set([...prev, ...scan.tags])]);
       setScanPages([]);
       setScanNote(
         scan.confidence === "high"
@@ -156,6 +159,7 @@ export default function EventFormScreen() {
       shopName: form.shopName.trim() || null,
       location: form.location.trim() || null,
       media: media.map((m, i) => ({ ...m, sort_order: i })),
+      tags,
     };
     try {
       if (isEdit && eventId) await eventApi.update(eventId, payload);
@@ -252,6 +256,22 @@ export default function EventFormScreen() {
             </Text>
           </Pressable>
         ))}
+      </View>
+
+      <Text style={styles.label}>What was worked on</Text>
+      <View style={styles.typeWrap}>
+        {SERVICE_TAGS.map((tag) => {
+          const on = tags.includes(tag);
+          return (
+            <Pressable
+              key={tag}
+              style={[styles.tagChip, on && styles.tagChipActive]}
+              onPress={() => setTags((prev) => (on ? prev.filter((t) => t !== tag) : [...prev, tag]))}
+            >
+              <Text style={[styles.tagChipText, on && styles.tagChipTextActive]}>{tagLabel(tag)}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       <Text style={styles.label}>Title *</Text>
@@ -393,6 +413,10 @@ const styles = StyleSheet.create({
   typeChipActive: { backgroundColor: "#0b1120" },
   typeChipText: { fontSize: 15, fontWeight: "600", color: "#475569" },
   typeChipTextActive: { color: "#fff" },
+  tagChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: "#e2e8f0" },
+  tagChipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
+  tagChipText: { fontSize: 14, fontWeight: "600", color: "#475569" },
+  tagChipTextActive: { color: "#fff" },
   mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   mediaItem: { width: 84, height: 84 },
   mediaImage: { width: "100%", height: "100%", borderRadius: 10, backgroundColor: "#f1f5f9" },

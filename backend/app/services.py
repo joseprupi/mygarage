@@ -1080,10 +1080,18 @@ _RECEIPT_SCAN_SCHEMA = {
                 "required": ["description"],
             },
         },
+        "tags": {
+            "type": "ARRAY",
+            "items": {"type": "STRING", "enum": [
+                "oil", "filters", "fluids", "tires", "wheels", "alignment", "brakes", "suspension",
+                "steering", "engine", "transmission", "drivetrain", "cooling", "belts", "exhaust",
+                "fuel_system", "electrical", "battery", "hvac", "lights", "glass", "body", "interior",
+                "inspection", "detailing", "other"]},
+        },
         "confidence": {"type": "STRING", "enum": ["high", "medium", "low"]},
         "notes": {"type": "STRING", "nullable": True},
     },
-    "required": ["event_type", "title", "line_items", "confidence"],
+    "required": ["event_type", "title", "line_items", "tags", "confidence"],
 }
 
 _RECEIPT_SCAN_PROMPT = """You are extracting data from ONE car service receipt/invoice \
@@ -1094,6 +1102,7 @@ or angles of the SAME bill — combine them into ONE result; never split them in
 - event_date: ISO YYYY-MM-DD. total: the GRAND TOTAL actually paid, tax included.
 - mileage: odometer reading if printed. shop_name: business name. location: address/city.
 - line_items: every distinct repair/service/part.
+- tags: EVERY area worked on, from the fixed list (an oil change + tire rotation + brake pads = ["oil","filters","tires","brakes"]). Be generous but accurate; 'other' only if nothing fits.
 - Use null for anything not present or unreadable — NEVER invent values.
 - confidence: low if the image is hard to read; explain problems in notes."""
 
@@ -1175,6 +1184,7 @@ def scan_receipt(files: list[tuple[bytes, str]]) -> dict:
         "shopName": raw.get("shop_name"),
         "location": raw.get("location"),
         "description": "\n".join(lines) or None,
+        "tags": [t for t in dict.fromkeys(raw.get("tags") or []) if isinstance(t, str)],
         "confidence": raw.get("confidence", "low"),
         "notes": raw.get("notes"),
     }

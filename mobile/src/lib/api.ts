@@ -168,6 +168,7 @@ export type VehicleEvent = {
   cost_cents: number | null;
   fuel_gallons: number | null;
   fuel_price_cents: number | null;
+  tags: string[];
   currency: string;
   shop_name: string | null;
   location: string | null;
@@ -212,6 +213,7 @@ export type EventPayload = {
   costCents?: number | null;
   fuelGallons?: number | null;
   fuelPriceCents?: number | null;
+  tags?: string[];
   currency?: string;
   shopName?: string | null;
   location?: string | null;
@@ -387,6 +389,7 @@ export type ReceiptScan = {
   shopName: string | null;
   location: string | null;
   description: string | null;
+  tags: string[];
   confidence: string;
   notes: string | null;
 };

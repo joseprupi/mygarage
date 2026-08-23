@@ -101,6 +101,7 @@ export type VehicleEvent = {
   currency: string;
   shop_name?: string | null;
   location?: string | null;
+  tags?: string[];
   visibility: "public" | "private";
   media: Media[];
   documents: EventDocument[];

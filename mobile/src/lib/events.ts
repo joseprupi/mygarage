@@ -53,3 +53,15 @@ export function formatDate(iso: string | null | undefined): string {
   const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
+
+// Service tags — must match backend SERVICE_TAGS.
+export const SERVICE_TAGS = [
+  "oil", "filters", "fluids", "tires", "wheels", "alignment", "brakes", "suspension",
+  "steering", "engine", "transmission", "drivetrain", "cooling", "belts", "exhaust",
+  "fuel_system", "electrical", "battery", "hvac", "lights", "glass", "body", "interior",
+  "inspection", "detailing", "other",
+] as const;
+
+export function tagLabel(tag: string): string {
+  return tag.replace(/_/g, " ");
+}

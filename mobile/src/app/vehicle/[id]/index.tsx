@@ -22,7 +22,7 @@ import {
   type VehicleEvent,
   type VehicleMod,
 } from "@/lib/api";
-import { eventTypeColors, eventTypeLabel, formatDate, formatMoney } from "@/lib/events";
+import { eventTypeColors, eventTypeLabel, formatDate, formatMoney, tagLabel } from "@/lib/events";
 import { computeVehicleStats } from "@/lib/stats";
 import { MileageChart } from "@/components/mileage-chart";
 import { PostCard } from "@/components/post-card";
@@ -46,6 +46,15 @@ function EventRow({ event, onPress }: { event: VehicleEvent; onPress?: () => voi
           <Text style={styles.eventDate}>{formatDate(event.event_date)}</Text>
         </View>
         <Text style={styles.eventTitle}>{event.title}</Text>
+        {event.tags?.length > 0 && (
+          <View style={styles.tagRow}>
+            {event.tags.map((t) => (
+              <View key={t} style={styles.tagPill}>
+                <Text style={styles.tagPillText}>{tagLabel(t)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
         <Text style={styles.eventMeta}>
           {[
             cost,
@@ -378,6 +387,9 @@ const styles = StyleSheet.create({
   eventDate: { fontSize: 14, color: "#94a3b8" },
   eventTitle: { fontSize: 17, fontWeight: "700", color: "#0b1120" },
   eventMeta: { fontSize: 15, color: "#64748b" },
+  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  tagPill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "#eff6ff" },
+  tagPillText: { fontSize: 12, fontWeight: "600", color: "#1d4ed8" },
   eventThumb: { width: 64, height: 64, borderRadius: 10, backgroundColor: "#f1f5f9" },
   category: { fontSize: 15, fontWeight: "800", color: "#334155", textTransform: "uppercase", marginTop: 8 },
   modRow: {

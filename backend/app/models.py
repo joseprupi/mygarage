@@ -2,6 +2,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     Float,
     CheckConstraint,
     Date,
@@ -167,6 +168,7 @@ class VehicleEvent(TimestampMixin, Base):
     cost_cents: Mapped[int | None] = mapped_column(Integer)
     fuel_gallons: Mapped[float | None] = mapped_column(Float)
     fuel_price_cents: Mapped[int | None] = mapped_column(Integer)
+    tags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
     shop_name: Mapped[str | None] = mapped_column(String(160))
     location: Mapped[str | None] = mapped_column(String(160))

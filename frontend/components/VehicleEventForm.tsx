@@ -10,7 +10,7 @@ import { PlayBadge } from "@/components/VideoPlayer";
 import { DocumentUploader } from "@/components/DocumentUploader";
 import { LocationInput } from "@/components/LocationInput";
 import { aiApi, eventApi, mediaApi } from "@/lib/api/client";
-import { EVENT_TYPES, eventTypeLabel } from "@/lib/events";
+import { EVENT_TYPES, SERVICE_TAGS, eventTypeLabel, tagLabel } from "@/lib/events";
 import type { EventDocument, Media } from "@/lib/types";
 
 const emptyForm = {
@@ -32,6 +32,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
   const isEdit = Boolean(eventId);
   const [media, setMedia] = useState<Media[]>([]);
   const [documents, setDocuments] = useState<EventDocument[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -70,6 +71,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         location: scan.location ?? prev.location,
         description: scan.description ?? prev.description
       }));
+      if (scan.tags?.length) setTags((prev) => Array.from(new Set([...prev, ...scan.tags])));
       setScanNote(
         scan.confidence === "high"
           ? "Receipt read — double-check the fields below, then save."
@@ -105,6 +107,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
     });
     setMedia(e.media ?? []);
     setDocuments(e.documents ?? []);
+    setTags(e.tags ?? []);
   }, [eventQuery.data]);
 
   const deleteMutation = useMutation({
@@ -139,7 +142,8 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       mileage: form.mileage ? Number(form.mileage) : null,
       costCents: form.cost ? Math.round(Number(form.cost) * 100) : null,
       media: media.map((item, index) => ({ ...item, sort_order: index })),
-      documents: documents.map((item, index) => ({ ...item, sort_order: index }))
+      documents: documents.map((item, index) => ({ ...item, sort_order: index })),
+      tags
     };
     setSubmitting(true);
     try {
@@ -287,6 +291,26 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
           </ul>
         )}
         <DocumentUploader onUploaded={(item) => setDocuments((items) => [...items, item])} />
+      </div>
+      <div className="space-y-2">
+        <span className="text-sm">What was worked on</span>
+        <div className="flex flex-wrap gap-2">
+          {SERVICE_TAGS.map((tag) => {
+            const on = tags.includes(tag);
+            return (
+              <button
+                type="button"
+                key={tag}
+                onClick={() => setTags((prev) => (on ? prev.filter((t) => t !== tag) : [...prev, tag]))}
+                className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition ${
+                  on ? "border-petrol bg-petrol text-white" : "border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {tagLabel(tag)}
+              </button>
+            );
+          })}
+        </div>
       </div>
       <label className="block space-y-1 text-sm">
         <span>Visibility</span>

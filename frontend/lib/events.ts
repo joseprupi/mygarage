@@ -40,3 +40,15 @@ const EVENT_TYPE_BADGE: Record<string, string> = {
 export function eventTypeBadge(type: string): string {
   return EVENT_TYPE_BADGE[type] ?? "bg-slate-100 text-slate-600";
 }
+
+// Service tags — must match backend SERVICE_TAGS.
+export const SERVICE_TAGS = [
+  "oil", "filters", "fluids", "tires", "wheels", "alignment", "brakes", "suspension",
+  "steering", "engine", "transmission", "drivetrain", "cooling", "belts", "exhaust",
+  "fuel_system", "electrical", "battery", "hvac", "lights", "glass", "body", "interior",
+  "inspection", "detailing", "other"
+] as const;
+
+export function tagLabel(tag: string): string {
+  return tag.replace(/_/g, " ");
+}
