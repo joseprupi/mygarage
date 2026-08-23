@@ -98,6 +98,8 @@ export type VehicleEvent = {
   event_date?: string | null;
   mileage?: number | null;
   cost_cents?: number | null;
+  fuel_gallons?: number | null;
+  fuel_price_cents?: number | null;
   currency: string;
   shop_name?: string | null;
   location?: string | null;

@@ -16,6 +16,7 @@ import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { LoadErrorCard } from "@/components/LoadErrorCard";
 import { MileageChart } from "@/components/MileageChart";
 import { tagLabel } from "@/lib/events";
+import { computeVehicleStats } from "@/lib/stats";
 import { ShareButton } from "@/components/ShareButton";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { VehicleModForm } from "@/components/VehicleModForm";
@@ -64,6 +65,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const [eventFilter, setEventFilter] = useState<string>("all");
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [showAllStats, setShowAllStats] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   // Mods (Specs tab): which form is open ("new" to add, a mod id to edit, null to hide).
   const [modForm, setModForm] = useState<"new" | string | null>(null);
@@ -186,6 +188,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   if (v.purchase_date && v.mileage != null) {
     mileageByDate[v.purchase_date] = Math.max(mileageByDate[v.purchase_date] ?? v.mileage, v.mileage);
   }
+  const stats = computeVehicleStats(v, allEvents);
   const mileagePoints = Object.entries(mileageByDate)
     .map(([date, miles]) => ({ date, miles }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -324,27 +327,65 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
         events.error ? <p className="text-sm text-red-600">Failed to load events.</p> :
         events.isLoading ? <p className="text-sm text-slate-500">Loading...</p> :
         <div className="space-y-4">
-          {totalCostCents > 0 && (
+          {(allEvents.length > 0 || stats.summary.length > 0) && (
             <div className="surface rounded-2xl p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Total spent</p>
-                  <p className="mt-1 text-2xl font-bold">{formatMoney(totalCostCents)}</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
+                <div className="rounded-xl border border-slate-200 px-3 py-2 text-center">
+                  <p className="text-lg font-extrabold">{allEvents.length}</p>
+                  <p className="text-xs font-semibold text-slate-500">Events</p>
                 </div>
-                <span className="text-xs text-slate-500">
-                  {allEvents.length} {allEvents.length === 1 ? "event" : "events"}
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {Object.entries(costByType).map(([type, cents]) => (
-                  <span
-                    key={type}
-                    className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(type)}`}
-                  >
-                    {eventTypeLabel(type)} · {formatMoney(cents)}
-                  </span>
+                {stats.summary.map((row) => (
+                  <div key={row.label} className="rounded-xl border border-slate-200 px-3 py-2 text-center">
+                    <p className="text-lg font-extrabold">{row.value}</p>
+                    <p className="text-xs font-semibold text-slate-500">{row.label}</p>
+                  </div>
                 ))}
               </div>
+              {Object.keys(costByType).length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {Object.entries(costByType).map(([type, cents]) => (
+                    <span
+                      key={type}
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(type)}`}
+                    >
+                      {eventTypeLabel(type)} · {formatMoney(cents)}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {stats.sections.length > 0 && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllStats((v) => !v)}
+                    className="text-sm font-semibold text-petrol hover:underline"
+                  >
+                    {showAllStats ? "Hide stats" : "All stats →"}
+                  </button>
+                  {showAllStats && (
+                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      {stats.sections.map((section) => (
+                        <div key={section.title} className="overflow-hidden rounded-xl border border-slate-200">
+                          <p className="bg-slate-50 px-3 py-2 text-xs font-extrabold uppercase tracking-wide">
+                            {section.title}
+                          </p>
+                          {section.rows.map((row, i) => (
+                            <div
+                              key={`${row.label}-${i}`}
+                              className={`flex justify-between gap-3 px-3 py-1.5 text-sm ${i % 2 ? "bg-slate-50" : ""}`}
+                            >
+                              <span className={row.label.startsWith("  ") ? "pl-3 text-slate-400" : "text-slate-600"}>
+                                {row.label.trim()}
+                              </span>
+                              <span className="font-semibold">{row.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {mileagePoints.length >= 2 && <MileageChart points={mileagePoints} />}
