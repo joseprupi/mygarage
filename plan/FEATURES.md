@@ -94,3 +94,8 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [ ] **Mobile: history export** (CSV + photos ZIP) — web has it; mobile doesn't.
 - [ ] **Password change / set password** in profile (web + mobile) — needed for Google-created accounts to use the phone app; owner's prod password was set via DB.
 - [ ] cececar.com → 301 redirect to carfable.com; add www.carfable.com.
+
+## Web parity: vehicle stats (backlog, 2026-08-22 — owner)
+- [ ] **Web History tab: same stat tiles as mobile** (events, total spend, miles driven, cost/mile, avg MPG when computable) next to the chart — port `mobile/src/lib/stats.ts` to `frontend/lib/stats.ts` (same math, single source of truth ideally shared).
+- [ ] **Web "All stats" detail** (ownership / money / fuel sections, incl. best/worst tank, $/gal, fuel cost per mile) — geek table, on demand like mobile.
+- Keep the two apps' numbers identical by construction (same derivation code).
