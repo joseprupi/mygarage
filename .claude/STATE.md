@@ -1,5 +1,10 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-22 (late) — batch deployed: service tags + web stats parity; mobile prod published (EAS Update, branch `production`)
+- Prod: migration 0010 (tags), backend revision w/ tags, prod 4Runner receipts re-tagged, web deployed, mobile update group 7b368ded. EAS project @joseprupi/carfable linked; token in mobile/.env.eas.local (gitignored).
+- Dev/prod rule now enforced: deploy only on owner's "deploy", batched (memory + plan/ENVIRONMENTS.md).
+- Apple Developer enrollment PAID, awaiting approval → then App Store Connect API key → EAS build → TestFlight.
+
 ## 2026-08-22 — REBRAND + PRODUCTION REFRESH (branch `carfable-rename`)
 - Product is now **CarFable** (carfable.com bought by owner; Cloudflare). Bundle id `com.carfable.app`. cececar.com still serves during transition (kept in CORS).
 - **Prod backend redeployed** with everything since spring: mods, fuel event type, purchase_date, fuel fields, AI receipt/fuel scan (GEMINI_API_KEY in Secret Manager), VIN masking. Cloud SQL migrated to 0009. `httpx` added to runtime deps (image had crashed without it). Cloudflare Stream stays OFF in prod (config empty; video untested).
