@@ -1,5 +1,12 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-25 — DEPLOYED batch + logins + Android build (commit 978ea86 on `carfable-rename`, not pushed)
+- **Prod (all verified)**: migrations 0011–0013 (fuel flags, users.settings, apple_sub), backend w/ /auth/apple + fuel gaps + settings, web w/ settings/gap cards + carfable.com/privacy + /support, EAS update published.
+- **iOS build 6 on TestFlight** (Google+Apple login, fuel gaps, settings, icon). Build 5 errored: provisioning profile lacked Apple-sign-in entitlement → fixed via ASC API (enabled APPLE_ID_AUTH on bundle id 4TW86BAML2, deleted stale profile), build 6 regenerated it. OWNER: update in TestFlight, test both login buttons.
+- **Android build 1 finished** (AAB, versionCode 2, keystore auto-generated). Play Store needs owner's Play Console account ($25); Android Google login later needs Android OAuth client (SHA-1 from keystore).
+- App Store prep: plan/APPSTORE.md checklist; privacy+support pages LIVE; Apple login done; remaining owner steps: listing, screenshots, privacy questionnaire, reviewer demo account, hello@carfable.com forwarding (Cloudflare Email Routing).
+- iOS Google OAuth client: 147573336932-13dil6egmkp50tqur0lrl7cbb5oona98 (in app.json iosUrlScheme + google-signin.ts fallback).
+
 ## 2026-08-23 — DEV ONLY (uncommitted on `carfable-rename`): fuel-gap detection + Settings screen + Google login (mobile)
 - **Fuel gaps**: migration 0011 (`fuel_full_tank`, `fuel_missed_previous`), segment-based MPG with median/1.6× inference + estimated phantom fill-up (never stored/exported), toggles on fuel forms, gap cards ("Add it"/"Not missed") on mobile + web timelines. Spec in plan/FEATURES.md.
 - **Settings**: migration 0012 (`users.settings` JSON), `UserSettings` (detectMissedFillups, includeEstimatedFuel); mobile `/settings` (Profile ⚙️, log out moved there), web ProfileEditor section; stats take options. Owner-verified toggles in Expo Go.
