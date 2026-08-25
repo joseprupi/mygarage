@@ -1,8 +1,6 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,8 +9,9 @@ import {
   View,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { authApi, userApi, type UserProfile } from "@/lib/api";
+import { userApi, type UserProfile } from "@/lib/api";
 import { Avatar } from "@/components/post-card";
 
 export default function ProfileScreen() {
@@ -55,21 +54,6 @@ export default function ProfileScreen() {
       setError(err instanceof Error ? err.message : "Couldn't save profile");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function logout() {
-    const doLogout = async () => {
-      await authApi.logout();
-      router.replace("/login");
-    };
-    if (Platform.OS === "web") {
-      void doLogout();
-    } else {
-      Alert.alert("Log out?", undefined, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Log out", style: "destructive", onPress: () => void doLogout() },
-      ]);
     }
   }
 
@@ -131,8 +115,9 @@ export default function ProfileScreen() {
           <Pressable style={styles.secondaryBtn} onPress={() => setEditing(true)}>
             <Text style={styles.secondaryBtnText}>Edit profile</Text>
           </Pressable>
-          <Pressable style={styles.logoutBtn} onPress={logout}>
-            <Text style={styles.logoutText}>Log out</Text>
+          <Pressable style={styles.settingsBtn} onPress={() => router.push("/settings")}>
+            <Ionicons name="settings-outline" size={20} color="#0b1120" />
+            <Text style={styles.settingsBtnText}>Settings</Text>
           </Pressable>
         </View>
       )}
@@ -180,7 +165,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   secondaryBtnText: { color: "#0b1120", fontWeight: "600", fontSize: 17 },
-  logoutBtn: { paddingVertical: 12, alignItems: "center" },
-  logoutText: { color: "#dc2626", fontWeight: "600", fontSize: 17 },
+  settingsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  settingsBtnText: { color: "#0b1120", fontWeight: "600", fontSize: 17 },
   error: { color: "#dc2626", fontSize: 16 },
 });

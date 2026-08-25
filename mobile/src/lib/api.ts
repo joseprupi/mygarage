@@ -122,10 +122,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export type UserSettings = {
+  detectMissedFillups: boolean;
+  includeEstimatedFuel: boolean;
+};
+
 export type UserProfile = PublicUser & {
   bio?: string | null;
   location?: string | null;
   created_at?: string;
+  settings?: UserSettings;
 };
 
 export type Vehicle = {
@@ -168,6 +174,8 @@ export type VehicleEvent = {
   cost_cents: number | null;
   fuel_gallons: number | null;
   fuel_price_cents: number | null;
+  fuel_full_tank: boolean;
+  fuel_missed_previous: boolean | null;
   tags: string[];
   currency: string;
   shop_name: string | null;
@@ -213,6 +221,8 @@ export type EventPayload = {
   costCents?: number | null;
   fuelGallons?: number | null;
   fuelPriceCents?: number | null;
+  fuelFullTank?: boolean;
+  fuelMissedPrevious?: boolean | null;
   tags?: string[];
   currency?: string;
   shopName?: string | null;
@@ -257,8 +267,10 @@ export const feedApi = {
 export const userApi = {
   me: () => request<UserProfile>("/auth/me"),
   get: (userId: string) => request<UserProfile>(`/users/${userId}`),
-  update: (patch: Partial<Pick<UserProfile, "username" | "display_name" | "bio" | "location">>) =>
+  update: (patch: Partial<Pick<UserProfile, "username" | "display_name" | "bio" | "location"> & { settings?: Partial<UserSettings> }>) =>
     request<UserProfile>("/users/me", { method: "PATCH", body: JSON.stringify(patch) }),
+  updateSettings: (partial: Partial<UserSettings>) =>
+    request<UserProfile>("/users/me", { method: "PATCH", body: JSON.stringify({ settings: partial }) }),
   vehicles: (userId: string) => request<Vehicle[]>(`/users/${userId}/vehicles`),
   posts: (userId: string) => request<Post[]>(`/users/${userId}/posts`),
 };
@@ -415,4 +427,28 @@ export const aiApi = {
     scanFiles<ReceiptScan>("/ai/receipt-scan", assets, "Receipt scan failed"),
   scanFuel: (assets: PickedAsset[]) =>
     scanFiles<FuelScan>("/ai/fuel-scan", assets, "Fuel scan failed"),
+};
+
+export const googleAuthApi = {
+  /** Exchange a Google ID token for a CarFable session (same endpoint the web uses). */
+  async login(credential: string): Promise<TokenResponse> {
+    const data = await request<TokenResponse>("/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    });
+    await setToken(data.accessToken);
+    return data;
+  },
+};
+
+export const appleAuthApi = {
+  /** Exchange an Apple identityToken for a CarFable session. */
+  async login(credential: string, fullName?: string | null): Promise<TokenResponse> {
+    const data = await request<TokenResponse>("/auth/apple", {
+      method: "POST",
+      body: JSON.stringify({ credential, fullName: fullName ?? null }),
+    });
+    await setToken(data.accessToken);
+    return data;
+  },
 };

@@ -4,6 +4,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -44,6 +45,8 @@ export default function FuelScreen() {
     mileage: "",
     date: new Date().toISOString().slice(0, 10),
   });
+  const [fullTank, setFullTank] = useState(true);
+  const [missedPrevious, setMissedPrevious] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,6 +122,8 @@ export default function FuelScreen() {
         costCents: form.total ? Math.round(Number(form.total) * 100) : null,
         fuelGallons: gallons,
         fuelPriceCents: ppg != null ? Math.round(ppg * 100) : null,
+        fuelFullTank: fullTank,
+        fuelMissedPrevious: missedPrevious ? true : null,
         mileage: form.mileage ? Number(form.mileage) : null,
         shopName: form.station.trim() || null,
         description: details.length ? details.join(" · ") : null,
@@ -221,6 +226,22 @@ export default function FuelScreen() {
       <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
       <TextInput style={styles.input} value={form.date} onChangeText={(v) => setForm({ ...form, date: v })} />
 
+      <View style={styles.toggleRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.label}>Filled the tank</Text>
+          <Text style={styles.toggleHint}>Turn off for a partial top-up</Text>
+        </View>
+        <Switch value={fullTank} onValueChange={setFullTank} trackColor={{ true: "#2563eb" }} />
+      </View>
+
+      <View style={styles.toggleRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.label}>Skipped a fill-up since last time</Text>
+          <Text style={styles.toggleHint}>Helps keep MPG accurate</Text>
+        </View>
+        <Switch value={missedPrevious} onValueChange={setMissedPrevious} trackColor={{ true: "#f59e0b" }} />
+      </View>
+
       {error && <Text style={styles.error}>{error}</Text>}
 
       <Pressable style={styles.saveBtn} onPress={save} disabled={saving || busySlot !== null}>
@@ -275,4 +296,11 @@ const styles = StyleSheet.create({
   saveBtn: { backgroundColor: "#2563eb", borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 8 },
   saveBtnText: { color: "#fff", fontSize: 18, fontWeight: "700" },
   error: { color: "#dc2626", fontSize: 16 },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 6,
+  },
+  toggleHint: { fontSize: 13, color: "#94a3b8", marginTop: 1 },
 });

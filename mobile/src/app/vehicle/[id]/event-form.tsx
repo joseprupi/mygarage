@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -36,6 +37,8 @@ export default function EventFormScreen() {
   const [form, setForm] = useState(emptyForm);
   const [media, setMedia] = useState<Media[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [fuelFullTank, setFuelFullTank] = useState(true);
+  const [fuelMissedPrevious, setFuelMissedPrevious] = useState(false);
   const [loaded, setLoaded] = useState(!isEdit);
   const [uploading, setUploading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -62,6 +65,8 @@ export default function EventFormScreen() {
           });
           setMedia(e.media);
           setTags(e.tags ?? []);
+          setFuelFullTank(e.fuel_full_tank !== false);
+          setFuelMissedPrevious(e.fuel_missed_previous === true);
           setLoaded(true);
         })
         .catch((err) => setError(err instanceof Error ? err.message : "Couldn't load event"));
@@ -149,6 +154,7 @@ export default function EventFormScreen() {
     if (!form.title.trim()) return setError("Title is required.");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(form.eventDate)) return setError("Date is required (YYYY-MM-DD).");
     setSaving(true);
+    const isFuel = form.eventType === "fuel";
     const payload = {
       eventType: form.eventType,
       title: form.title.trim(),
@@ -160,6 +166,10 @@ export default function EventFormScreen() {
       location: form.location.trim() || null,
       media: media.map((m, i) => ({ ...m, sort_order: i })),
       tags,
+      ...(isFuel && {
+        fuelFullTank: fuelFullTank,
+        fuelMissedPrevious: fuelMissedPrevious ? true : null,
+      }),
     };
     try {
       if (isEdit && eventId) await eventApi.update(eventId, payload);
@@ -321,6 +331,25 @@ export default function EventFormScreen() {
         onChangeText={(v) => setForm({ ...form, description: v })}
       />
 
+      {form.eventType === "fuel" && (
+        <>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Filled the tank</Text>
+              <Text style={styles.toggleHint}>Turn off for a partial top-up</Text>
+            </View>
+            <Switch value={fuelFullTank} onValueChange={setFuelFullTank} trackColor={{ true: "#2563eb" }} />
+          </View>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Skipped a fill-up since last time</Text>
+              <Text style={styles.toggleHint}>Helps keep MPG accurate</Text>
+            </View>
+            <Switch value={fuelMissedPrevious} onValueChange={setFuelMissedPrevious} trackColor={{ true: "#f59e0b" }} />
+          </View>
+        </>
+      )}
+
       <Text style={styles.label}>Photos</Text>
       {media.length > 0 && (
         <View style={styles.mediaGrid}>
@@ -453,4 +482,6 @@ const styles = StyleSheet.create({
   deleteBtn: { alignItems: "center", paddingVertical: 12 },
   deleteText: { color: "#dc2626", fontWeight: "600", fontSize: 17 },
   error: { color: "#dc2626", fontSize: 16, marginTop: 4 },
+  toggleRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 6 },
+  toggleHint: { fontSize: 13, color: "#94a3b8", marginTop: 1 },
 });

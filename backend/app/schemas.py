@@ -36,6 +36,13 @@ EventType = Literal[
 ]
 
 
+class UserSettings(BaseModel):
+    detect_missed_fillups: bool = Field(default=True, alias="detectMissedFillups")
+    include_estimated_fuel: bool = Field(default=True, alias="includeEstimatedFuel")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class TokenResponse(BaseModel):
     access_token: str = Field(alias="accessToken")
     token_type: str = "bearer"
@@ -52,10 +59,11 @@ class UserRead(BaseModel):
     bio: str | None = None
     avatar_url: str | None = None
     location: str | None = None
+    settings: UserSettings = Field(default_factory=UserSettings)
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class PublicUser(BaseModel):
@@ -90,12 +98,18 @@ class GoogleLoginRequest(BaseModel):
     credential: str = Field(min_length=1)
 
 
+class AppleLoginRequest(BaseModel):
+    credential: str = Field(min_length=1)  # Apple identityToken JWT
+    fullName: str | None = None  # given + family name from Apple credential (only sent on first auth)
+
+
 class UserUpdate(BaseModel):
     username: str | None = Field(default=None, min_length=3, max_length=40)
     display_name: str | None = Field(default=None, max_length=120)
     bio: str | None = Field(default=None, max_length=1000)
     avatar_url: str | None = None
     location: str | None = Field(default=None, max_length=160)
+    settings: UserSettings | None = None
 
 
 class VehicleBase(BaseModel):
@@ -236,6 +250,8 @@ class VehicleEventCreate(BaseModel):
     cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
     fuel_gallons: float | None = Field(default=None, ge=0, alias="fuelGallons")
     fuel_price_cents: int | None = Field(default=None, ge=0, alias="fuelPriceCents")
+    fuel_full_tank: bool = Field(default=True, alias="fuelFullTank")
+    fuel_missed_previous: bool | None = Field(default=None, alias="fuelMissedPrevious")
     tags: list[ServiceTag] = Field(default_factory=list, max_length=12)
     currency: str = Field(default="USD", min_length=3, max_length=3)
     shop_name: str | None = Field(default=None, max_length=160, alias="shopName")
@@ -256,6 +272,8 @@ class VehicleEventUpdate(BaseModel):
     cost_cents: int | None = Field(default=None, ge=0, alias="costCents")
     fuel_gallons: float | None = Field(default=None, ge=0, alias="fuelGallons")
     fuel_price_cents: int | None = Field(default=None, ge=0, alias="fuelPriceCents")
+    fuel_full_tank: bool | None = Field(default=None, alias="fuelFullTank")
+    fuel_missed_previous: bool | None = Field(default=None, alias="fuelMissedPrevious")
     tags: list[ServiceTag] | None = Field(default=None, max_length=12)
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     shop_name: str | None = Field(default=None, max_length=160, alias="shopName")
@@ -279,6 +297,8 @@ class VehicleEventRead(BaseModel):
     cost_cents: int | None = None
     fuel_gallons: float | None = None
     fuel_price_cents: int | None = None
+    fuel_full_tank: bool = True
+    fuel_missed_previous: bool | None = None
     tags: list[str] = []
     currency: str
     shop_name: str | None = None

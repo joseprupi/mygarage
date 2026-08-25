@@ -1,4 +1,4 @@
-import type { Comment, FeedPage, Post, PublicUser, Vehicle, VehicleEvent, VehicleMod } from "@/lib/types";
+import type { Comment, FeedPage, Post, PublicUser, UserSettings, Vehicle, VehicleEvent, VehicleMod } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -83,6 +83,7 @@ export const authApi = {
     bio?: string;
     avatar_url?: string;
     location?: string;
+    settings?: Partial<UserSettings>;
   }) => api<unknown>("/users/me", { method: "PATCH", body: JSON.stringify(body) })
 };
 

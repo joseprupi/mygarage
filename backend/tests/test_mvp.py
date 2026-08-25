@@ -526,3 +526,126 @@ def test_vin_is_masked_for_everyone_but_the_owner():
     assert all(v["vin"] is None for v in listed.json())
     listed_own = client.get(f"/users/{owner_id}/vehicles", headers=auth_headers(owner["accessToken"]))
     assert any(v["vin"] == "JTEBT17R748010246" for v in listed_own.json())
+
+
+def test_user_settings_defaults_and_patch():
+    user = signup("settings-user", "settings-user@example.com")
+    token = user["accessToken"]
+
+    # Default: settings with both flags True
+    me = client.get("/auth/me", headers=auth_headers(token))
+    assert me.status_code == 200, me.text
+    s = me.json()["settings"]
+    assert s["detectMissedFillups"] is True
+    assert s["includeEstimatedFuel"] is True
+
+    # PATCH: turn off detectMissedFillups
+    patch = client.patch(
+        "/users/me",
+        headers=auth_headers(token),
+        json={"settings": {"detectMissedFillups": False}},
+    )
+    assert patch.status_code == 200, patch.text
+    s2 = patch.json()["settings"]
+    assert s2["detectMissedFillups"] is False
+    assert s2["includeEstimatedFuel"] is True  # unchanged
+
+    # GET confirms persistence
+    me2 = client.get("/auth/me", headers=auth_headers(token))
+    s3 = me2.json()["settings"]
+    assert s3["detectMissedFillups"] is False
+    assert s3["includeEstimatedFuel"] is True
+
+    # PATCH back to true
+    client.patch(
+        "/users/me",
+        headers=auth_headers(token),
+        json={"settings": {"detectMissedFillups": True}},
+    )
+    me3 = client.get("/auth/me", headers=auth_headers(token))
+    assert me3.json()["settings"]["detectMissedFillups"] is True
+
+
+# ---------------------------------------------------------------------------
+# Apple Sign-In tests
+# ---------------------------------------------------------------------------
+
+def _apple_claims(sub="apple_sub_001", email="appleuser@example.com"):
+    """Return minimal Apple JWT claims dict for use with monkeypatching."""
+    return {
+        "sub": sub,
+        "email": email,
+        "iss": "https://appleid.apple.com",
+        "aud": "com.carfable.app",
+        "exp": 9999999999,
+        "iat": 0,
+    }
+
+
+def test_apple_login_creates_new_user(monkeypatch):
+    """First Apple login creates a user and returns a token."""
+    import app.services as svc
+
+    monkeypatch.setattr(svc, "_verify_apple_token", lambda token, audiences: _apple_claims())
+
+    resp = client.post("/auth/apple", json={"credential": "fake.apple.jwt"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "accessToken" in body
+    assert body["user"]["email"] == "appleuser@example.com"
+
+
+def test_apple_login_second_login_matches_by_apple_sub(monkeypatch):
+    """Second Apple login with same sub returns same user, no duplicate."""
+    import app.services as svc
+
+    claims = _apple_claims(sub="apple_sub_002", email="appleuser2@example.com")
+    monkeypatch.setattr(svc, "_verify_apple_token", lambda token, audiences: claims)
+
+    # First login
+    r1 = client.post("/auth/apple", json={"credential": "fake.apple.jwt"})
+    assert r1.status_code == 200, r1.text
+    user_id_1 = r1.json()["user"]["id"]
+
+    # Second login with same token/sub
+    r2 = client.post("/auth/apple", json={"credential": "fake.apple.jwt"})
+    assert r2.status_code == 200, r2.text
+    user_id_2 = r2.json()["user"]["id"]
+
+    assert user_id_1 == user_id_2, "Same Apple sub should map to same user"
+
+
+def test_apple_login_email_link_case(monkeypatch):
+    """Apple login links to existing email account and sets apple_sub."""
+    import app.services as svc
+
+    # Pre-existing email/password user
+    existing = client.post(
+        "/auth/signup",
+        json={"username": "existing-apple-user", "email": "linked@example.com", "password": "password123"},
+    )
+    assert existing.status_code == 200, existing.text
+    existing_user_id = existing.json()["user"]["id"]
+
+    # Apple login with the same email
+    claims = _apple_claims(sub="apple_sub_link_003", email="linked@example.com")
+    monkeypatch.setattr(svc, "_verify_apple_token", lambda token, audiences: claims)
+
+    resp = client.post("/auth/apple", json={"credential": "fake.apple.jwt"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Should return the same user
+    assert body["user"]["id"] == existing_user_id
+    assert "accessToken" in body
+
+
+def test_apple_login_garbage_credential_returns_401(monkeypatch):
+    """Sending a garbage credential without mocking should fail cleanly (no 500)."""
+    # We don't monkeypatch here; the real _verify_apple_token will try to parse a bad JWT.
+    # We mock only _fetch_apple_jwks to avoid network call.
+    import app.services as svc
+
+    monkeypatch.setattr(svc, "_fetch_apple_jwks", lambda force=False: {})
+
+    resp = client.post("/auth/apple", json={"credential": "garbage.jwt.token"})
+    assert resp.status_code == 401, resp.text

@@ -16,6 +16,19 @@ class Settings(BaseSettings):
     # so the validator below can accept a plain comma-separated value.
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3001"]
     google_client_id: str | None = None
+    # Comma-separated allowed Apple JWT audiences (aud claim).
+    # Includes Expo Go's bundle id so dev testing via Expo Go works.
+    apple_audiences: Annotated[list[str], NoDecode] = [
+        "com.carfable.app",
+        "host.exp.Exponent",
+    ]
+
+    @field_validator("apple_audiences", mode="before")
+    @classmethod
+    def _split_apple_audiences(cls, value):
+        if isinstance(value, str):
+            return [a.strip() for a in value.split(",") if a.strip()]
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

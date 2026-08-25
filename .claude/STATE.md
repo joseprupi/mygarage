@@ -1,7 +1,14 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-23 — DEV ONLY (uncommitted on `carfable-rename`): fuel-gap detection + Settings screen + Google login (mobile)
+- **Fuel gaps**: migration 0011 (`fuel_full_tank`, `fuel_missed_previous`), segment-based MPG with median/1.6× inference + estimated phantom fill-up (never stored/exported), toggles on fuel forms, gap cards ("Add it"/"Not missed") on mobile + web timelines. Spec in plan/FEATURES.md.
+- **Settings**: migration 0012 (`users.settings` JSON), `UserSettings` (detectMissedFillups, includeEstimatedFuel); mobile `/settings` (Profile ⚙️, log out moved there), web ProfileEditor section; stats take options. Owner-verified toggles in Expo Go.
+- **Google login mobile**: code done (`google-signin.ts` guarded for Expo Go via expo-constants); WAITING on owner's iOS OAuth client ID → app.json `iosUrlScheme` + `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` → build 5. Build 4 (icon) is on TestFlight.
+- Dev+prod password for joseprupi@gmail.com now both `devtest1234`. EAS secrets moved to `/root/.carfable/eas.env` (Metro choked on `.env.eas.local` inside mobile/). Expo Go: phone connects by scanning a QR of `exp://10.0.3.15:8081` with the Camera app (VPN on).
+- NOT deployed. Prod batch when owner says "deploy": migrations 0011+0012, backend, web, EAS update + build 5.
+
 ## 2026-08-22 (late) — batch deployed: service tags + web stats parity; mobile prod published (EAS Update, branch `production`)
-- Prod: migration 0010 (tags), backend revision w/ tags, prod 4Runner receipts re-tagged, web deployed, mobile update group 7b368ded. EAS project @joseprupi/carfable linked; token in mobile/.env.eas.local (gitignored).
+- Prod: migration 0010 (tags), backend revision w/ tags, prod 4Runner receipts re-tagged, web deployed, mobile update group 7b368ded. EAS project @joseprupi/carfable linked; token in /root/.carfable/eas.env (gitignored).
 - Dev/prod rule now enforced: deploy only on owner's "deploy", batched (memory + plan/ENVIRONMENTS.md).
 - Apple Developer enrollment PAID, awaiting approval → then App Store Connect API key → EAS build → TestFlight.
 

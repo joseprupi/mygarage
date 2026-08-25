@@ -2,22 +2,24 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 
-import { vehicleApi, type Vehicle, type VehicleEvent } from "@/lib/api";
+import { userApi, vehicleApi, type UserSettings, type Vehicle, type VehicleEvent } from "@/lib/api";
 import { computeVehicleStats } from "@/lib/stats";
 
 export default function VehicleStatsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [events, setEvents] = useState<VehicleEvent[] | null>(null);
+  const [meSettings, setMeSettings] = useState<UserSettings | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       if (!id) return;
-      void Promise.all([vehicleApi.get(id), vehicleApi.events(id)])
-        .then(([v, ev]) => {
+      void Promise.all([vehicleApi.get(id), vehicleApi.events(id), userApi.me().catch(() => null)])
+        .then(([v, ev, me]) => {
           setVehicle(v);
           setEvents(ev);
+          setMeSettings(me?.settings);
           setError(null);
         })
         .catch((err) => setError(err instanceof Error ? err.message : "Couldn't load stats"));
@@ -32,7 +34,10 @@ export default function VehicleStatsScreen() {
     );
   }
 
-  const stats = computeVehicleStats(vehicle, events);
+  const stats = computeVehicleStats(vehicle, events, {
+    detectMissedFillups: meSettings?.detectMissedFillups ?? true,
+    includeEstimatedFuel: meSettings?.includeEstimatedFuel ?? true,
+  });
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>

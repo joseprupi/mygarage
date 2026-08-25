@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import User
 from app.schemas import (
+    AppleLoginRequest,
     FuelScanResult,
     ReceiptScanResult,
     CommentCreate,
@@ -94,6 +95,12 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
 @app.post("/auth/google", response_model=TokenResponse)
 def google_login(data: GoogleLoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     token, user = services.google_login(db, data)
+    return TokenResponse(accessToken=token, user=user)
+
+
+@app.post("/auth/apple", response_model=TokenResponse)
+def apple_login(data: AppleLoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    token, user = services.apple_login(db, data)
     return TokenResponse(accessToken=token, user=user)
 
 

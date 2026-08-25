@@ -14,14 +14,17 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import {
+  eventApi,
   mediaUrl,
   userApi,
   vehicleApi,
   type Post,
+  type UserSettings,
   type Vehicle,
   type VehicleEvent,
   type VehicleMod,
 } from "@/lib/api";
+import type { GapInfo } from "@/lib/stats";
 import { eventTypeColors, eventTypeLabel, formatDate, formatMoney, tagLabel } from "@/lib/events";
 import { computeVehicleStats } from "@/lib/stats";
 import { MileageChart } from "@/components/mileage-chart";
@@ -70,16 +73,71 @@ function EventRow({ event, onPress }: { event: VehicleEvent; onPress?: () => voi
   );
 }
 
+function GapCard({
+  gap,
+  vehicleId,
+  onDismiss,
+}: {
+  gap: GapInfo;
+  vehicleId: string;
+  onDismiss: () => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  async function markNotMissed() {
+    setBusy(true);
+    try {
+      await eventApi.update(gap.beforeEventId, { fuelMissedPrevious: false });
+      onDismiss();
+    } catch {
+      // ignore
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const costStr = gap.estCostCents != null ? `~$${(gap.estCostCents / 100).toFixed(0)}` : null;
+  const desc = [
+    `~${gap.estGallons.toFixed(1)} gal`,
+    costStr,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <View style={styles.gapCard}>
+      <Text style={styles.gapTitle}>Possible missed fill-up</Text>
+      <Text style={styles.gapDesc}>~{gap.date} · {desc}</Text>
+      <View style={styles.gapActions}>
+        <Pressable
+          style={styles.gapBtn}
+          onPress={() =>
+            router.push(
+              `/vehicle/${vehicleId}/fuel?prefillDate=${gap.date}&prefillGallons=${gap.estGallons.toFixed(1)}&prefillCostCents=${gap.estCostCents ?? ""}`,
+            )
+          }
+        >
+          <Text style={styles.gapBtnText}>Add it</Text>
+        </Pressable>
+        <Pressable style={[styles.gapBtn, styles.gapBtnSecondary]} onPress={markNotMissed} disabled={busy}>
+          <Text style={styles.gapBtnSecondaryText}>{busy ? "…" : "Not missed"}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function VehicleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
+  const [meSettings, setMeSettings] = useState<UserSettings | undefined>(undefined);
   const [tab, setTab] = useState<Tab>("History");
   const [events, setEvents] = useState<VehicleEvent[] | null>(null);
   const [mods, setMods] = useState<VehicleMod[] | null>(null);
   const [posts, setPosts] = useState<Post[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dismissedGaps, setDismissedGaps] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -93,6 +151,7 @@ export default function VehicleScreen() {
       ]);
       setVehicle(v);
       setMeId(me?.id ?? null);
+      setMeSettings(me?.settings);
       setEvents(ev);
       setMods(md);
       setPosts(ps);
@@ -141,7 +200,10 @@ export default function VehicleScreen() {
 
   const title = vehicle.nickname || [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
   const cover = mediaUrl(vehicle.cover_image_url);
-  const stats = computeVehicleStats(vehicle, events ?? []);
+  const stats = computeVehicleStats(vehicle, events ?? [], {
+    detectMissedFillups: meSettings?.detectMissedFillups ?? true,
+    includeEstimatedFuel: meSettings?.includeEstimatedFuel ?? true,
+  });
 
   const modsByCategory = new Map<string, VehicleMod[]>();
   for (const mod of mods ?? []) {
@@ -243,17 +305,33 @@ export default function VehicleScreen() {
                 : undefined
             }
           />
-          {(events ?? []).map((event) => (
-            <EventRow
-              key={event.id}
-              event={event}
-              onPress={
-                isOwner
-                  ? () => router.push(`/vehicle/${vehicle.id}/event-form?eventId=${event.id}`)
-                  : undefined
-              }
-            />
-          ))}
+          {(() => {
+            // Build a map of gapCard keyed by beforeEventId (the newer event)
+            // so we can render the gap card after the newer event (list is newest-first)
+            const activeGaps = stats.gaps.filter((g) => !dismissedGaps.has(g.beforeEventId));
+            const gapMap = new Map(activeGaps.map((g) => [g.beforeEventId, g]));
+            return (events ?? []).map((event) => (
+              <View key={event.id}>
+                <EventRow
+                  event={event}
+                  onPress={
+                    isOwner
+                      ? () => router.push(`/vehicle/${vehicle.id}/event-form?eventId=${event.id}`)
+                      : undefined
+                  }
+                />
+                {isOwner && gapMap.has(event.id) && (
+                  <GapCard
+                    gap={gapMap.get(event.id)!}
+                    vehicleId={vehicle.id}
+                    onDismiss={() =>
+                      setDismissedGaps((prev) => new Set([...prev, event.id]))
+                    }
+                  />
+                )}
+              </View>
+            ));
+          })()}
           {(events ?? []).length === 0 && (
             <Text style={styles.emptyText}>No history events yet.</Text>
           )}
@@ -402,4 +480,26 @@ const styles = StyleSheet.create({
   modBrand: { fontWeight: "400", color: "#64748b" },
   emptyText: { padding: 16, fontSize: 16, color: "#94a3b8", textAlign: "center" },
   error: { color: "#dc2626", fontSize: 16 },
+  gapCard: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#94a3b8",
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: "#f8fafc",
+    marginVertical: 4,
+    gap: 4,
+  },
+  gapTitle: { fontSize: 14, fontWeight: "600", color: "#64748b" },
+  gapDesc: { fontSize: 13, color: "#94a3b8" },
+  gapActions: { flexDirection: "row", gap: 8, marginTop: 4 },
+  gapBtn: {
+    backgroundColor: "#0b1120",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  gapBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
+  gapBtnSecondary: { backgroundColor: "transparent", borderWidth: 1, borderColor: "#cbd5e1" },
+  gapBtnSecondaryText: { color: "#64748b", fontWeight: "600", fontSize: 13 },
 });

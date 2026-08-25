@@ -1,3 +1,8 @@
+export type UserSettings = {
+  detectMissedFillups: boolean;
+  includeEstimatedFuel: boolean;
+};
+
 export type PublicUser = {
   id: string;
   username: string;
@@ -5,6 +10,7 @@ export type PublicUser = {
   avatar_url?: string | null;
   bio?: string | null;
   location?: string | null;
+  settings?: UserSettings;
 };
 
 export type Vehicle = {
@@ -100,6 +106,8 @@ export type VehicleEvent = {
   cost_cents?: number | null;
   fuel_gallons?: number | null;
   fuel_price_cents?: number | null;
+  fuel_full_tank?: boolean;
+  fuel_missed_previous?: boolean | null;
   currency: string;
   shop_name?: string | null;
   location?: string | null;

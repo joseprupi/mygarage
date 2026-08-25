@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Float,
     CheckConstraint,
     Date,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +46,8 @@ class User(TimestampMixin, Base):
     bio: Mapped[str | None] = mapped_column(Text)
     avatar_url: Mapped[str | None] = mapped_column(Text)
     location: Mapped[str | None] = mapped_column(String(160))
+    settings: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}", default=dict)
+    apple_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
 
     vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="owner")
     posts: Mapped[list["Post"]] = relationship(back_populates="author")
@@ -168,6 +172,8 @@ class VehicleEvent(TimestampMixin, Base):
     cost_cents: Mapped[int | None] = mapped_column(Integer)
     fuel_gallons: Mapped[float | None] = mapped_column(Float)
     fuel_price_cents: Mapped[int | None] = mapped_column(Integer)
+    fuel_full_tank: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=true())
+    fuel_missed_previous: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
     shop_name: Mapped[str | None] = mapped_column(String(160))

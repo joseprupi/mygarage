@@ -39,6 +39,7 @@ from app.models import (
     VehicleModMedia,
 )
 from app.schemas import (
+    AppleLoginRequest,
     CommentCreate,
     CommentRead,
     GoogleLoginRequest,
@@ -177,6 +178,123 @@ def google_login(db: Session, data: GoogleLoginRequest) -> tuple[str, User]:
     return create_access_token(user.id), user
 
 
+# ---------------------------------------------------------------------------
+# Apple Sign-In
+# ---------------------------------------------------------------------------
+
+_APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
+_APPLE_ISS = "https://appleid.apple.com"
+
+# Module-level JWKS cache: (keys_by_kid dict, fetched_at monotonic timestamp)
+_apple_jwks_cache: tuple[dict[str, Any], float] | None = None
+_APPLE_JWKS_TTL = 86400.0  # 24 hours in seconds
+
+
+def _now_monotonic() -> float:
+    import time
+    return time.monotonic()
+
+
+def _fetch_apple_jwks(force: bool = False) -> dict[str, Any]:
+    """Fetch Apple JWKS and return a dict mapping kid -> JWK dict."""
+    global _apple_jwks_cache
+    now = _now_monotonic()
+    if not force and _apple_jwks_cache is not None:
+        keys, fetched_at = _apple_jwks_cache
+        if now - fetched_at < _APPLE_JWKS_TTL:
+            return keys
+    try:
+        resp = httpx.get(_APPLE_JWKS_URL, timeout=10.0)
+        resp.raise_for_status()
+        jwks = resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Failed to fetch Apple JWKS: {exc}") from exc
+    keys = {k["kid"]: k for k in jwks.get("keys", [])}
+    _apple_jwks_cache = (keys, now)
+    return keys
+
+
+def _verify_apple_token(token: str, allowed_audiences: list[str]) -> dict[str, Any]:
+    """Verify Apple identityToken, return claims dict. Raises HTTPException on failure."""
+    from jose import jwt as jose_jwt, jwk as jose_jwk, JWTError
+    from jose.constants import ALGORITHMS
+
+    try:
+        header = jose_jwt.get_unverified_header(token)
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail="Invalid Apple token header") from exc
+
+    kid = header.get("kid")
+    keys = _fetch_apple_jwks()
+    jwk_dict = keys.get(kid)
+    if jwk_dict is None:
+        # kid not in cache – refetch once
+        keys = _fetch_apple_jwks(force=True)
+        jwk_dict = keys.get(kid)
+    if jwk_dict is None:
+        raise HTTPException(status_code=401, detail="Apple token key not found")
+
+    try:
+        public_key = jose_jwk.construct(jwk_dict, algorithm=ALGORITHMS.RS256)
+        # Decode and verify: audience is checked against any of allowed_audiences
+        # python-jose accepts a list for audience
+        claims = jose_jwt.decode(
+            token,
+            public_key.to_dict() if hasattr(public_key, "to_dict") else jwk_dict,
+            algorithms=[ALGORITHMS.RS256],
+            audience=allowed_audiences,
+            issuer=_APPLE_ISS,
+            options={"verify_exp": True},
+        )
+    except JWTError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid Apple credential: {exc}") from exc
+
+    return claims
+
+
+def apple_login(db: Session, data: AppleLoginRequest) -> tuple[str, User]:
+    settings = get_settings()
+    claims = _verify_apple_token(data.credential, settings.apple_audiences)
+
+    apple_sub: str = claims.get("sub", "")
+    if not apple_sub:
+        raise HTTPException(status_code=401, detail="Apple token missing sub claim")
+
+    email: str = str(claims.get("email", "")).lower()
+
+    # 1. Look up by apple_sub (returning user)
+    user = db.scalar(select(User).where(User.apple_sub == apple_sub))
+
+    if user is None and email:
+        # 2. Link by email if account already exists
+        user = db.scalar(select(User).where(User.email == email))
+        if user is not None:
+            user.apple_sub = apple_sub
+
+    if user is None:
+        # 3. Create new user
+        if email:
+            desired_username = email.split("@", 1)[0]
+        else:
+            desired_username = f"user{uuid.uuid4().hex[:8]}"
+        user = User(
+            username=unique_username(db, desired_username),
+            email=email or f"{apple_sub}@privaterelay.appleid.com",
+            password_hash=f"apple:{apple_sub}",
+            display_name=data.fullName or None,
+            apple_sub=apple_sub,
+        )
+        db.add(user)
+    else:
+        # Update display_name if we got one and don't have one yet
+        if data.fullName and not user.display_name:
+            user.display_name = data.fullName
+
+    db.commit()
+    db.refresh(user)
+    return create_access_token(user.id), user
+
+
 def update_user(db: Session, user: User, data: UserUpdate) -> User:
     values = data.model_dump(exclude_unset=True)
     if "username" in values and values["username"]:
@@ -184,6 +302,15 @@ def update_user(db: Session, user: User, data: UserUpdate) -> User:
         existing = db.scalar(select(User).where(User.username == values["username"], User.id != user.id))
         if existing:
             raise HTTPException(status_code=409, detail="Username already exists")
+    # Handle settings merge: patch the stored dict rather than replacing it.
+    # Use the original Pydantic object (data.settings) so we can exclude_unset
+    # and avoid overwriting keys the caller didn't include.
+    if "settings" in values:
+        values.pop("settings")
+        if data.settings is not None:
+            incoming = data.settings.model_dump(by_alias=False, exclude_unset=True)
+            current: dict = user.settings or {}
+            user.settings = {**current, **incoming}
     for key, value in values.items():
         setattr(user, key, value)
     db.commit()

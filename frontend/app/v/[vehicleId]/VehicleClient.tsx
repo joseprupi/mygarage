@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, use, useState } from "react";
 import { Download, ExternalLink, Pencil, Plus } from "lucide-react";
 
-import { getToken, modApi, vehicleApi } from "@/lib/api/client";
+import { eventApi, getToken, modApi, vehicleApi } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
@@ -16,7 +16,7 @@ import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { LoadErrorCard } from "@/components/LoadErrorCard";
 import { MileageChart } from "@/components/MileageChart";
 import { tagLabel } from "@/lib/events";
-import { computeVehicleStats } from "@/lib/stats";
+import { computeVehicleStats, type GapInfo } from "@/lib/stats";
 import { ShareButton } from "@/components/ShareButton";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { VehicleModForm } from "@/components/VehicleModForm";
@@ -73,7 +73,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const queryClient = useQueryClient();
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useMe();
-  const currentUser = me.data as { id: string } | undefined;
+  const currentUser = me.data as { id: string; settings?: { detectMissedFillups?: boolean; includeEstimatedFuel?: boolean } } | undefined;
   const posts = useQuery({ queryKey: ["vehiclePosts", vehicleId], queryFn: () => vehicleApi.posts(vehicleId), enabled: tab === "posts" });
   const gallery = useQuery({ queryKey: ["vehicleGallery", vehicleId], queryFn: () => vehicleApi.gallery(vehicleId), enabled: tab === "gallery" });
   // Specs also needs events: when the vehicle has no mileage of its own we
@@ -188,7 +188,13 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   if (v.purchase_date && v.mileage != null) {
     mileageByDate[v.purchase_date] = Math.max(mileageByDate[v.purchase_date] ?? v.mileage, v.mileage);
   }
-  const stats = computeVehicleStats(v, allEvents);
+  const stats = computeVehicleStats(v, allEvents, {
+    detectMissedFillups: currentUser?.settings?.detectMissedFillups ?? true,
+    includeEstimatedFuel: currentUser?.settings?.includeEstimatedFuel ?? true,
+  });
+  const [dismissedGapIds, setDismissedGapIds] = useState<Set<string>>(new Set());
+  const activeGaps = stats.gaps.filter((g) => !dismissedGapIds.has(g.beforeEventId));
+  const gapMap = new Map<string, GapInfo>(activeGaps.map((g) => [g.beforeEventId, g]));
   const mileagePoints = Object.entries(mileageByDate)
     .map(([date, miles]) => ({ date, miles }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -447,8 +453,10 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
             entry.kind === "event" ? (
               (() => {
                 const event = entry.event;
+                const gap = isOwner ? gapMap.get(event.id) : undefined;
                 return (
-                  <article className="surface rounded-2xl p-4" key={entry.key}>
+                  <div key={entry.key}>
+                  <article className="surface rounded-2xl p-4">
                     <div className="flex items-center justify-between gap-2">
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${eventTypeBadge(event.event_type)}`}
@@ -526,6 +534,34 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                       </ul>
                     )}
                   </article>
+                  {gap && (
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                      <span>
+                        <span className="font-medium">Possible missed fill-up</span>
+                        {" "}~{gap.date} · ~{gap.estGallons.toFixed(1)} gal
+                        {gap.estCostCents != null ? ` · ~$${(gap.estCostCents / 100).toFixed(0)}` : ""}
+                      </span>
+                      <div className="flex shrink-0 gap-2">
+                        <a
+                          href={`/vehicles/${vehicleId}/events/new?type=fuel&date=${gap.date}&gallons=${gap.estGallons.toFixed(1)}${gap.estCostCents != null ? `&costCents=${gap.estCostCents}` : ""}`}
+                          className="rounded-full bg-asphalt px-3 py-1 text-xs font-semibold text-white hover:opacity-80"
+                        >
+                          Add it
+                        </a>
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold hover:bg-slate-100"
+                          onClick={async () => {
+                            await eventApi.update(gap.beforeEventId, { fuelMissedPrevious: false });
+                            setDismissedGapIds((prev) => new Set([...prev, gap.beforeEventId]));
+                          }}
+                        >
+                          Not missed
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  </div>
                 );
               })()
             ) : (

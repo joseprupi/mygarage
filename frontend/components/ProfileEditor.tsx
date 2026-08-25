@@ -9,6 +9,13 @@ import { LocationInput } from "@/components/LocationInput";
 import { authApi, mediaApi, setToken } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
+import type { PublicUser } from "@/lib/types";
+
+type MeUser = PublicUser & {
+  id: string;
+  email?: string;
+  created_at?: string;
+};
 
 export function ProfileEditor() {
   const queryClient = useQueryClient();
@@ -26,16 +33,7 @@ export function ProfileEditor() {
   }
 
   const { data, isLoading, error: loadError } = useMe();
-  const user = data as
-    | {
-        id: string;
-        username: string;
-        display_name?: string;
-        bio?: string;
-        avatar_url?: string;
-        location?: string;
-      }
-    | undefined;
+  const user = data as MeUser | undefined;
 
   const changePhoto = useMutation({
     mutationFn: async (file: File) => {
@@ -58,6 +56,15 @@ export function ProfileEditor() {
       void queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Could not update profile")
+  });
+
+  const saveSetting = useMutation({
+    mutationFn: (patch: { detectMissedFillups?: boolean; includeEstimatedFuel?: boolean }) =>
+      authApi.updateProfile({ settings: patch }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "Could not save setting")
   });
 
   if (isLoading) return <div className="surface rounded-3xl p-6">Loading profile...</div>;
@@ -187,6 +194,36 @@ export function ProfileEditor() {
         <Link className="surface hover-lift flex items-center justify-center rounded-2xl p-4 font-semibold" href="/posts/new">
           Create a post
         </Link>
+      </div>
+      <div className="surface rounded-3xl p-6">
+        <h2 className="mb-4 text-lg font-bold">Settings</h2>
+        <div className="space-y-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300 accent-petrol"
+              checked={user?.settings?.detectMissedFillups ?? true}
+              onChange={(e) => saveSetting.mutate({ detectMissedFillups: e.target.checked })}
+            />
+            <span className="space-y-0.5">
+              <span className="block text-sm font-semibold">Detect missed fill-ups</span>
+              <span className="block text-xs text-slate-500">
+                Flags tanks whose MPG is far above your usual and estimates the missing fill-up
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-slate-300 accent-petrol"
+              checked={user?.settings?.includeEstimatedFuel ?? true}
+              onChange={(e) => saveSetting.mutate({ includeEstimatedFuel: e.target.checked })}
+            />
+            <span className="space-y-0.5">
+              <span className="block text-sm font-semibold">Include estimates in fuel totals</span>
+            </span>
+          </label>
+        </div>
       </div>
     </section>
   );

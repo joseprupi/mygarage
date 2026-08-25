@@ -26,6 +26,8 @@ const emptyForm = {
   visibility: "public"
 };
 
+type FuelToggles = { fuelFullTank: boolean; fuelMissedPrevious: boolean };
+
 export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; eventId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -34,6 +36,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
   const [documents, setDocuments] = useState<EventDocument[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [form, setForm] = useState(emptyForm);
+  const [fuelToggles, setFuelToggles] = useState<FuelToggles>({ fuelFullTank: true, fuelMissedPrevious: false });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -108,6 +111,10 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
     setMedia(e.media ?? []);
     setDocuments(e.documents ?? []);
     setTags(e.tags ?? []);
+    setFuelToggles({
+      fuelFullTank: e.fuel_full_tank !== false,
+      fuelMissedPrevious: e.fuel_missed_previous === true,
+    });
   }, [eventQuery.data]);
 
   const deleteMutation = useMutation({
@@ -136,6 +143,7 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       setError("Date is required.");
       return;
     }
+    const isFuel = form.eventType === "fuel";
     const payload = {
       ...form,
       eventDate: form.eventDate || null,
@@ -143,7 +151,11 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       costCents: form.cost ? Math.round(Number(form.cost) * 100) : null,
       media: media.map((item, index) => ({ ...item, sort_order: index })),
       documents: documents.map((item, index) => ({ ...item, sort_order: index })),
-      tags
+      tags,
+      ...(isFuel && {
+        fuelFullTank: fuelToggles.fuelFullTank,
+        fuelMissedPrevious: fuelToggles.fuelMissedPrevious ? true : null,
+      }),
     };
     setSubmitting(true);
     try {
@@ -312,6 +324,35 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
           })}
         </div>
       </div>
+      {form.eventType === "fuel" && (
+        <div className="space-y-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Fuel accuracy</p>
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="text-sm">
+              <span className="font-medium">Filled the tank</span>
+              <span className="ml-1 text-slate-400">(uncheck for partial top-up)</span>
+            </span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-petrol"
+              checked={fuelToggles.fuelFullTank}
+              onChange={(e) => setFuelToggles((p) => ({ ...p, fuelFullTank: e.target.checked }))}
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-between gap-3">
+            <span className="text-sm">
+              <span className="font-medium">Skipped a fill-up since last time</span>
+              <span className="ml-1 text-slate-400">(helps keep MPG accurate)</span>
+            </span>
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-amber-500"
+              checked={fuelToggles.fuelMissedPrevious}
+              onChange={(e) => setFuelToggles((p) => ({ ...p, fuelMissedPrevious: e.target.checked }))}
+            />
+          </label>
+        </div>
+      )}
       <label className="block space-y-1 text-sm">
         <span>Visibility</span>
         <select

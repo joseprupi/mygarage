@@ -81,11 +81,12 @@ Stats to derive (detail screen; headline picks one):
 
 **Prerequisite:** gallons + price/gal are currently text in the fuel event description — add structured fields (e.g. `fuel_gallons`, `fuel_price_cents` on vehicle_events) BEFORE building MPG math; backfill the few existing fuel events by parsing descriptions.
 
-## Fuel log correctness — skipped fill-ups (backlog, 2026-08-22 — owner flagged)
-Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the mileage delta span two tanks → MPG ~doubles (sanity cap only catches absurd values). Fix (Fuelly-style):
-- [ ] add `fuel_full_tank: bool` (default true) and `fuel_missed_previous: bool` (default false) to fuel events; fuel-up screen gets two toggles ("Filled the tank" / "I skipped logging a fill-up since last time").
-- [ ] MPG only between consecutive **full** fills with no gap flagged; partial fills accumulate gallons into the next full-fill segment.
-- [ ] Stats screen shows "n segments excluded (gaps/partials)" so the number is honest.
+## Fuel log correctness — skipped fill-ups (IN PROGRESS dev, 2026-08-23 — owner flagged)
+Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the mileage delta span two tanks → MPG ~doubles. Spec (explicit flags + inference, owner-approved):
+- [ ] Fields on fuel events: `fuel_full_tank: bool` (default true), `fuel_missed_previous: bool | null` (null = unknown → infer; true = owner says a fill was skipped; false = owner confirmed no gap). Fuel-up screen (mobile) + web event form (type=fuel) get the two toggles.
+- [ ] Shared stats (`stats.ts`, mobile + web): segments run between consecutive **full** fills; partial fills add their gallons to the next full segment. Segment MPG excluded when `missed_previous === true`, or when inferred: baseline = **median** of ≥3 trusted segments and segment MPG > 1.6× median (and `missed_previous !== false`). <3 trusted segments → MPG shown but labelled unverified.
+- [ ] Inferred gap → **estimated phantom fill-up** (date = midpoint, gallons = gap miles ÷ median MPG − logged gallons, price = mean of neighbouring $/gal) counted in fuel spend/gallons totals, always labelled "incl. ~$X estimated for N missed fill-up(s)". Never written to DB; never exported; never feeds back into MPG.
+- [ ] Stats screen rows: "Probable missed fill-ups", "Segments excluded". History timeline shows a grey "Possible missed fill-up ~date" marker between the two events with **Add it** (prefilled fuel event) / **Not missed** (sets `missed_previous=false` on the later event).
 
 ## Owner feedback 2026-08-22 (post-launch)
 - [x] Web: Log out visible in nav; event cards keep description newlines and show shop/location to everyone; export button relabeled "Export CSV + photos".

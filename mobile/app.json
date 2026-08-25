@@ -31,7 +31,14 @@
           "imageWidth": 200
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.147573336932-13dil6egmkp50tqur0lrl7cbb5oona98"
+        }
+      ],
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true
@@ -39,6 +46,7 @@
     "ios": {
       "bundleIdentifier": "com.carfable.app",
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "CarFable uses the camera to photograph receipts, fuel pumps, and your car.",
         "NSPhotoLibraryUsageDescription": "CarFable needs your photo library to attach photos to your car's history.",
