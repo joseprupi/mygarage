@@ -359,7 +359,7 @@ export default function VehicleFormScreen() {
         </View>
       )}
 
-      <Text style={styles.label}>Trim / version</Text>
+      <Text style={styles.label}>Trim / version{vinTag("trim")}</Text>
       <TextInput
         style={styles.input}
         value={form.trim}
