@@ -1,4 +1,4 @@
-import type { Comment, FeedPage, Post, PreviousVehicle, PublicUser, RecallsResponse, UserSettings, Vehicle, VehicleEvent, VehicleMod, VehicleOwnership, VehicleSpecs, VehicleTransfer, VehicleTransferDetail, VinDecodeResult } from "@/lib/types";
+import type { Comment, EventMedia, FeedPage, Post, PreviousVehicle, PublicUser, RecallsResponse, RedactionBox, UserSettings, Vehicle, VehicleEvent, VehicleMod, VehicleOwnership, VehicleSpecs, VehicleTransfer, VehicleTransferDetail, VinDecodeResult } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -384,4 +384,22 @@ export const ownershipApi = {
       body: JSON.stringify(body)
     }),
   remove: (id: string) => api<void>(`/ownerships/${id}`, { method: "DELETE" })
+};
+
+// ─── Redaction API ───────────────────────────────────────────────────────────
+// Owner-only. POST propose runs AI box detection; PATCH boxes replaces boxes +
+// re-renders preview; POST publish makes the redacted copy public; POST unpublish
+// reverts to proposed. 503/502 on AI errors from propose.
+export const redactionApi = {
+  propose: (mediaId: string) =>
+    api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/propose`, { method: "POST" }),
+  setBoxes: (mediaId: string, boxes: RedactionBox[]) =>
+    api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/boxes`, {
+      method: "PATCH",
+      body: JSON.stringify({ boxes })
+    }),
+  publish: (mediaId: string) =>
+    api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/publish`, { method: "POST" }),
+  unpublish: (mediaId: string) =>
+    api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/unpublish`, { method: "POST" })
 };

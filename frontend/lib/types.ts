@@ -104,6 +104,15 @@ export type Media = {
 };
 
 // API response shape for items in VehicleEvent.media (camelCase + privacy fields).
+/** A single PII bounding box returned by the AI or edited by the owner. */
+export type RedactionBox = {
+  /** PII category label (name, address, phone, plate, vin, etc.) */
+  kind: string;
+  /** [ymin, xmin, ymax, xmax] on a 0-1000 scale relative to the image. */
+  box: [number, number, number, number];
+  source?: string;
+};
+
 export type EventMedia = {
   id: string;
   /** null for non-owners when the item is private. */
@@ -119,6 +128,15 @@ export type EventMedia = {
   thumbnailUrl: string | null;
   sortOrder: number;
   createdAt: string;
+  // Redaction fields (owner-only except redactedUrl/canViewRedacted when published).
+  redactionStatus: "none" | "proposed" | "published" | null;
+  redactionBoxes: RedactionBox[] | null;
+  /** Owner: always present when status != 'none'. Visitor: present only when published. */
+  redactedUrl: string | null;
+  /** Owner preview of what visitors would see. */
+  redactionPreviewUrl: string | null;
+  /** True for visitors when status == 'published'. */
+  canViewRedacted: boolean;
 };
 
 // Simple form-state type used in VehicleEventForm + DocumentUploader (upload flow).

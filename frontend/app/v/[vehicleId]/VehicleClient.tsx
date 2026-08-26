@@ -6,9 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import React, { Suspense, use, useState } from "react";
 import { ChevronDown, ChevronUp, Download, ExternalLink, Pencil, Plus } from "lucide-react";
 
-import { eventApi, eventDocumentApi, eventMediaApi, getToken, modApi, ownershipApi, reportApi, transferApi, vehicleApi, apiUrl } from "@/lib/api/client";
+import { eventApi, eventDocumentApi, eventMediaApi, redactionApi, getToken, modApi, ownershipApi, reportApi, transferApi, vehicleApi, apiUrl } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
-import type { RecallsResponse } from "@/lib/types";
+import { useDialogFocus } from "@/lib/useDialogFocus";
+import type { RecallsResponse, RedactionBox } from "@/lib/types";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -28,11 +29,11 @@ import type { EventMedia, Media, VehicleMod, VehicleOwnership, VehicleTransfer }
 const toLightboxItems = (media: Media[]): LightboxItem[] =>
   media.map((m) => ({ url: m.url, type: m.media_type }));
 
-// Map EventMedia[] to lightbox items — excludes items the viewer cannot see (private/null url).
+// Map EventMedia[] to lightbox items — includes viewable originals and published redacted copies.
 const eventMediaToLightboxItems = (media: EventMedia[]): LightboxItem[] =>
   media
-    .filter((m) => m.canView && m.url !== null)
-    .map((m) => ({ url: m.url!, type: m.mediaType }));
+    .filter((m) => (m.canView && m.url !== null) || (!m.canView && m.canViewRedacted && m.redactedUrl !== null))
+    .map((m) => ({ url: (m.canView && m.url ? m.url : m.redactedUrl)!, type: m.mediaType }));
 
 // Human-readable labels for provenance editedFields values.
 const EDITED_FIELD_LABELS: Record<string, string> = {
@@ -122,6 +123,10 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const [ownershipSubmitting, setOwnershipSubmitting] = useState(false);
   const [ownershipSectionOpen, setOwnershipSectionOpen] = useState(false);
   const [mediaPublicError, setMediaPublicError] = useState<string | null>(null);
+  // Redaction modal state
+  const [redactModalMedia, setRedactModalMedia] = useState<EventMedia | null>(null);
+  const [redactSaving, setRedactSaving] = useState(false);
+  const [redactError, setRedactError] = useState<string | null>(null);
   // Transfer modal state
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferData, setTransferData] = useState({
@@ -1246,6 +1251,32 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                           <div className="flex gap-2 overflow-x-auto pb-1">
                             {event.media.map((m) => {
                               if (!m.canView) {
+                                // Visitor + redacted copy published → show the redacted image.
+                                if (m.canViewRedacted && m.redactedUrl) {
+                                  const lbIndex = lbItems.findIndex((x) => x.url === m.redactedUrl);
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={m.id}
+                                      onClick={() => lbIndex >= 0 ? setLightbox({ items: lbItems, index: lbIndex }) : undefined}
+                                      className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                                      title="Redacted receipt"
+                                    >
+                                      <img
+                                        src={m.redactedUrl}
+                                        alt="Redacted receipt"
+                                        loading="lazy"
+                                        className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                                      />
+                                      <span
+                                        className="absolute bottom-0.5 right-0.5 rounded-full bg-black/60 px-1 text-[9px] leading-4 text-white"
+                                        title="Redacted copy — personal info removed"
+                                      >
+                                        ✂
+                                      </span>
+                                    </button>
+                                  );
+                                }
                                 // Non-viewable: show blurred placeholder + lock.
                                 return (
                                   <div
@@ -1350,6 +1381,77 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                                           : "Locked until checked"}
                                     </span>
                                   </label>
+                                  {/* Redacted-copy controls — images only when PII detected */}
+                                  {m.piiStatus === "detected" && m.mediaType === "image" && (
+                                    <div className="w-full flex flex-wrap items-center gap-1.5 pt-0.5">
+                                      {(!m.redactionStatus || m.redactionStatus === "none") && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary text-xs py-0.5 px-2"
+                                          disabled={redactSaving}
+                                          onClick={async () => {
+                                            setRedactError(null);
+                                            setRedactSaving(true);
+                                            try {
+                                              const updated = await redactionApi.propose(m.id);
+                                              await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
+                                              setRedactModalMedia(updated);
+                                            } catch (err) {
+                                              setRedactError(err instanceof Error ? err.message : "Failed to start redaction");
+                                            } finally {
+                                              setRedactSaving(false);
+                                            }
+                                          }}
+                                        >
+                                          {redactSaving ? "Finding personal info…" : "Redact with AI"}
+                                        </button>
+                                      )}
+                                      {m.redactionStatus === "proposed" && (
+                                        <>
+                                          <span className="chip bg-amber-100 text-amber-700">Redaction ready — not published</span>
+                                          <button
+                                            type="button"
+                                            className="btn btn-secondary text-xs py-0.5 px-2"
+                                            onClick={() => setRedactModalMedia(m)}
+                                          >
+                                            Review redaction
+                                          </button>
+                                        </>
+                                      )}
+                                      {m.redactionStatus === "published" && (
+                                        <>
+                                          <span className="chip bg-green-100 text-green-700">Redacted copy is public</span>
+                                          <button
+                                            type="button"
+                                            className="btn btn-secondary text-xs py-0.5 px-2"
+                                            onClick={() => setRedactModalMedia(m)}
+                                          >
+                                            Review
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="btn btn-secondary text-xs py-0.5 px-2"
+                                            disabled={redactSaving}
+                                            onClick={async () => {
+                                              setRedactError(null);
+                                              setRedactSaving(true);
+                                              try {
+                                                await redactionApi.unpublish(m.id);
+                                                await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
+                                              } catch (err) {
+                                                setRedactError(err instanceof Error ? err.message : "Failed to unpublish");
+                                              } finally {
+                                                setRedactSaving(false);
+                                              }
+                                            }}
+                                          >
+                                            Unpublish
+                                          </button>
+                                        </>
+                                      )}
+                                      {redactError && <p className="w-full text-red-600">{redactError}</p>}
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -1870,6 +1972,21 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
         <Lightbox items={lightbox.items} startIndex={lightbox.index} onClose={() => setLightbox(null)} />
       )}
 
+      {/* Redaction review modal */}
+      {redactModalMedia && (
+        <RedactionModal
+          media={redactModalMedia}
+          saving={redactSaving}
+          onSaving={setRedactSaving}
+          onError={setRedactError}
+          onClose={() => { setRedactModalMedia(null); setRedactError(null); }}
+          onMutated={async (updated) => {
+            setRedactModalMedia(updated);
+            await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
+          }}
+        />
+      )}
+
       {/* Transfer ownership modal */}
       {transferOpen && isOwner && (
         <TransferModal
@@ -2099,6 +2216,360 @@ function TransferModal({
             </div>
           </form>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Redaction Review Modal ──────────────────────────────────────────────────
+
+const PII_BOX_KINDS = [
+  "name", "address", "phone", "email", "license_number",
+  "signature", "vin", "plate", "payment_card", "other",
+] as const;
+
+function RedactionModal({
+  media,
+  saving,
+  onSaving,
+  onError,
+  onClose,
+  onMutated,
+}: {
+  media: EventMedia;
+  saving: boolean;
+  onSaving: (v: boolean) => void;
+  onError: (msg: string | null) => void;
+  onClose: () => void;
+  onMutated: (updated: EventMedia) => Promise<void>;
+}) {
+  const dialogRef = useDialogFocus<HTMLDivElement>();
+  const [showPreview, setShowPreview] = React.useState(false);
+  const [boxes, setBoxes] = React.useState<RedactionBox[]>(media.redactionBoxes ?? []);
+  // Drawing state
+  const imgRef = React.useRef<HTMLImageElement | null>(null);
+  const [drawing, setDrawing] = React.useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [pendingBox, setPendingBox] = React.useState<{ ymin: number; xmin: number; ymax: number; xmax: number } | null>(null);
+  const [pendingKind, setPendingKind] = React.useState<string>("other");
+  const [publishing, setPublishing] = React.useState(false);
+
+  // Keep boxes in sync if parent re-opens with different media (e.g., after propose refresh)
+  React.useEffect(() => {
+    setBoxes(media.redactionBoxes ?? []);
+  }, [media.id, media.redactionBoxes]);
+
+  // Escape key + body scroll lock
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function patchBoxes(next: RedactionBox[]) {
+    onError(null);
+    onSaving(true);
+    try {
+      const updated = await redactionApi.setBoxes(media.id, next);
+      await onMutated(updated);
+      setBoxes(updated.redactionBoxes ?? next);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Failed to update boxes");
+    } finally {
+      onSaving(false);
+    }
+  }
+
+  function removeBox(idx: number) {
+    const next = boxes.filter((_, i) => i !== idx);
+    setBoxes(next);
+    void patchBoxes(next);
+  }
+
+  function addPendingBox() {
+    if (!pendingBox) return;
+    const newBox: RedactionBox = {
+      kind: pendingKind,
+      box: [pendingBox.ymin, pendingBox.xmin, pendingBox.ymax, pendingBox.xmax],
+      source: "manual",
+    };
+    const next = [...boxes, newBox];
+    setBoxes(next);
+    setPendingBox(null);
+    void patchBoxes(next);
+  }
+
+  function getImageRect(): DOMRect | null {
+    return imgRef.current?.getBoundingClientRect() ?? null;
+  }
+
+  function pxToScale(px: number, dim: number): number {
+    return Math.round(Math.max(0, Math.min(1000, (px / dim) * 1000)));
+  }
+
+  function handleMouseDown(e: React.MouseEvent) {
+    if (showPreview) return;
+    const rect = getImageRect();
+    if (!rect) return;
+    e.preventDefault();
+    setDrawing({ x0: e.clientX - rect.left, y0: e.clientY - rect.top, x1: e.clientX - rect.left, y1: e.clientY - rect.top });
+    setPendingBox(null);
+  }
+
+  function handleMouseMove(e: React.MouseEvent) {
+    if (!drawing || showPreview) return;
+    const rect = getImageRect();
+    if (!rect) return;
+    setDrawing((d) => d ? { ...d, x1: e.clientX - rect.left, y1: e.clientY - rect.top } : d);
+  }
+
+  function handleMouseUp(e: React.MouseEvent) {
+    if (!drawing || showPreview) return;
+    const rect = getImageRect();
+    if (!rect) return;
+    const x1 = e.clientX - rect.left;
+    const y1 = e.clientY - rect.top;
+    const xmin = pxToScale(Math.min(drawing.x0, x1), rect.width);
+    const xmax = pxToScale(Math.max(drawing.x0, x1), rect.width);
+    const ymin = pxToScale(Math.min(drawing.y0, y1), rect.height);
+    const ymax = pxToScale(Math.max(drawing.y0, y1), rect.height);
+    setDrawing(null);
+    if (xmax - xmin < 5 || ymax - ymin < 5) return; // too small, ignore
+    setPendingBox({ ymin, xmin, ymax, xmax });
+  }
+
+  // Box overlay rendering helpers — convert 0-1000 scale to % for CSS positioning.
+  function boxStyle(box: [number, number, number, number]): React.CSSProperties {
+    const [ymin, xmin, ymax, xmax] = box;
+    return {
+      position: "absolute",
+      left: `${xmin / 10}%`,
+      top: `${ymin / 10}%`,
+      width: `${(xmax - xmin) / 10}%`,
+      height: `${(ymax - ymin) / 10}%`,
+    };
+  }
+
+  // In-progress drawing rectangle style
+  const drawingStyle: React.CSSProperties | null = drawing
+    ? {
+        position: "absolute",
+        left: `${Math.min(drawing.x0, drawing.x1)}px`,
+        top: `${Math.min(drawing.y0, drawing.y1)}px`,
+        width: `${Math.abs(drawing.x1 - drawing.x0)}px`,
+        height: `${Math.abs(drawing.y1 - drawing.y0)}px`,
+        border: "2px dashed #2563eb",
+        background: "rgba(37,99,235,0.1)",
+        pointerEvents: "none",
+      }
+    : null;
+
+  const isPublished = media.redactionStatus === "published";
+  const titleId = React.useId();
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="surface flex max-h-[92vh] w-full max-w-2xl flex-col overflow-y-auto rounded-3xl p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <header className="mb-3 flex items-center justify-between gap-3">
+          <h2 id={titleId} className="text-base font-semibold">Review redaction</h2>
+          <button
+            className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-asphalt"
+            onClick={onClose}
+            aria-label="Close"
+            type="button"
+          >
+            ✕
+          </button>
+        </header>
+
+        {/* Helper text */}
+        <p className="mb-3 text-xs text-slate-500">
+          Only the redacted copy is shared. The original never leaves your private storage.
+          Check the preview — the AI can miss things. Click and drag on the original to add a box; click × to remove one.
+        </p>
+
+        {/* Preview toggle */}
+        <div className="mb-2 flex items-center gap-2">
+          <label className="flex cursor-pointer items-center gap-1.5 text-sm">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-petrol"
+              checked={showPreview}
+              onChange={(e) => setShowPreview(e.target.checked)}
+            />
+            Show preview (visitor view)
+          </label>
+          {saving && <span className="text-xs text-slate-400">Saving…</span>}
+        </div>
+
+        {/* Image with overlaid boxes */}
+        <div
+          className="relative select-none overflow-hidden rounded-xl bg-slate-100"
+          style={{ cursor: showPreview ? "default" : "crosshair" }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+        >
+          {showPreview && media.redactionPreviewUrl ? (
+            <img
+              src={media.redactionPreviewUrl}
+              alt="Redaction preview"
+              className="w-full rounded-xl object-contain"
+              style={{ maxHeight: "55vh" }}
+              draggable={false}
+            />
+          ) : (
+            <>
+              <img
+                ref={imgRef}
+                src={media.url ?? undefined}
+                alt="Original receipt"
+                className="w-full rounded-xl object-contain"
+                style={{ maxHeight: "55vh" }}
+                draggable={false}
+              />
+              {/* Existing boxes */}
+              {boxes.map((b, i) => (
+                <div key={i} style={boxStyle(b.box)} className="group">
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background: "rgba(100,116,139,0.45)",
+                      border: "1px solid rgba(100,116,139,0.7)",
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      left: 2,
+                      fontSize: 9,
+                      lineHeight: "12px",
+                      background: "rgba(0,0,0,0.55)",
+                      color: "#fff",
+                      padding: "0 3px",
+                      borderRadius: 2,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {b.kind}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${b.kind} box`}
+                    onClick={(e) => { e.stopPropagation(); removeBox(i); }}
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      right: 2,
+                      fontSize: 10,
+                      lineHeight: "12px",
+                      background: "rgba(0,0,0,0.55)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 2,
+                      padding: "0 2px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {/* In-progress drawing rectangle */}
+              {drawingStyle && <div style={drawingStyle} />}
+            </>
+          )}
+        </div>
+
+        {/* Pending box kind picker */}
+        {pendingBox && !showPreview && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-petrol/30 bg-petrol/5 px-3 py-2">
+            <span className="text-xs text-slate-600">Label new box:</span>
+            <select
+              className="input text-xs py-0.5 px-1"
+              value={pendingKind}
+              onChange={(e) => setPendingKind(e.target.value)}
+            >
+              {PII_BOX_KINDS.map((k) => (
+                <option key={k} value={k}>{k.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+            <button type="button" className="btn btn-primary text-xs py-0.5 px-2" onClick={addPendingBox}>
+              Add
+            </button>
+            <button type="button" className="btn btn-secondary text-xs py-0.5 px-2" onClick={() => setPendingBox(null)}>
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Footer actions */}
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          {!isPublished ? (
+            <button
+              type="button"
+              className="btn btn-primary disabled:opacity-60"
+              disabled={saving || publishing}
+              onClick={async () => {
+                setPublishing(true);
+                onError(null);
+                try {
+                  const updated = await redactionApi.publish(media.id);
+                  await onMutated(updated);
+                } catch (err) {
+                  onError(err instanceof Error ? err.message : "Failed to publish");
+                } finally {
+                  setPublishing(false);
+                }
+              }}
+            >
+              {publishing ? "Publishing…" : "Publish redacted copy"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-secondary disabled:opacity-60"
+              disabled={saving || publishing}
+              onClick={async () => {
+                setPublishing(true);
+                onError(null);
+                try {
+                  const updated = await redactionApi.unpublish(media.id);
+                  await onMutated(updated);
+                } catch (err) {
+                  onError(err instanceof Error ? err.message : "Failed to unpublish");
+                } finally {
+                  setPublishing(false);
+                }
+              }}
+            >
+              {publishing ? "Unpublishing…" : "Unpublish"}
+            </button>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+          {isPublished && (
+            <span className="chip bg-green-100 text-green-700 ml-auto">Redacted copy is public</span>
+          )}
+        </div>
       </div>
     </div>
   );
