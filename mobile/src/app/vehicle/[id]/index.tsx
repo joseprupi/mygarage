@@ -20,6 +20,7 @@ import {
   eventMediaApi,
   mediaUrl,
   ownershipApi,
+  redactionApi,
   userApi,
   vehicleApi,
   type Media,
@@ -101,14 +102,22 @@ const PII_KIND_LABELS: Record<string, string> = {
 
 function MediaViewerModal({
   media,
+  eventId,
   onClose,
   onTogglePublic,
 }: {
   media: Media;
+  eventId: string | null;
   onClose: () => void;
   onTogglePublic: (newVal: boolean) => Promise<void>;
 }) {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [proposeBusy, setProposeBusy] = useState(false);
+  // Local redaction state — starts from prop, can be updated by propose/unpublish
+  const [liveRedactionStatus, setLiveRedactionStatus] = useState<string | null | undefined>(
+    media.redactionStatus,
+  );
 
   async function handleToggle(val: boolean) {
     setBusy(true);
@@ -122,6 +131,38 @@ function MediaViewerModal({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handlePropose() {
+    if (!media.id) return;
+    setProposeBusy(true);
+    try {
+      const updated = await redactionApi.propose(media.id);
+      setLiveRedactionStatus(updated.redactionStatus ?? null);
+    } catch (err) {
+      Alert.alert("AI redaction failed", err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setProposeBusy(false);
+    }
+  }
+
+  async function handleUnpublish() {
+    if (!media.id) return;
+    setBusy(true);
+    try {
+      const updated = await redactionApi.unpublish(media.id);
+      setLiveRedactionStatus(updated.redactionStatus ?? null);
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleReview() {
+    if (!media.id || !eventId) return;
+    onClose();
+    router.push(`/redaction/${media.id}?eventId=${eventId}`);
   }
 
   const imageUri = mediaUrl(media.url) ?? undefined;
@@ -161,6 +202,45 @@ function MediaViewerModal({
                   ? `Contains personal info${piiKindsText ? `: ${piiKindsText}` : ""}`
                   : "Checking for personal info…"}
               </Text>
+            </View>
+          )}
+
+          {piiDetected && (
+            <View style={viewerStyles.redactionSection}>
+              <Text style={viewerStyles.redactionTitle}>Share a redacted copy</Text>
+              {proposeBusy ? (
+                <View style={viewerStyles.proposeRow}>
+                  <ActivityIndicator size="small" color="#2563eb" />
+                  <Text style={viewerStyles.proposeText}>Finding personal info…</Text>
+                </View>
+              ) : liveRedactionStatus === "published" ? (
+                <View style={{ gap: 8 }}>
+                  <View style={[viewerStyles.rdChip, viewerStyles.rdChipPublished]}>
+                    <Text style={viewerStyles.rdChipText}>Redacted copy is public</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Pressable style={viewerStyles.rdBtn} onPress={handleReview} disabled={busy}>
+                      <Text style={viewerStyles.rdBtnText}>Review</Text>
+                    </Pressable>
+                    <Pressable style={viewerStyles.rdBtnSecondary} onPress={handleUnpublish} disabled={busy}>
+                      <Text style={viewerStyles.rdBtnSecondaryText}>Unpublish</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : liveRedactionStatus === "proposed" ? (
+                <View style={{ gap: 8 }}>
+                  <View style={[viewerStyles.rdChip, viewerStyles.rdChipReady]}>
+                    <Text style={viewerStyles.rdChipText}>Ready — not published</Text>
+                  </View>
+                  <Pressable style={viewerStyles.rdBtn} onPress={handleReview}>
+                    <Text style={viewerStyles.rdBtnText}>Review redaction</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable style={viewerStyles.rdBtn} onPress={handlePropose} disabled={proposeBusy}>
+                  <Text style={viewerStyles.rdBtnText}>Redact with AI</Text>
+                </Pressable>
+              )}
             </View>
           )}
 
@@ -228,6 +308,41 @@ const viewerStyles = StyleSheet.create({
   },
   visLabel: { fontSize: 16, color: "#fff", fontWeight: "600" },
   visHint: { fontSize: 13, color: "#94a3b8" },
+  redactionSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.15)",
+    paddingTop: 10,
+    gap: 8,
+  },
+  redactionTitle: { fontSize: 14, color: "#94a3b8", fontWeight: "600" },
+  proposeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  proposeText: { fontSize: 14, color: "#94a3b8" },
+  rdChip: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  rdChipReady: { backgroundColor: "#1e3a5f" },
+  rdChipPublished: { backgroundColor: "#14532d" },
+  rdChipText: { fontSize: 12, color: "#93c5fd", fontWeight: "600" },
+  rdBtn: {
+    backgroundColor: "#2563eb",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignSelf: "flex-start",
+  },
+  rdBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  rdBtnSecondary: {
+    borderWidth: 1,
+    borderColor: "#475569",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignSelf: "flex-start",
+  },
+  rdBtnSecondaryText: { color: "#94a3b8", fontWeight: "600", fontSize: 14 },
 });
 
 // --- subcomponents ---
@@ -238,13 +353,17 @@ function EventRow({
   showPrevOwnerBadge,
   isOwner,
   onOpenMedia,
+  onOpenRedacted,
   onToggleHidden,
 }: {
   event: VehicleEvent;
   onPress?: () => void;
   showPrevOwnerBadge?: boolean;
   isOwner?: boolean;
-  onOpenMedia?: (media: Media) => void;
+  /** Owner opens the full media viewer; receives (media, eventId). */
+  onOpenMedia?: (media: Media, eventId: string) => void;
+  /** Visitor opens the redacted image viewer; receives the resolved URI. */
+  onOpenRedacted?: (uri: string) => void;
   onToggleHidden?: () => void;
 }) {
   const colors = eventTypeColors(event.event_type);
@@ -267,11 +386,12 @@ function EventRow({
 
   if (firstMedia) {
     const canView = firstMedia.canView !== false; // treat undefined as true (legacy)
+    const hasRedacted = !canView && firstMedia.canViewRedacted && firstMedia.redactedUrl;
     if (canView) {
       const thumbUri = mediaUrl(firstMedia.thumbnailUrl ?? firstMedia.url) ?? undefined;
       thumbNode = (
         <Pressable
-          onPress={isOwner && onOpenMedia ? () => onOpenMedia(firstMedia) : undefined}
+          onPress={isOwner && onOpenMedia ? () => onOpenMedia(firstMedia, event.id) : undefined}
           disabled={!(isOwner && onOpenMedia)}
         >
           <View style={styles.thumbWrap}>
@@ -281,6 +401,22 @@ function EventRow({
                 <Ionicons name="lock-closed" size={10} color="#fff" />
               </View>
             )}
+          </View>
+        </Pressable>
+      );
+    } else if (hasRedacted) {
+      // Visitor: redacted copy is published — show the redacted thumbnail
+      const redactedUri = mediaUrl(firstMedia.redactedUrl) ?? undefined;
+      thumbNode = (
+        <Pressable
+          onPress={redactedUri && onOpenRedacted ? () => onOpenRedacted(redactedUri) : undefined}
+          disabled={!(redactedUri && onOpenRedacted)}
+        >
+          <View style={styles.thumbWrap}>
+            <Image source={redactedUri ? { uri: redactedUri } : undefined} style={styles.eventThumb} contentFit="cover" />
+            <View style={styles.redactedPill}>
+              <Text style={styles.redactedPillText}>Redacted</Text>
+            </View>
           </View>
         </Pressable>
       );
@@ -697,8 +833,11 @@ export default function VehicleScreen() {
   const [ownershipFilter, setOwnershipFilter] = useState<string | null>(null); // null = All
   const [statsScope, setStatsScope] = useState<StatsScope>("ownership");
 
-  // media viewer
+  // media viewer (owner)
   const [viewerMedia, setViewerMedia] = useState<Media | null>(null);
+  const [viewerEventId, setViewerEventId] = useState<string | null>(null);
+  // visitor redacted image viewer
+  const [visitorViewerUri, setVisitorViewerUri] = useState<string | null>(null);
 
   // vehicle menu (non-owner)
   const [vehicleMenuVisible, setVehicleMenuVisible] = useState(false);
@@ -1033,7 +1172,8 @@ export default function VehicleScreen() {
                     event={event}
                     showPrevOwnerBadge={event.isPreviousOwner}
                     isOwner={isOwner}
-                    onOpenMedia={(media) => setViewerMedia(media)}
+                    onOpenMedia={(media, eid) => { setViewerMedia(media); setViewerEventId(eid); }}
+                    onOpenRedacted={(uri) => setVisitorViewerUri(uri)}
                     onToggleHidden={isOwner ? () => handleToggleHidden(event) : undefined}
                     onPress={
                       event.canEdit
@@ -1136,9 +1276,27 @@ export default function VehicleScreen() {
       {viewerMedia && isOwner && (
         <MediaViewerModal
           media={viewerMedia}
-          onClose={() => setViewerMedia(null)}
+          eventId={viewerEventId}
+          onClose={() => { setViewerMedia(null); setViewerEventId(null); }}
           onTogglePublic={(val) => handleTogglePublic(viewerMedia, val)}
         />
+      )}
+
+      {/* Visitor viewer for published redacted images */}
+      {visitorViewerUri && (
+        <Modal visible animationType="fade" transparent onRequestClose={() => setVisitorViewerUri(null)}>
+          <View style={viewerStyles.bg}>
+            <Pressable style={viewerStyles.closeBtn} onPress={() => setVisitorViewerUri(null)} hitSlop={12}>
+              <Ionicons name="close" size={26} color="#fff" />
+            </Pressable>
+            <Image source={{ uri: visitorViewerUri }} style={viewerStyles.image} contentFit="contain" />
+            <View style={viewerStyles.footer}>
+              <View style={[viewerStyles.rdChip, viewerStyles.rdChipPublished, { alignSelf: "flex-start" }]}>
+                <Text style={viewerStyles.rdChipText}>Redacted copy</Text>
+              </View>
+            </View>
+          </View>
+        </Modal>
       )}
 
       {/* Vehicle overflow menu (non-owner) */}
@@ -1306,6 +1464,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   onFileCaption: { fontSize: 10, color: "#94a3b8", marginTop: 2, textAlign: "center" },
+  redactedPill: {
+    position: "absolute",
+    bottom: 2,
+    left: 2,
+    right: 2,
+    backgroundColor: "rgba(37,99,235,0.85)",
+    borderRadius: 4,
+    paddingVertical: 1,
+    alignItems: "center",
+  },
+  redactedPillText: { fontSize: 9, color: "#fff", fontWeight: "700" },
   // build tab
   category: { fontSize: 15, fontWeight: "800", color: "#334155", textTransform: "uppercase", marginTop: 8 },
   modRow: {

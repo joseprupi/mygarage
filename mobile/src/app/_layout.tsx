@@ -39,6 +39,7 @@ export default function RootLayout() {
       <Stack.Screen name="vehicle/[id]/transfer" options={{ title: "Transfer ownership" }} />
       <Stack.Screen name="transfer/[code]" options={{ title: "Accept transfer" }} />
       <Stack.Screen name="u/[id]" options={{ title: "Profile" }} />
+      <Stack.Screen name="redaction/[mediaId]" options={{ title: "Redaction review" }} />
     </Stack>
     </View>
   );

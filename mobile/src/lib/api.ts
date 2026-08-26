@@ -64,11 +64,20 @@ export type PostMedia = {
   mediaType?: string; // set by uploadImage before posting; ignored by the backend (media_type defaults to image)
 };
 
+export type RedactionBox = {
+  kind: string;
+  /** [ymin, xmin, ymax, xmax] in 0–1000 coordinate space */
+  box: [number, number, number, number];
+  source?: string;
+};
+
 export type Media = {
   id?: string;
   url: string | null;           // null for non-owners when private; presigned absolute URL for owners
   mediaType?: string | null;    // camelCase from backend
   thumbnailUrl?: string | null; // camelCase from backend
+  width?: number | null;
+  height?: number | null;
   sortOrder?: number;
   isPublic?: boolean;
   piiStatus?: "unknown" | "none" | "detected";
@@ -76,6 +85,12 @@ export type Media = {
   blurUrl?: string | null;      // relative /media/... path (public bucket)
   canView?: boolean;
   createdAt?: string;
+  // Redaction — owner sees all; visitor sees redactedUrl + canViewRedacted when published
+  redactionStatus?: string | null;        // null | 'proposed' | 'published'
+  redactionBoxes?: RedactionBox[] | null;
+  redactedUrl?: string | null;
+  redactionPreviewUrl?: string | null;
+  canViewRedacted?: boolean;
 };
 
 export type VehicleSummary = {
@@ -598,6 +613,24 @@ export const eventMediaApi = {
       method: "PATCH",
       body: JSON.stringify({ isPublic }),
     }),
+};
+
+export const redactionApi = {
+  /** Run AI redaction detection; returns media with status 'proposed' and AI boxes. */
+  propose: (mediaId: string) =>
+    request<Media>(`/vehicle-event-media/${mediaId}/redaction/propose`, { method: "POST" }),
+  /** Replace all boxes (re-renders preview server-side). */
+  setBoxes: (mediaId: string, boxes: RedactionBox[]) =>
+    request<Media>(`/vehicle-event-media/${mediaId}/redaction/boxes`, {
+      method: "PATCH",
+      body: JSON.stringify({ boxes }),
+    }),
+  /** Publish the redacted copy (makes it visible to visitors via canViewRedacted). */
+  publish: (mediaId: string) =>
+    request<Media>(`/vehicle-event-media/${mediaId}/redaction/publish`, { method: "POST" }),
+  /** Unpublish the redacted copy (hides it from visitors). */
+  unpublish: (mediaId: string) =>
+    request<Media>(`/vehicle-event-media/${mediaId}/redaction/unpublish`, { method: "POST" }),
 };
 
 export const eventDocumentApi = {
