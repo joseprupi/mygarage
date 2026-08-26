@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-25 (later) — SEO slice deployed (e92a1ad): robots.txt, sitemap.xml (GET /sitemap/entries), guest hero on /. plan/GROWTH.md written. GA4 kept (G-QRNM94B2EE live), Plausible skipped. Play Console: new account joseprubiopique@gmail.com created+paid; ID verification + Android device check pending (trying Pixelbook). Android AAB vc2 built; keystore SHA-1 60:18:02:D4:63:3B:AF:40:D7:8A:FF:D5:09:34:D3:FA:21:8C:94:E7.
+
 ## 2026-08-25 (late) — **SUBMITTED TO APP STORE REVIEW** (13+, auto-release on approval; demo acct reviewer@carfable.com in prod; hello@carfable.com forwards via Cloudflare)
 
 ## 2026-08-25 — DEPLOYED batch + logins + Android build (commit 978ea86 on `carfable-rename`, not pushed)
