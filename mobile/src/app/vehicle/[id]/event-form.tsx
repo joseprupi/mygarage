@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -210,7 +211,8 @@ export default function EventFormScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}>
+    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
       <Stack.Screen options={{ title: isEdit ? "Edit event" : "Add event" }} />
 
       {!isEdit && (
@@ -396,6 +398,7 @@ export default function EventFormScreen() {
         </Pressable>
       )}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
