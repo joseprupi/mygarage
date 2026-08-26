@@ -88,6 +88,12 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [ ] Inferred gap → **estimated phantom fill-up** (date = midpoint, gallons = gap miles ÷ median MPG − logged gallons, price = mean of neighbouring $/gal) counted in fuel spend/gallons totals, always labelled "incl. ~$X estimated for N missed fill-up(s)". Never written to DB; never exported; never feeds back into MPG.
 - [ ] Stats screen rows: "Probable missed fill-ups", "Segments excluded". History timeline shows a grey "Possible missed fill-up ~date" marker between the two events with **Add it** (prefilled fuel event) / **Not missed** (sets `missed_previous=false` on the later event).
 
+## Receipt privacy & provenance (DEV 2026-08-26, not deployed — owner P0)
+- [x] Receipts/documents private by default, private bucket + presigned owner URLs, blurred "Receipt on file" placeholder for visitors.
+- [x] PII detection (Gemini) → locked private when detected; owner sees "Contains personal info: …" banner; "Visible to everyone" switch only when clean.
+- [x] Provenance: From receipt / From receipt · edited (trust fields: date, cost, mileage, shop, gallons, $/gal); raw scan snapshot stored.
+- [ ] Backlog: AI redaction (blur PII boxes) to allow sharing receipts; document (PDF) viewer + toggle on mobile; orphan-object sweep as scheduled job.
+
 ## Ownership & transfer (DESIGNED 2026-08-26 → plan/OWNERSHIP.md)
 - [x] Slice 1 (M, DEV 2026-08-26, not deployed): `vehicle_ownerships` periods, attribution by event date, timeline divider + "previous owner" badge, ownership filter chips, chart boundaries, stats toggle (Your ownership / Lifetime), period label editing, export owner column.
 - [ ] Slice 2 (L): transfer link/code → accept; options (show name, keep receipts, keep posts tagged); locking rule (editable iff current owner AND creator); hide-not-delete; "Previously owned" garage section.
