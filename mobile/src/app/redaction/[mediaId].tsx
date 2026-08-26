@@ -5,8 +5,8 @@
  *
  * Shows the owner the original image with AI-detected redaction boxes overlaid.
  * Allows removing individual boxes (× tap) and adding new boxes via drag gesture.
- * Every change PATCHes the server to re-render the preview.
- * Footer actions: publish / unpublish the redacted copy.
+ * Every change PATCHes the server to re-render the redacted copy.
+ * Footer actions: Show redacted copy toggle, Redo with AI, Done.
  *
  * PanResponder add-box: implemented. Uses locationX/locationY (relative to the
  * image container View) to convert touch coords → 0-1000 box coords.
@@ -71,7 +71,7 @@ export default function RedactionScreen() {
   const [event, setEvent] = useState<VehicleEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [boxes, setBoxes] = useState<RedactionBox[]>([]);
-  const [showPreview, setShowPreview] = useState(false);
+  const [showRedacted, setShowRedacted] = useState(false);
   const [addBoxMode, setAddBoxMode] = useState(false);
   const [dragging, setDragging] = useState<{
     top: number;
@@ -80,7 +80,9 @@ export default function RedactionScreen() {
     height: number;
   } | null>(null);
   const [patchBusy, setPatchBusy] = useState(false);
-  const [actionBusy, setActionBusy] = useState(false);
+  const [redoBusy, setRedoBusy] = useState(false);
+  // Cache-bust token — incremented after each PATCH so the redacted image reloads
+  const [cacheBust, setCacheBust] = useState(() => Date.now());
 
   // Stable refs so PanResponder handlers close over live values without stale captures
   const imgLayoutRef = useRef<{ width: number; height: number } | null>(null);
@@ -121,7 +123,8 @@ export default function RedactionScreen() {
     try {
       const updated = await redactionApi.setBoxes(mediaId, newBoxes);
       setBoxes((updated.redactionBoxes as RedactionBox[]) ?? newBoxes);
-      // Refresh event so preview URL is current
+      setCacheBust(Date.now());
+      // Refresh event so redactedUrl is current
       setEvent((prev) => {
         if (!prev) return prev;
         return {
@@ -193,30 +196,27 @@ export default function RedactionScreen() {
     [],
   );
 
-  // ── publish / unpublish ──
-  async function handlePublish() {
-    setActionBusy(true);
+  // ── Redo with AI ──
+  async function handleRedo() {
+    if (!mediaId || redoBusy) return;
+    setRedoBusy(true);
     try {
-      await redactionApi.publish(mediaId);
-      Alert.alert("Published", "The redacted copy is now visible to visitors.");
-      router.back();
+      const updated = await redactionApi.regenerate(mediaId);
+      setBoxes((updated.redactionBoxes as RedactionBox[]) ?? []);
+      setCacheBust(Date.now());
+      setEvent((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          media: prev.media.map((m) =>
+            m.id === mediaId ? { ...m, ...updated } : m,
+          ),
+        };
+      });
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     } finally {
-      setActionBusy(false);
-    }
-  }
-
-  async function handleUnpublish() {
-    setActionBusy(true);
-    try {
-      await redactionApi.unpublish(mediaId);
-      Alert.alert("Unpublished", "The redacted copy is hidden from visitors.");
-      router.back();
-    } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
-    } finally {
-      setActionBusy(false);
+      setRedoBusy(false);
     }
   }
 
@@ -240,10 +240,13 @@ export default function RedactionScreen() {
     );
   }
 
-  const isPublished = media.redactionStatus === "published";
   const originalUri = mediaUrl(media.url) ?? undefined;
-  const previewUri = mediaUrl(media.redactionPreviewUrl) ?? undefined;
-  const displayUri = showPreview && previewUri ? previewUri : originalUri;
+  const redactedUri = media.redactedUrl
+    ? (mediaUrl(media.redactedUrl) ?? undefined)
+    : undefined;
+  // Cache-bust the redacted copy so it reloads after PATCH
+  const redactedUriCacheBusted = redactedUri ? `${redactedUri}?v=${cacheBust}` : undefined;
+  const displayUri = showRedacted && redactedUriCacheBusted ? redactedUriCacheBusted : originalUri;
 
   // Aspect ratio for the image container (so boxes align with the rendered image)
   const aspectRatio =
@@ -268,8 +271,8 @@ export default function RedactionScreen() {
           contentFit="cover"
         />
 
-        {/* Existing boxes */}
-        {!showPreview &&
+        {/* Existing boxes (shown only when viewing original) */}
+        {!showRedacted &&
           boxes.map((b, i) => {
             const layout = imgLayoutRef.current;
             if (!layout) return null;
@@ -320,19 +323,19 @@ export default function RedactionScreen() {
           the preview — the AI can miss things.
         </Text>
 
-        {/* Preview toggle */}
-        {previewUri && (
+        {/* Show redacted copy toggle */}
+        {redactedUri && (
           <Pressable
             style={styles.toggleBtn}
-            onPress={() => setShowPreview((v) => !v)}
+            onPress={() => setShowRedacted((v) => !v)}
           >
             <Text style={styles.toggleBtnText}>
-              {showPreview ? "Show original" : "Show preview"}
+              {showRedacted ? "Show original" : "Show redacted copy"}
             </Text>
           </Pressable>
         )}
-        {!previewUri && (
-          <Text style={styles.noPreview}>Preview not available yet. Add/remove boxes to generate one.</Text>
+        {!redactedUri && (
+          <Text style={styles.noPreview}>Redacted copy not available yet. Add/remove boxes to generate one.</Text>
         )}
 
         {/* Add-box mode toggle */}
@@ -348,7 +351,7 @@ export default function RedactionScreen() {
         {patchBusy && (
           <View style={styles.patchRow}>
             <ActivityIndicator size="small" color="#2563eb" />
-            <Text style={styles.patchText}>Updating preview…</Text>
+            <Text style={styles.patchText}>Updating redacted copy…</Text>
           </View>
         )}
 
@@ -372,31 +375,24 @@ export default function RedactionScreen() {
 
         {/* Footer actions */}
         <View style={styles.footer}>
-          {isPublished ? (
-            <Pressable
-              style={[styles.actionBtn, styles.unpublishBtn]}
-              onPress={handleUnpublish}
-              disabled={actionBusy}
-            >
-              {actionBusy ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.actionBtnText}>Unpublish</Text>
-              )}
-            </Pressable>
-          ) : (
-            <Pressable
-              style={[styles.actionBtn, styles.publishBtn]}
-              onPress={handlePublish}
-              disabled={actionBusy || patchBusy}
-            >
-              {actionBusy ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.actionBtnText}>Publish redacted copy</Text>
-              )}
-            </Pressable>
-          )}
+          <Pressable
+            style={[styles.actionBtn, styles.redoBtn]}
+            onPress={handleRedo}
+            disabled={redoBusy || patchBusy}
+          >
+            {redoBusy ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.actionBtnText}>Redo with AI</Text>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={[styles.actionBtn, styles.doneBtn]}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.actionBtnText}>Done</Text>
+          </Pressable>
         </View>
       </View>
     </ScrollView>
@@ -491,13 +487,13 @@ const styles = StyleSheet.create({
   boxListRemove: { fontSize: 13, color: "#dc2626", fontWeight: "600" },
 
   // Footer
-  footer: { marginTop: 8 },
+  footer: { marginTop: 8, gap: 10 },
   actionBtn: {
     borderRadius: 10,
     padding: 14,
     alignItems: "center",
   },
-  publishBtn: { backgroundColor: "#2563eb" },
-  unpublishBtn: { backgroundColor: "#64748b" },
+  redoBtn: { backgroundColor: "#475569" },
+  doneBtn: { backgroundColor: "#2563eb" },
   actionBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
 });

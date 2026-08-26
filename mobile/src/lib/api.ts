@@ -73,24 +73,22 @@ export type RedactionBox = {
 
 export type Media = {
   id?: string;
-  url: string | null;           // null for non-owners when private; presigned absolute URL for owners
+  url: string | null;           // owner: presigned original; visitor: public original only when visibility==='original' else null
   mediaType?: string | null;    // camelCase from backend
   thumbnailUrl?: string | null; // camelCase from backend
   width?: number | null;
   height?: number | null;
   sortOrder?: number;
-  isPublic?: boolean;
+  visibility?: "private" | "redacted" | "original";
   piiStatus?: "unknown" | "none" | "detected";
   piiKinds?: string[];
   blurUrl?: string | null;      // relative /media/... path (public bucket)
+  redactionReady?: boolean;
+  redactionBoxes?: RedactionBox[] | null;  // owner only
+  redactedUrl?: string | null;             // owner always if exists; visitor only when visibility==='redacted'
   canView?: boolean;
-  createdAt?: string;
-  // Redaction — owner sees all; visitor sees redactedUrl + canViewRedacted when published
-  redactionStatus?: string | null;        // null | 'proposed' | 'published'
-  redactionBoxes?: RedactionBox[] | null;
-  redactedUrl?: string | null;
-  redactionPreviewUrl?: string | null;
   canViewRedacted?: boolean;
+  createdAt?: string;
 };
 
 export type VehicleSummary = {
@@ -607,30 +605,24 @@ export const appleAuthApi = {
 };
 
 export const eventMediaApi = {
-  /** Toggle public/private on an event media item. Throws with detail on 409 (PII lock). */
-  setPublic: (id: string, isPublic: boolean) =>
+  /** Set visibility on an event media item. Throws with detail on 409 (PII / not-ready lock). */
+  setVisibility: (id: string, visibility: "private" | "redacted" | "original") =>
     request<Media>(`/vehicle-event-media/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ isPublic }),
+      body: JSON.stringify({ visibility }),
     }),
 };
 
 export const redactionApi = {
-  /** Run AI redaction detection; returns media with status 'proposed' and AI boxes. */
-  propose: (mediaId: string) =>
-    request<Media>(`/vehicle-event-media/${mediaId}/redaction/propose`, { method: "POST" }),
-  /** Replace all boxes (re-renders preview server-side). */
+  /** Replace all boxes (re-renders the redacted copy server-side). */
   setBoxes: (mediaId: string, boxes: RedactionBox[]) =>
     request<Media>(`/vehicle-event-media/${mediaId}/redaction/boxes`, {
       method: "PATCH",
       body: JSON.stringify({ boxes }),
     }),
-  /** Publish the redacted copy (makes it visible to visitors via canViewRedacted). */
-  publish: (mediaId: string) =>
-    request<Media>(`/vehicle-event-media/${mediaId}/redaction/publish`, { method: "POST" }),
-  /** Unpublish the redacted copy (hides it from visitors). */
-  unpublish: (mediaId: string) =>
-    request<Media>(`/vehicle-event-media/${mediaId}/redaction/unpublish`, { method: "POST" }),
+  /** Re-run AI redaction (regenerates boxes + redacted copy). */
+  regenerate: (mediaId: string) =>
+    request<Media>(`/vehicle-event-media/${mediaId}/redaction/regenerate`, { method: "POST" }),
 };
 
 export const eventDocumentApi = {

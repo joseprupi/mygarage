@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   View,
 } from "react-native";
@@ -104,25 +103,59 @@ function MediaViewerModal({
   media,
   eventId,
   onClose,
-  onTogglePublic,
+  onRefetch,
 }: {
   media: Media;
   eventId: string | null;
   onClose: () => void;
-  onTogglePublic: (newVal: boolean) => Promise<void>;
+  onRefetch: () => void;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [proposeBusy, setProposeBusy] = useState(false);
-  // Local redaction state — starts from prop, can be updated by propose/unpublish
-  const [liveRedactionStatus, setLiveRedactionStatus] = useState<string | null | undefined>(
-    media.redactionStatus,
-  );
 
-  async function handleToggle(val: boolean) {
+  const visibility = media.visibility ?? "private";
+  const piiStatus = media.piiStatus ?? "unknown";
+  const piiKindsText =
+    piiStatus === "detected" && media.piiKinds?.length
+      ? media.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")
+      : null;
+
+  const originalDisabled = piiStatus !== "none";
+  const redactedDisabled = !media.redactionReady;
+
+  type VisSegment = { label: string; value: "private" | "redacted" | "original"; disabled: boolean; hint?: string };
+  const segments: VisSegment[] = [
+    { label: "Private", value: "private", disabled: false },
+    {
+      label: "Redacted",
+      value: "redacted",
+      disabled: redactedDisabled,
+      hint: redactedDisabled ? "Preparing redacted copy…" : undefined,
+    },
+    {
+      label: "Original",
+      value: "original",
+      disabled: originalDisabled,
+      hint: originalDisabled ? "Contains personal info — share the redacted copy instead" : undefined,
+    },
+  ];
+
+  // PII line
+  let piiLine: string;
+  if (piiStatus === "detected") {
+    piiLine = piiKindsText ? `Contains: ${piiKindsText}` : "Contains personal info";
+  } else if (piiStatus === "none") {
+    piiLine = "No personal info found";
+  } else {
+    piiLine = "Checking for personal info…";
+  }
+
+  async function handleSetVisibility(vis: "private" | "redacted" | "original") {
+    if (!media.id || busy) return;
     setBusy(true);
     try {
-      await onTogglePublic(val);
+      await eventMediaApi.setVisibility(media.id, vis);
+      onRefetch();
     } catch (err) {
       Alert.alert(
         "Can't change visibility",
@@ -133,52 +166,13 @@ function MediaViewerModal({
     }
   }
 
-  async function handlePropose() {
-    if (!media.id) return;
-    setProposeBusy(true);
-    try {
-      const updated = await redactionApi.propose(media.id);
-      setLiveRedactionStatus(updated.redactionStatus ?? null);
-    } catch (err) {
-      Alert.alert("AI redaction failed", err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setProposeBusy(false);
-    }
-  }
-
-  async function handleUnpublish() {
-    if (!media.id) return;
-    setBusy(true);
-    try {
-      const updated = await redactionApi.unpublish(media.id);
-      setLiveRedactionStatus(updated.redactionStatus ?? null);
-    } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function handleReview() {
+  function handleAdjustRedaction() {
     if (!media.id || !eventId) return;
     onClose();
     router.push(`/redaction/${media.id}?eventId=${eventId}`);
   }
 
   const imageUri = mediaUrl(media.url) ?? undefined;
-  const piiDetected = media.piiStatus === "detected";
-  const piiUnknown = media.piiStatus === "unknown";
-  const piiKindsText =
-    piiDetected && media.piiKinds?.length
-      ? media.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")
-      : null;
-
-  const switchEnabled = media.piiStatus === "none" && !busy;
-  const switchHint = piiDetected
-    ? "Locked private — contains personal info"
-    : piiUnknown
-    ? "Locked until checked"
-    : null;
 
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onClose}>
@@ -194,66 +188,46 @@ function MediaViewerModal({
         />
 
         <View style={viewerStyles.footer}>
-          {(piiDetected || piiUnknown) && (
-            <View style={viewerStyles.piiBanner}>
-              <Ionicons name="warning-outline" size={16} color="#f59e0b" />
-              <Text style={viewerStyles.piiText}>
-                {piiDetected
-                  ? `Contains personal info${piiKindsText ? `: ${piiKindsText}` : ""}`
-                  : "Checking for personal info…"}
-              </Text>
-            </View>
-          )}
-
-          {piiDetected && (
-            <View style={viewerStyles.redactionSection}>
-              <Text style={viewerStyles.redactionTitle}>Share a redacted copy</Text>
-              {proposeBusy ? (
-                <View style={viewerStyles.proposeRow}>
-                  <ActivityIndicator size="small" color="#2563eb" />
-                  <Text style={viewerStyles.proposeText}>Finding personal info…</Text>
-                </View>
-              ) : liveRedactionStatus === "published" ? (
-                <View style={{ gap: 8 }}>
-                  <View style={[viewerStyles.rdChip, viewerStyles.rdChipPublished]}>
-                    <Text style={viewerStyles.rdChipText}>Redacted copy is public</Text>
-                  </View>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Pressable style={viewerStyles.rdBtn} onPress={handleReview} disabled={busy}>
-                      <Text style={viewerStyles.rdBtnText}>Review</Text>
-                    </Pressable>
-                    <Pressable style={viewerStyles.rdBtnSecondary} onPress={handleUnpublish} disabled={busy}>
-                      <Text style={viewerStyles.rdBtnSecondaryText}>Unpublish</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ) : liveRedactionStatus === "proposed" ? (
-                <View style={{ gap: 8 }}>
-                  <View style={[viewerStyles.rdChip, viewerStyles.rdChipReady]}>
-                    <Text style={viewerStyles.rdChipText}>Ready — not published</Text>
-                  </View>
-                  <Pressable style={viewerStyles.rdBtn} onPress={handleReview}>
-                    <Text style={viewerStyles.rdBtnText}>Review redaction</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <Pressable style={viewerStyles.rdBtn} onPress={handlePropose} disabled={proposeBusy}>
-                  <Text style={viewerStyles.rdBtnText}>Redact with AI</Text>
-                </Pressable>
-              )}
-            </View>
-          )}
-
-          <View style={viewerStyles.visRow}>
-            <Text style={viewerStyles.visLabel}>Visible to everyone</Text>
-            <Switch
-              value={media.isPublic ?? false}
-              onValueChange={handleToggle}
-              disabled={!switchEnabled}
-              trackColor={{ true: "#2563eb" }}
-            />
+          {/* 3-segment visibility control */}
+          <View style={viewerStyles.segRow}>
+            {segments.map((seg) => (
+              <Pressable
+                key={seg.value}
+                style={[
+                  viewerStyles.seg,
+                  visibility === seg.value && viewerStyles.segActive,
+                  seg.disabled && viewerStyles.segDisabled,
+                ]}
+                onPress={() => !seg.disabled && !busy ? handleSetVisibility(seg.value) : undefined}
+                disabled={seg.disabled || busy}
+              >
+                <Text
+                  style={[
+                    viewerStyles.segText,
+                    visibility === seg.value && viewerStyles.segTextActive,
+                    seg.disabled && viewerStyles.segTextDisabled,
+                  ]}
+                >
+                  {seg.label}
+                </Text>
+              </Pressable>
+            ))}
           </View>
-          {switchHint && <Text style={viewerStyles.visHint}>{switchHint}</Text>}
+
+          {/* PII / status line */}
+          <Text style={viewerStyles.piiLine}>{piiLine}</Text>
+
+          {/* Hint text for disabled segments */}
+          {segments.filter((s) => s.disabled && s.hint).map((s) => (
+            <Text key={s.value} style={viewerStyles.segHint}>{s.hint}</Text>
+          ))}
+
+          {/* Adjust redaction link */}
+          {media.redactionReady && (
+            <Pressable onPress={handleAdjustRedaction} hitSlop={8}>
+              <Text style={viewerStyles.adjustLink}>Adjust redaction</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </Modal>
@@ -289,60 +263,61 @@ const viewerStyles = StyleSheet.create({
     padding: 16,
     gap: 8,
   },
-  piiBanner: {
+  // 3-segment visibility control
+  segRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
+    borderRadius: 8,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
   },
-  piiText: {
+  seg: {
     flex: 1,
-    fontSize: 14,
-    color: "#fde68a",
-    fontWeight: "600",
-    lineHeight: 20,
-  },
-  visRow: {
-    flexDirection: "row",
+    paddingVertical: 9,
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+    backgroundColor: "transparent",
   },
-  visLabel: { fontSize: 16, color: "#fff", fontWeight: "600" },
-  visHint: { fontSize: 13, color: "#94a3b8" },
-  redactionSection: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "rgba(255,255,255,0.15)",
-    paddingTop: 10,
-    gap: 8,
+  segActive: {
+    backgroundColor: "#fff",
   },
-  redactionTitle: { fontSize: 14, color: "#94a3b8", fontWeight: "600" },
-  proposeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  proposeText: { fontSize: 14, color: "#94a3b8" },
+  segDisabled: {
+    opacity: 0.4,
+  },
+  segText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#cbd5e1",
+  },
+  segTextActive: {
+    color: "#0b1120",
+  },
+  segTextDisabled: {
+    color: "#64748b",
+  },
+  piiLine: {
+    fontSize: 13,
+    color: "#94a3b8",
+  },
+  segHint: {
+    fontSize: 12,
+    color: "#64748b",
+    fontStyle: "italic",
+  },
+  adjustLink: {
+    fontSize: 13,
+    color: "#93c5fd",
+    fontWeight: "600",
+  },
+  // Keep rdChip styles for the visitor viewer modal below
   rdChip: {
     alignSelf: "flex-start",
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  rdChipReady: { backgroundColor: "#1e3a5f" },
   rdChipPublished: { backgroundColor: "#14532d" },
   rdChipText: { fontSize: 12, color: "#93c5fd", fontWeight: "600" },
-  rdBtn: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    alignSelf: "flex-start",
-  },
-  rdBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  rdBtnSecondary: {
-    borderWidth: 1,
-    borderColor: "#475569",
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    alignSelf: "flex-start",
-  },
-  rdBtnSecondaryText: { color: "#94a3b8", fontWeight: "600", fontSize: 14 },
 });
 
 // --- subcomponents ---
@@ -385,27 +360,27 @@ function EventRow({
   let thumbNode: React.ReactNode = null;
 
   if (firstMedia) {
-    const canView = firstMedia.canView !== false; // treat undefined as true (legacy)
-    const hasRedacted = !canView && firstMedia.canViewRedacted && firstMedia.redactedUrl;
-    if (canView) {
+    const vis = firstMedia.visibility ?? "private";
+    if (isOwner && onOpenMedia) {
+      // Owner always sees the original; tap opens the full viewer
       const thumbUri = mediaUrl(firstMedia.thumbnailUrl ?? firstMedia.url) ?? undefined;
       thumbNode = (
-        <Pressable
-          onPress={isOwner && onOpenMedia ? () => onOpenMedia(firstMedia, event.id) : undefined}
-          disabled={!(isOwner && onOpenMedia)}
-        >
+        <Pressable onPress={() => onOpenMedia(firstMedia, event.id)}>
           <View style={styles.thumbWrap}>
             <Image source={thumbUri ? { uri: thumbUri } : undefined} style={styles.eventThumb} contentFit="cover" />
-            {!firstMedia.isPublic && (
-              <View style={styles.lockOverlay}>
-                <Ionicons name="lock-closed" size={10} color="#fff" />
-              </View>
-            )}
           </View>
         </Pressable>
       );
-    } else if (hasRedacted) {
-      // Visitor: redacted copy is published — show the redacted thumbnail
+    } else if (vis === "original" && firstMedia.url) {
+      // Visitor: owner shared the original — show it
+      const thumbUri = mediaUrl(firstMedia.thumbnailUrl ?? firstMedia.url) ?? undefined;
+      thumbNode = (
+        <View style={styles.thumbWrap}>
+          <Image source={thumbUri ? { uri: thumbUri } : undefined} style={styles.eventThumb} contentFit="cover" />
+        </View>
+      );
+    } else if (vis === "redacted" && firstMedia.redactedUrl) {
+      // Visitor: show the redacted copy with a pill; tap opens viewer
       const redactedUri = mediaUrl(firstMedia.redactedUrl) ?? undefined;
       thumbNode = (
         <Pressable
@@ -421,7 +396,7 @@ function EventRow({
         </Pressable>
       );
     } else {
-      // Non-owner, private: show blur placeholder
+      // Private (or redacted not ready): show blur placeholder "On file"
       const blurUri = mediaUrl(firstMedia.blurUrl) ?? undefined;
       thumbNode = (
         <View style={styles.thumbWrap}>
@@ -957,10 +932,7 @@ export default function VehicleScreen() {
     modsByCategory.set(mod.category, list);
   }
 
-  async function handleTogglePublic(media: Media, val: boolean) {
-    if (!media.id) throw new Error("No media id");
-    await eventMediaApi.setPublic(media.id, val);
-    setViewerMedia(null);
+  function handleMediaRefetch() {
     void load();
   }
 
@@ -1278,7 +1250,7 @@ export default function VehicleScreen() {
           media={viewerMedia}
           eventId={viewerEventId}
           onClose={() => { setViewerMedia(null); setViewerEventId(null); }}
-          onTogglePublic={(val) => handleTogglePublic(viewerMedia, val)}
+          onRefetch={handleMediaRefetch}
         />
       )}
 
