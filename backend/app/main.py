@@ -1,7 +1,7 @@
 from collections import defaultdict, deque
 from time import monotonic
 
-from fastapi import Depends, FastAPI, File, Form, Query, Request, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Query, Request, Response, UploadFile
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
@@ -12,6 +12,8 @@ from app.database import get_db
 from app.models import User
 from app.schemas import (
     AppleLoginRequest,
+    EventDocumentRead,
+    EventMediaRead,
     FuelScanResult,
     ReceiptScanResult,
     CommentCreate,
@@ -19,6 +21,7 @@ from app.schemas import (
     CursorPage,
     GoogleLoginRequest,
     LoginRequest,
+    MediaPrivacyToggle,
     PostCreate,
     PostRead,
     PostUpdate,
@@ -282,6 +285,8 @@ _ALLOWED_PURPOSES = {"post_media", "vehicle_cover", "vehicle_event_media", "vehi
 _DOCUMENT_PURPOSES = {"vehicle_event_document"}
 _ALLOWED_DOCUMENT_TYPES = {"application/pdf"}
 _MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
+# Purposes that upload to the private bucket (receipts/documents)
+_PRIVATE_PURPOSES = {"vehicle_event_media", "vehicle_event_document"}
 
 
 @app.post("/media/upload", response_model=MediaUploadResponse)
@@ -304,8 +309,10 @@ async def upload_media(
     content = await file.read()
     if len(content) > max_bytes:
         raise HTTPException(status_code=413, detail="File is too large")
+    use_private = purpose in _PRIVATE_PURPOSES
     url, object_key = services.store_upload(
-        content, file.content_type, file.filename or "upload", purpose
+        content, file.content_type, file.filename or "upload", purpose,
+        private=use_private,
     )
     return MediaUploadResponse(url=url, objectKey=object_key)
 
@@ -351,11 +358,12 @@ def geo_search(q: str) -> list[str]:
 def create_vehicle_event(
     vehicle_id: str,
     data: VehicleEventCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     vehicle = services.get_vehicle_or_404(db, vehicle_id, user)
-    return services.create_vehicle_event(db, vehicle, user, data)
+    return services.create_vehicle_event(db, vehicle, user, data, background_tasks)
 
 
 @app.get("/vehicles/{vehicle_id}/history/export")
@@ -400,11 +408,32 @@ def vehicle_event(
 def update_vehicle_event(
     event_id: str,
     data: VehicleEventUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     event = services.get_vehicle_event_or_404(db, event_id, user)
-    return services.update_vehicle_event(db, event, user, data)
+    return services.update_vehicle_event(db, event, user, data, background_tasks)
+
+
+@app.patch("/vehicle-event-media/{media_id}", response_model=EventMediaRead)
+def toggle_event_media_public(
+    media_id: str,
+    body: MediaPrivacyToggle,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> EventMediaRead:
+    return services.toggle_event_media_public(db, media_id, body.is_public, user)
+
+
+@app.patch("/vehicle-event-documents/{doc_id}", response_model=EventDocumentRead)
+def toggle_event_document_public(
+    doc_id: str,
+    body: MediaPrivacyToggle,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> EventDocumentRead:
+    return services.toggle_event_document_public(db, doc_id, body.is_public, user)
 
 
 @app.delete("/vehicle-events/{event_id}", status_code=204)

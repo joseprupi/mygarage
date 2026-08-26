@@ -278,6 +278,25 @@ export const modApi = {
   delete: (modId: string) => api<void>(`/mods/${modId}`, { method: "DELETE" })
 };
 
+// PATCH /vehicle-event-media/{id} — toggle public/private visibility.
+// Returns 409 {detail} when piiStatus is detected/unknown; ApiError carries the message.
+export const eventMediaApi = {
+  setPublic: (id: string, isPublic: boolean) =>
+    api<void>(`/vehicle-event-media/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isPublic })
+    })
+};
+
+// PATCH /vehicle-event-documents/{id} — same semantics as eventMediaApi.setPublic.
+export const eventDocumentApi = {
+  setPublic: (id: string, isPublic: boolean) =>
+    api<void>(`/vehicle-event-documents/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isPublic })
+    })
+};
+
 export const ownershipApi = {
   list: (vehicleId: string) => api<VehicleOwnership[]>(`/vehicles/${vehicleId}/ownerships`),
   create: (

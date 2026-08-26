@@ -2,10 +2,12 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
@@ -15,10 +17,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 
 import {
   eventApi,
+  eventMediaApi,
   mediaUrl,
   ownershipApi,
   userApi,
   vehicleApi,
+  type Media,
   type Post,
   type UserSettings,
   type Vehicle,
@@ -51,9 +55,7 @@ function eventBucketKey(event: VehicleEvent): string {
   return "untracked";
 }
 
-/** Divider text when reading events top-to-bottom (newest first). The divider appears
- *  between event[i] (older attribution) and event[i-1] (newer attribution) and labels
- *  the START of the upper (newer) bucket. */
+/** Divider text when reading events top-to-bottom (newest first). */
 function dividerText(upperBucketKey: string, ownerships: VehicleOwnership[]): string | null {
   if (upperBucketKey === "implicit") return "▸ Previous owner";
   if (upperBucketKey === "untracked") return null;
@@ -68,25 +70,258 @@ function dividerText(upperBucketKey: string, ownerships: VehicleOwnership[]): st
   return `▸ ${name}${verb}${datePart}${miPart}`;
 }
 
+/** Human-readable labels for editedFields values. */
+const EDITED_FIELD_LABELS: Record<string, string> = {
+  event_date: "date",
+  cost_cents: "cost",
+  mileage: "mileage",
+  shop_name: "shop",
+  fuel_gallons: "gallons",
+  fuel_price_cents: "price/gal",
+};
+
+/** Readable PII kind labels. */
+const PII_KIND_LABELS: Record<string, string> = {
+  name: "name",
+  address: "address",
+  phone: "phone",
+  email: "email",
+  license_number: "driver's license",
+  signature: "signature",
+  vin: "VIN",
+  plate: "plate",
+  payment_card: "payment card",
+  other: "other",
+};
+
+// --- Media Viewer Modal ---
+
+function MediaViewerModal({
+  media,
+  onClose,
+  onTogglePublic,
+}: {
+  media: Media;
+  onClose: () => void;
+  onTogglePublic: (newVal: boolean) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function handleToggle(val: boolean) {
+    setBusy(true);
+    try {
+      await onTogglePublic(val);
+    } catch (err) {
+      Alert.alert(
+        "Can't change visibility",
+        err instanceof Error ? err.message : "Something went wrong",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const imageUri = mediaUrl(media.url) ?? undefined;
+  const piiDetected = media.piiStatus === "detected";
+  const piiUnknown = media.piiStatus === "unknown";
+  const piiKindsText =
+    piiDetected && media.piiKinds?.length
+      ? media.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")
+      : null;
+
+  const switchEnabled = media.piiStatus === "none" && !busy;
+  const switchHint = piiDetected
+    ? "Locked private — contains personal info"
+    : piiUnknown
+    ? "Locked until checked"
+    : null;
+
+  return (
+    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+      <View style={viewerStyles.bg}>
+        <Pressable style={viewerStyles.closeBtn} onPress={onClose} hitSlop={12}>
+          <Ionicons name="close" size={26} color="#fff" />
+        </Pressable>
+
+        <Image
+          source={imageUri ? { uri: imageUri } : undefined}
+          style={viewerStyles.image}
+          contentFit="contain"
+        />
+
+        <View style={viewerStyles.footer}>
+          {(piiDetected || piiUnknown) && (
+            <View style={viewerStyles.piiBanner}>
+              <Ionicons name="warning-outline" size={16} color="#f59e0b" />
+              <Text style={viewerStyles.piiText}>
+                {piiDetected
+                  ? `Contains personal info${piiKindsText ? `: ${piiKindsText}` : ""}`
+                  : "Checking for personal info…"}
+              </Text>
+            </View>
+          )}
+
+          <View style={viewerStyles.visRow}>
+            <Text style={viewerStyles.visLabel}>Visible to everyone</Text>
+            <Switch
+              value={media.isPublic ?? false}
+              onValueChange={handleToggle}
+              disabled={!switchEnabled}
+              trackColor={{ true: "#2563eb" }}
+            />
+          </View>
+          {switchHint && <Text style={viewerStyles.visHint}>{switchHint}</Text>}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const viewerStyles = StyleSheet.create({
+  bg: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.92)",
+    justifyContent: "center",
+  },
+  closeBtn: {
+    position: "absolute",
+    top: 52,
+    right: 20,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  image: {
+    flex: 1,
+    marginHorizontal: 0,
+    marginTop: 80,
+    marginBottom: 0,
+  },
+  footer: {
+    backgroundColor: "rgba(0,0,0,0.7)",
+    padding: 16,
+    gap: 8,
+  },
+  piiBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  piiText: {
+    flex: 1,
+    fontSize: 14,
+    color: "#fde68a",
+    fontWeight: "600",
+    lineHeight: 20,
+  },
+  visRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  visLabel: { fontSize: 16, color: "#fff", fontWeight: "600" },
+  visHint: { fontSize: 13, color: "#94a3b8" },
+});
+
 // --- subcomponents ---
 
 function EventRow({
   event,
   onPress,
   showPrevOwnerBadge,
+  isOwner,
+  onOpenMedia,
 }: {
   event: VehicleEvent;
   onPress?: () => void;
   showPrevOwnerBadge?: boolean;
+  isOwner?: boolean;
+  onOpenMedia?: (media: Media) => void;
 }) {
   const colors = eventTypeColors(event.event_type);
   const cost = formatMoney(event.cost_cents, event.currency);
-  const thumb = mediaUrl(event.media[0]?.thumbnail_url ?? event.media[0]?.url);
+
+  // Build provenance label
+  let provenanceLabel: string | null = null;
+  if (event.source === "scan") {
+    provenanceLabel = "From receipt";
+  } else if (event.source === "scan_edited") {
+    const fieldLabels = (event.editedFields ?? [])
+      .map((f) => EDITED_FIELD_LABELS[f] ?? f)
+      .join(", ");
+    provenanceLabel = fieldLabels ? `From receipt · edited: ${fieldLabels}` : "From receipt · edited";
+  }
+
+  // Build media thumbnail node
+  const firstMedia = event.media[0] ?? null;
+  let thumbNode: React.ReactNode = null;
+
+  if (firstMedia) {
+    const canView = firstMedia.canView !== false; // treat undefined as true (legacy)
+    if (canView) {
+      const thumbUri = mediaUrl(firstMedia.thumbnailUrl ?? firstMedia.url) ?? undefined;
+      thumbNode = (
+        <Pressable
+          onPress={isOwner && onOpenMedia ? () => onOpenMedia(firstMedia) : undefined}
+          disabled={!(isOwner && onOpenMedia)}
+        >
+          <View style={styles.thumbWrap}>
+            <Image source={thumbUri ? { uri: thumbUri } : undefined} style={styles.eventThumb} contentFit="cover" />
+            {!firstMedia.isPublic && (
+              <View style={styles.lockOverlay}>
+                <Ionicons name="lock-closed" size={10} color="#fff" />
+              </View>
+            )}
+          </View>
+        </Pressable>
+      );
+    } else {
+      // Non-owner, private: show blur placeholder
+      const blurUri = mediaUrl(firstMedia.blurUrl) ?? undefined;
+      thumbNode = (
+        <View style={styles.thumbWrap}>
+          {blurUri ? (
+            <Image source={{ uri: blurUri }} style={[styles.eventThumb, { opacity: 0.6 }]} contentFit="cover" />
+          ) : (
+            <View style={[styles.eventThumb, styles.docTile]}>
+              <Ionicons name="document-outline" size={22} color="#94a3b8" />
+            </View>
+          )}
+          <View style={styles.lockOverlay}>
+            <Ionicons name="lock-closed" size={10} color="#fff" />
+          </View>
+          <Text style={styles.onFileCaption}>On file</Text>
+        </View>
+      );
+    }
+  } else if (event.documents[0]) {
+    // Document (PDF etc.) — show grey tile
+    const doc = event.documents[0];
+    const canView = doc.canView !== false;
+    thumbNode = (
+      <View style={styles.thumbWrap}>
+        <View style={[styles.eventThumb, styles.docTile]}>
+          <Ionicons name="document-outline" size={22} color="#94a3b8" />
+        </View>
+        {!canView && (
+          <View style={styles.lockOverlay}>
+            <Ionicons name="lock-closed" size={10} color="#fff" />
+          </View>
+        )}
+        {!canView && <Text style={styles.onFileCaption}>On file</Text>}
+      </View>
+    );
+  }
+
   return (
     <Pressable style={styles.eventRow} onPress={onPress} disabled={!onPress}>
       <View style={{ flex: 1, gap: 4 }}>
         <View style={styles.eventTop}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <View style={[styles.badge, { backgroundColor: colors.bg }]}>
               <Text style={[styles.badgeText, { color: colors.text }]}>
                 {eventTypeLabel(event.event_type)}
@@ -119,8 +354,14 @@ function EventRow({
             .filter(Boolean)
             .join(" · ")}
         </Text>
+        {provenanceLabel && (
+          <View style={styles.provenanceRow}>
+            <Ionicons name="scan-outline" size={11} color="#64748b" />
+            <Text style={styles.provenanceText}>{provenanceLabel}</Text>
+          </View>
+        )}
       </View>
-      {thumb && <Image source={{ uri: thumb }} style={styles.eventThumb} contentFit="cover" />}
+      {thumbNode}
     </Pressable>
   );
 }
@@ -207,6 +448,9 @@ export default function VehicleScreen() {
   // ownership UI state
   const [ownershipFilter, setOwnershipFilter] = useState<string | null>(null); // null = All
   const [statsScope, setStatsScope] = useState<StatsScope>("ownership");
+
+  // media viewer
+  const [viewerMedia, setViewerMedia] = useState<Media | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -318,6 +562,13 @@ export default function VehicleScreen() {
     const list = modsByCategory.get(mod.category) ?? [];
     list.push(mod);
     modsByCategory.set(mod.category, list);
+  }
+
+  async function handleTogglePublic(media: Media, val: boolean) {
+    if (!media.id) throw new Error("No media id");
+    await eventMediaApi.setPublic(media.id, val);
+    setViewerMedia(null);
+    void load();
   }
 
   return (
@@ -474,10 +725,7 @@ export default function VehicleScreen() {
               const event = filteredEvents[i];
               const bucket = eventBucketKey(event);
 
-              // Insert divider when ownership attribution changes (skip for the first event)
               if (i > 0 && bucket !== prevBucket) {
-                // prevBucket is the bucket of the event ABOVE (more recent);
-                // the divider labels that bucket's start
                 const text = prevBucket !== null ? dividerText(prevBucket, ownerships) : null;
                 if (text) {
                   rows.push(<OwnershipDivider key={`div-${i}`} text={text} />);
@@ -490,6 +738,8 @@ export default function VehicleScreen() {
                   <EventRow
                     event={event}
                     showPrevOwnerBadge={event.isPreviousOwner}
+                    isOwner={isOwner}
+                    onOpenMedia={(media) => setViewerMedia(media)}
                     onPress={
                       event.canEdit
                         ? () => router.push(`/vehicle/${vehicle.id}/event-form?eventId=${event.id}`)
@@ -507,17 +757,6 @@ export default function VehicleScreen() {
                   )}
                 </View>,
               );
-            }
-
-            // Add a trailing divider after the last event to label the oldest bucket
-            if (prevBucket !== null && filteredEvents.length > 0) {
-              const lastBucket = prevBucket;
-              const text = dividerText(lastBucket, ownerships);
-              if (text && filteredEvents.length > 0) {
-                // Only show a trailing divider for the last section if it's the
-                // oldest implicit / previous-owner bucket (to anchor it visually)
-                // We skip this to avoid a dangling divider — the filter chips handle context
-              }
             }
 
             return rows;
@@ -585,6 +824,15 @@ export default function VehicleScreen() {
           ))}
           {(posts ?? []).length === 0 && <Text style={styles.emptyText}>No posts yet.</Text>}
         </View>
+      )}
+
+      {/* Media viewer modal — only shown to owner */}
+      {viewerMedia && isOwner && (
+        <MediaViewerModal
+          media={viewerMedia}
+          onClose={() => setViewerMedia(null)}
+          onTogglePublic={(val) => handleTogglePublic(viewerMedia, val)}
+        />
       )}
     </ScrollView>
   );
@@ -688,7 +936,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 12,
   },
-  eventTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  eventTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   badge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
   badgeText: { fontSize: 14, fontWeight: "700" },
   prevOwnerPill: {
@@ -706,7 +954,26 @@ const styles = StyleSheet.create({
   tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
   tagPill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: "#eff6ff" },
   tagPillText: { fontSize: 12, fontWeight: "600", color: "#1d4ed8" },
+  // provenance
+  provenanceRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 },
+  provenanceText: { fontSize: 12, color: "#64748b", fontStyle: "italic" },
+  // thumbnails
+  thumbWrap: { alignItems: "center" },
   eventThumb: { width: 64, height: 64, borderRadius: 10, backgroundColor: "#f1f5f9" },
+  docTile: { alignItems: "center", justifyContent: "center" },
+  lockOverlay: {
+    position: "absolute",
+    bottom: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  onFileCaption: { fontSize: 10, color: "#94a3b8", marginTop: 2, textAlign: "center" },
+  // build tab
   category: { fontSize: 15, fontWeight: "800", color: "#334155", textTransform: "uppercase", marginTop: 8 },
   modRow: {
     borderWidth: 1,

@@ -17,7 +17,10 @@ import * as ImagePicker from "expo-image-picker";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { aiApi, eventApi, mediaUrl, uploadImage, type Media, type PickedAsset } from "@/lib/api";
+import { aiApi, eventApi, mediaUrl, uploadImage, type Media, type PickedAsset, type ReceiptScan } from "@/lib/api";
+
+// Extends Media with a localUri for in-form previews (never sent to backend).
+type MediaWithPreview = Media & { localUri?: string };
 import { EVENT_TYPES, SERVICE_TAGS, eventTypeLabel, tagLabel } from "@/lib/events";
 
 const emptyForm = {
@@ -36,7 +39,7 @@ export default function EventFormScreen() {
   const router = useRouter();
   const isEdit = Boolean(eventId);
   const [form, setForm] = useState(emptyForm);
-  const [media, setMedia] = useState<Media[]>([]);
+  const [media, setMedia] = useState<MediaWithPreview[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [fuelFullTank, setFuelFullTank] = useState(true);
   const [fuelMissedPrevious, setFuelMissedPrevious] = useState(false);
@@ -45,6 +48,7 @@ export default function EventFormScreen() {
   const [scanning, setScanning] = useState(false);
   const [scanPages, setScanPages] = useState<PickedAsset[]>([]);
   const [scanNote, setScanNote] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<ReceiptScan | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,7 +93,8 @@ export default function EventFormScreen() {
     try {
       for (const asset of result.assets) {
         const uploaded = await uploadImage(asset, "vehicle_event_media");
-        setMedia((prev) => [...prev, uploaded]);
+        // Store localUri for preview; the uploaded url is a non-displayable relative path
+        setMedia((prev) => [...prev, { ...uploaded, localUri: asset.uri }]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -119,9 +124,10 @@ export default function EventFormScreen() {
     setError(null);
     try {
       // All pages = ONE receipt: extract fields and attach every page as event media.
+      const assets = [...scanPages]; // capture before clearing
       const [scan, ...uploaded] = await Promise.all([
-        aiApi.scanReceipt(scanPages),
-        ...scanPages.map((a) => uploadImage(a, "vehicle_event_media")),
+        aiApi.scanReceipt(assets),
+        ...assets.map((a) => uploadImage(a, "vehicle_event_media")),
       ]);
       setForm((prev) => ({
         ...prev,
@@ -134,8 +140,11 @@ export default function EventFormScreen() {
         location: scan.location ?? prev.location,
         description: scan.description ?? prev.description,
       }));
-      setMedia((prev) => [...prev, ...uploaded]);
+      // Pair each upload with its local asset URI for previews
+      const uploadedWithPreviews = uploaded.map((m, i) => ({ ...m, localUri: assets[i].uri }));
+      setMedia((prev) => [...prev, ...uploadedWithPreviews]);
       if (scan.tags?.length) setTags((prev) => [...new Set([...prev, ...scan.tags])]);
+      setScanResult(scan);
       setScanPages([]);
       setScanNote(
         scan.confidence === "high"
@@ -165,12 +174,15 @@ export default function EventFormScreen() {
       costCents: form.cost ? Math.round(Number(form.cost) * 100) : null,
       shopName: form.shopName.trim() || null,
       location: form.location.trim() || null,
-      media: media.map((m, i) => ({ ...m, sort_order: i })),
+      // Strip localUri before sending; url is the backend reference
+      media: media.map((m, i) => ({ url: m.url, sort_order: i })),
       tags,
       ...(isFuel && {
         fuelFullTank: fuelFullTank,
         fuelMissedPrevious: fuelMissedPrevious ? true : null,
       }),
+      // Provenance: only on create, only when a scan prefilled the form
+      ...(!isEdit && scanResult ? { source: "scan" as const, scanSnapshot: scanResult } : {}),
     };
     try {
       if (isEdit && eventId) await eventApi.update(eventId, payload);
@@ -356,9 +368,9 @@ export default function EventFormScreen() {
       {media.length > 0 && (
         <View style={styles.mediaGrid}>
           {media.map((item, index) => (
-            <View key={`${item.url}-${index}`} style={styles.mediaItem}>
+            <View key={`${item.url ?? item.localUri}-${index}`} style={styles.mediaItem}>
               <Image
-                source={{ uri: mediaUrl(item.thumbnail_url ?? item.url) ?? undefined }}
+                source={{ uri: item.localUri ?? mediaUrl(item.thumbnailUrl ?? item.url) ?? undefined }}
                 style={styles.mediaImage}
                 contentFit="cover"
               />

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import React, { Suspense, use, useState } from "react";
 import { ChevronDown, ChevronUp, Download, ExternalLink, Pencil, Plus } from "lucide-react";
 
-import { eventApi, getToken, modApi, ownershipApi, vehicleApi } from "@/lib/api/client";
+import { eventApi, eventDocumentApi, eventMediaApi, getToken, modApi, ownershipApi, vehicleApi } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
@@ -20,11 +20,41 @@ import { computeVehicleStats, type GapInfo } from "@/lib/stats";
 import { ShareButton } from "@/components/ShareButton";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { VehicleModForm } from "@/components/VehicleModForm";
-import type { Media, VehicleMod, VehicleOwnership } from "@/lib/types";
+import type { EventMedia, Media, VehicleMod, VehicleOwnership } from "@/lib/types";
 
-// Map a media list to lightbox items (video → iframe url, image → full url).
+// Map a post/mod Media list to lightbox items (video → iframe url, image → full url).
 const toLightboxItems = (media: Media[]): LightboxItem[] =>
   media.map((m) => ({ url: m.url, type: m.media_type }));
+
+// Map EventMedia[] to lightbox items — excludes items the viewer cannot see (private/null url).
+const eventMediaToLightboxItems = (media: EventMedia[]): LightboxItem[] =>
+  media
+    .filter((m) => m.canView && m.url !== null)
+    .map((m) => ({ url: m.url!, type: m.mediaType }));
+
+// Human-readable labels for provenance editedFields values.
+const EDITED_FIELD_LABELS: Record<string, string> = {
+  event_date: "date",
+  cost_cents: "cost",
+  mileage: "mileage",
+  shop_name: "shop",
+  fuel_gallons: "gallons",
+  fuel_price_cents: "price/gal"
+};
+
+// Human-readable labels for PII kind identifiers.
+const PII_KIND_LABELS: Record<string, string> = {
+  name: "name",
+  address: "address",
+  phone: "phone",
+  email: "email",
+  license_number: "driver's license",
+  signature: "signature",
+  vin: "VIN",
+  plate: "license plate",
+  payment_card: "payment card",
+  other: "other personal info"
+};
 
 const tabs = ["posts", "gallery", "history", "specs"] as const;
 type Tab = (typeof tabs)[number];
@@ -84,6 +114,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   });
   const [ownershipSubmitting, setOwnershipSubmitting] = useState(false);
   const [ownershipSectionOpen, setOwnershipSectionOpen] = useState(false);
+  const [mediaPublicError, setMediaPublicError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useMe();
@@ -1033,11 +1064,27 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                         ))}
                       </div>
                     )}
-                    <p className="text-sm text-slate-500">
-                      {event.event_date ? formatDate(event.event_date) : ""}
-                      {event.mileage ? ` · ${event.mileage.toLocaleString()} mi` : ""}
-                      {event.cost_cents ? ` · ${formatMoney(event.cost_cents)}` : ""}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm text-slate-500">
+                        {event.event_date ? formatDate(event.event_date) : ""}
+                        {event.mileage ? ` · ${event.mileage.toLocaleString()} mi` : ""}
+                        {event.cost_cents ? ` · ${formatMoney(event.cost_cents)}` : ""}
+                      </p>
+                      {/* Provenance badge — visible to everyone as a trust signal. */}
+                      {event.source === "scan" && (
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                          From receipt
+                        </span>
+                      )}
+                      {event.source === "scan_edited" && (
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                          From receipt
+                          {event.editedFields.length > 0 && (
+                            <> · edited: {event.editedFields.map((f) => EDITED_FIELD_LABELS[f] ?? f).join(", ")}</>
+                          )}
+                        </span>
+                      )}
+                    </div>
                     {(event.shop_name || event.location) && (
                       <p className="text-sm text-slate-500">
                         {[event.shop_name, event.location].filter(Boolean).join(" · ")}
@@ -1046,43 +1093,205 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                     {event.description && (
                       <p className="mt-2 whitespace-pre-line text-sm">{event.description}</p>
                     )}
-                    {event.media.length > 0 && (
-                      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                        {event.media.map((media, i) => (
-                          <button
-                            type="button"
-                            key={media.url}
-                            onClick={() =>
-                              setLightbox({ items: toLightboxItems(event.media), index: i })
-                            }
-                            className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
-                          >
-                            <img
-                              src={media.thumbnail_url ?? media.url}
-                              alt=""
-                              loading="lazy"
-                              className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                            />
-                            {media.media_type === "video" && <PlayBadge size="sm" />}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {event.media.length > 0 && (() => {
+                      // Pre-compute the viewable lightbox items for this event.
+                      const lbItems = eventMediaToLightboxItems(event.media);
+                      return (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {event.media.map((m) => {
+                              if (!m.canView) {
+                                // Non-viewable: show blurred placeholder + lock.
+                                return (
+                                  <div
+                                    key={m.id}
+                                    className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                                    title="Receipt on file"
+                                  >
+                                    {m.blurUrl ? (
+                                      <img
+                                        src={m.blurUrl}
+                                        alt=""
+                                        className="h-full w-full object-cover blur-sm"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center text-2xl text-slate-300">
+                                        📄
+                                      </div>
+                                    )}
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/35 text-white">
+                                      <span className="text-base leading-none">🔒</span>
+                                      <span className="mt-0.5 text-center text-[9px] leading-tight">
+                                        Receipt on file
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              // Viewable — find lightbox index within viewable items only.
+                              const viewableItems = event.media.filter((x) => x.canView && x.url !== null);
+                              const lbIndex = viewableItems.findIndex((x) => x.id === m.id);
+                              return (
+                                <button
+                                  type="button"
+                                  key={m.id}
+                                  onClick={() => setLightbox({ items: lbItems, index: lbIndex })}
+                                  className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100"
+                                >
+                                  <img
+                                    src={m.thumbnailUrl ?? m.url!}
+                                    alt=""
+                                    loading="lazy"
+                                    className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                                  />
+                                  {/* Lock overlay when private but viewable (owner sees own private items) */}
+                                  {!m.isPublic && (
+                                    <span
+                                      className="absolute bottom-0.5 right-0.5 rounded-full bg-black/50 px-1 text-[10px] leading-4 text-white"
+                                      title="Private"
+                                    >
+                                      🔒
+                                    </span>
+                                  )}
+                                  {m.mediaType === "video" && <PlayBadge size="sm" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {/* Owner-only: PII status + visibility controls per media item. */}
+                          {isOwner && event.media.some((m) => m.piiStatus !== "none" || !m.isPublic) && (
+                            <div className="space-y-1.5">
+                              {mediaPublicError && (
+                                <p className="text-xs text-red-600">{mediaPublicError}</p>
+                              )}
+                              {event.media.map((m, idx) => (
+                                <div
+                                  key={m.id}
+                                  className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5 text-xs"
+                                >
+                                  <span className="shrink-0 font-medium text-slate-500">
+                                    Photo {idx + 1}
+                                  </span>
+                                  {m.piiStatus === "detected" && (
+                                    <span className="text-amber-700">
+                                      Contains personal info:{" "}
+                                      {m.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")}
+                                    </span>
+                                  )}
+                                  {m.piiStatus === "unknown" && (
+                                    <span className="text-slate-400">Checking for personal info…</span>
+                                  )}
+                                  <label className="ml-auto flex cursor-pointer items-center gap-1.5">
+                                    <input
+                                      type="checkbox"
+                                      className="h-3.5 w-3.5 accent-petrol disabled:cursor-not-allowed"
+                                      checked={m.isPublic}
+                                      disabled={m.piiStatus !== "none"}
+                                      onChange={async (e) => {
+                                        setMediaPublicError(null);
+                                        try {
+                                          await eventMediaApi.setPublic(m.id, e.target.checked);
+                                          await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
+                                        } catch (err) {
+                                          setMediaPublicError(err instanceof Error ? err.message : "Failed to update visibility");
+                                        }
+                                      }}
+                                    />
+                                    <span className={m.piiStatus !== "none" ? "text-slate-400" : ""}>
+                                      {m.piiStatus === "none"
+                                        ? "Visible to everyone"
+                                        : m.piiStatus === "detected"
+                                          ? "Locked private — contains personal info"
+                                          : "Locked until checked"}
+                                    </span>
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {event.documents?.length > 0 && (
-                      <ul className="mt-3 space-y-1">
-                        {event.documents.map((doc) => (
-                          <li key={doc.url}>
-                            <a
-                              href={doc.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 text-sm text-petrol hover:underline"
-                            >
-                              📄 {doc.filename}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
+                      <div className="mt-3 space-y-1">
+                        <ul className="space-y-1">
+                          {event.documents.map((doc) => {
+                            if (!doc.canView) {
+                              return (
+                                <li
+                                  key={doc.id}
+                                  className="inline-flex items-center gap-1.5 text-sm text-slate-400"
+                                >
+                                  🔒 Receipt on file
+                                </li>
+                              );
+                            }
+                            return (
+                              <li key={doc.id}>
+                                <a
+                                  href={doc.url!}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-sm text-petrol hover:underline"
+                                >
+                                  📄 {doc.filename}
+                                  {!doc.isPublic && (
+                                    <span className="text-xs text-slate-400">(private)</span>
+                                  )}
+                                </a>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        {/* Owner-only: visibility controls for document items. */}
+                        {isOwner && event.documents.some((d) => d.piiStatus !== "none" || !d.isPublic) && (
+                          <div className="space-y-1.5 pt-1">
+                            {event.documents.map((doc, idx) => (
+                              <div
+                                key={doc.id}
+                                className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5 text-xs"
+                              >
+                                <span className="shrink-0 font-medium text-slate-500">
+                                  Doc {idx + 1} — {doc.filename}
+                                </span>
+                                {doc.piiStatus === "detected" && (
+                                  <span className="text-amber-700">
+                                    Contains personal info:{" "}
+                                    {doc.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")}
+                                  </span>
+                                )}
+                                {doc.piiStatus === "unknown" && (
+                                  <span className="text-slate-400">Checking for personal info…</span>
+                                )}
+                                <label className="ml-auto flex cursor-pointer items-center gap-1.5">
+                                  <input
+                                    type="checkbox"
+                                    className="h-3.5 w-3.5 accent-petrol disabled:cursor-not-allowed"
+                                    checked={doc.isPublic}
+                                    disabled={doc.piiStatus !== "none"}
+                                    onChange={async (e) => {
+                                      setMediaPublicError(null);
+                                      try {
+                                        await eventDocumentApi.setPublic(doc.id, e.target.checked);
+                                        await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
+                                      } catch (err) {
+                                        setMediaPublicError(err instanceof Error ? err.message : "Failed to update visibility");
+                                      }
+                                    }}
+                                  />
+                                  <span className={doc.piiStatus !== "none" ? "text-slate-400" : ""}>
+                                    {doc.piiStatus === "none"
+                                      ? "Visible to everyone"
+                                      : doc.piiStatus === "detected"
+                                        ? "Locked private — contains personal info"
+                                        : "Locked until checked"}
+                                  </span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </article>
                   {gap && (

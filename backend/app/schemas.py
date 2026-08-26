@@ -205,6 +205,58 @@ class DocumentRead(DocumentCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ---------------------------------------------------------------------------
+# Event media / document reads — include privacy fields; visibility-aware
+# (url is redacted for non-owners when item is private)
+# ---------------------------------------------------------------------------
+
+PiiKind = Literal[
+    "name", "address", "phone", "email", "license_number",
+    "signature", "vin", "plate", "payment_card", "other",
+]
+PiiStatus = Literal["unknown", "none", "detected"]
+
+
+class EventMediaRead(BaseModel):
+    id: str
+    url: str | None = None
+    media_type: str = Field(default="image", alias="mediaType")
+    thumbnail_url: str | None = Field(default=None, alias="thumbnailUrl")
+    width: int | None = None
+    height: int | None = None
+    sort_order: int = Field(default=0, alias="sortOrder")
+    is_public: bool = Field(default=False, alias="isPublic")
+    pii_status: PiiStatus = Field(default="unknown", alias="piiStatus")
+    pii_kinds: list[str] = Field(default_factory=list, alias="piiKinds")
+    blur_url: str | None = Field(default=None, alias="blurUrl")
+    can_view: bool = Field(default=False, alias="canView")
+    created_at: datetime | None = Field(default=None, alias="createdAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class EventDocumentRead(BaseModel):
+    id: str
+    url: str | None = None
+    filename: str = ""
+    content_type: str = Field(default="", alias="contentType")
+    sort_order: int = Field(default=0, alias="sortOrder")
+    is_public: bool = Field(default=False, alias="isPublic")
+    pii_status: PiiStatus = Field(default="unknown", alias="piiStatus")
+    pii_kinds: list[str] = Field(default_factory=list, alias="piiKinds")
+    blur_url: str | None = Field(default=None, alias="blurUrl")
+    can_view: bool = Field(default=False, alias="canView")
+    created_at: datetime | None = Field(default=None, alias="createdAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class MediaPrivacyToggle(BaseModel):
+    is_public: bool = Field(alias="isPublic")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PostCreate(BaseModel):
     caption: str | None = Field(default=None, max_length=2200)
     vehicle_ids: list[str] = Field(default_factory=list, max_length=10, alias="vehicleIds")
@@ -241,6 +293,9 @@ class CursorPage(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+EventSource = Literal["manual", "scan", "scan_edited"]
+
+
 class VehicleEventCreate(BaseModel):
     event_type: EventType = Field(alias="eventType")
     title: str = Field(min_length=1, max_length=160)
@@ -259,6 +314,9 @@ class VehicleEventCreate(BaseModel):
     visibility: EventVisibility = "public"
     media: list[MediaCreate] = Field(default_factory=list, max_length=20)
     documents: list[DocumentCreate] = Field(default_factory=list, max_length=20)
+    # Provenance — client sends source + snapshot when creating from a scan
+    source: EventSource = "manual"
+    scan_snapshot: dict | None = Field(default=None, alias="scanSnapshot")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -285,6 +343,7 @@ class VehicleEventUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+
 class VehicleEventRead(BaseModel):
     id: str
     vehicle_id: str
@@ -304,14 +363,18 @@ class VehicleEventRead(BaseModel):
     shop_name: str | None = None
     location: str | None = None
     visibility: EventVisibility
-    media: list[MediaRead] = []
-    documents: list[DocumentRead] = []
+    media: list[EventMediaRead] = []
+    documents: list[EventDocumentRead] = []
     created_at: datetime
     updated_at: datetime
     # Ownership attribution (derived, not stored)
     ownership_id: str | None = Field(default=None, alias="ownershipId")
     is_previous_owner: bool = Field(default=False, alias="isPreviousOwner")
     can_edit: bool = Field(default=False, alias="canEdit")
+    # Provenance
+    source: EventSource = "manual"
+    edited_fields: list[str] = Field(default_factory=list, alias="editedFields")
+    scan_snapshot: dict | None = Field(default=None, alias="scanSnapshot")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

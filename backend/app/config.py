@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     storage_endpoint_url: str | None = "http://localhost:9000"
     storage_region: str = "us-east-1"
     storage_bucket: str = "car-social"
+    storage_private_bucket: str = "car-social-private"
     storage_access_key_id: str = "minioadmin"
     storage_secret_access_key: str = "minioadmin"
     public_media_base_url: str = "http://localhost:9000/car-social"

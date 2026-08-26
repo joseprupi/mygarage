@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -9,7 +9,7 @@ import { VideoUploader } from "@/components/VideoUploader";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { DocumentUploader } from "@/components/DocumentUploader";
 import { LocationInput } from "@/components/LocationInput";
-import { aiApi, eventApi, mediaApi } from "@/lib/api/client";
+import { aiApi, eventApi, mediaApi, type ReceiptScan } from "@/lib/api/client";
 import { EVENT_TYPES, SERVICE_TAGS, eventTypeLabel, tagLabel } from "@/lib/events";
 import type { EventDocument, Media } from "@/lib/types";
 
@@ -41,6 +41,24 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanNote, setScanNote] = useState<string | null>(null);
+  // The raw scan result — sent as scanSnapshot when creating an event from a receipt.
+  const [scanSnapshot, setScanSnapshot] = useState<ReceiptScan | null>(null);
+  // Track local preview URLs so we can revoke them on unmount.
+  const localPreviewUrlsRef = useRef<string[]>([]);
+
+  // Revoke all local object URLs when the form unmounts.
+  useEffect(() => {
+    return () => {
+      for (const u of localPreviewUrlsRef.current) {
+        URL.revokeObjectURL(u);
+      }
+    };
+  }, []);
+
+  function trackLocalUrl(url: string) {
+    localPreviewUrlsRef.current.push(url);
+    return url;
+  }
 
   async function scanReceipt(files: File[]) {
     if (files.length === 0 || scanning) return;
@@ -58,11 +76,16 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
             { url, filename: file.name, content_type: file.type }
           ]);
         } else {
+          // Create a local preview URL before the upload so we can show the
+          // image immediately — the returned `url` is a private bucket path and
+          // is NOT displayable in the browser.
+          const localPreviewUrl = trackLocalUrl(URL.createObjectURL(file));
           const { url } = await mediaApi.upload(file, "vehicle_event_media");
-          setMedia((items) => [...items, { url, media_type: "image" }]);
+          setMedia((items) => [...items, { url, media_type: "image", localPreviewUrl }]);
         }
       });
       const [scan] = await Promise.all([aiApi.scanReceipt(files), ...uploads]);
+      setScanSnapshot(scan);
       setForm((prev) => ({
         ...prev,
         eventType: scan.eventType || prev.eventType,
@@ -108,8 +131,29 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       location: e.location ?? "",
       visibility: e.visibility ?? "public"
     });
-    setMedia(e.media ?? []);
-    setDocuments(e.documents ?? []);
+    // Map EventMedia[] → Media[] for the form state.
+    // The owner always has canView=true, so url should be non-null.
+    setMedia(
+      (e.media ?? []).map((m) => ({
+        id: m.id,
+        url: m.url ?? "",
+        media_type: m.mediaType,
+        thumbnail_url: m.thumbnailUrl ?? undefined,
+        // Use thumbnailUrl as form preview; for private items this is the presigned URL.
+        localPreviewUrl: m.thumbnailUrl ?? m.url ?? undefined,
+        sort_order: m.sortOrder
+      }))
+    );
+    // Map EventDocumentRead[] → EventDocument[] for the form state.
+    setDocuments(
+      (e.documents ?? []).map((d) => ({
+        id: d.id,
+        url: d.url ?? "",
+        filename: d.filename,
+        content_type: d.contentType,
+        sort_order: d.sortOrder
+      }))
+    );
     setTags(e.tags ?? []);
     setFuelToggles({
       fuelFullTank: e.fuel_full_tank !== false,
@@ -144,12 +188,19 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
       return;
     }
     const isFuel = form.eventType === "fuel";
-    const payload = {
+    const payload: Record<string, unknown> = {
       ...form,
       eventDate: form.eventDate || null,
       mileage: form.mileage ? Number(form.mileage) : null,
       costCents: form.cost ? Math.round(Number(form.cost) * 100) : null,
-      media: media.map((item, index) => ({ ...item, sort_order: index })),
+      // Send storage path (url) not the local preview URL.
+      media: media.map((item, index) => ({
+        id: item.id,
+        url: item.url,
+        media_type: item.media_type,
+        thumbnail_url: item.thumbnail_url,
+        sort_order: index
+      })),
       documents: documents.map((item, index) => ({ ...item, sort_order: index })),
       tags,
       ...(isFuel && {
@@ -157,6 +208,11 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         fuelMissedPrevious: fuelToggles.fuelMissedPrevious ? true : null,
       }),
     };
+    // Provenance: only set source/scanSnapshot on create (not edit).
+    if (!isEdit) {
+      payload.source = scanSnapshot ? "scan" : "manual";
+      if (scanSnapshot) payload.scanSnapshot = scanSnapshot;
+    }
     setSubmitting(true);
     try {
       if (isEdit) {
@@ -260,8 +316,13 @@ export function VehicleEventForm({ vehicleId, eventId }: { vehicleId: string; ev
         {media.length > 0 && (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
             {media.map((item, index) => (
-              <div className="relative" key={item.url}>
-                <img className="aspect-square w-full rounded-xl object-cover" src={item.thumbnail_url ?? item.url} alt="" />
+              <div className="relative" key={item.url || index}>
+                {/* Use localPreviewUrl for preview when the bucket URL is private. */}
+                <img
+                  className="aspect-square w-full rounded-xl object-cover"
+                  src={item.localPreviewUrl ?? item.thumbnail_url ?? item.url}
+                  alt=""
+                />
                 {item.media_type === "video" && <PlayBadge size="sm" />}
                 <button
                   type="button"

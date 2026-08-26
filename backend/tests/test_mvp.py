@@ -960,3 +960,319 @@ def test_export_csv_has_owner_column():
     assert len(rows) == 1
     # The event is in the current owner's period — should show @username
     assert rows[0]["owner"].startswith("@"), f"Expected @username, got: {rows[0]['owner']}"
+
+# ---------------------------------------------------------------------------
+# Media privacy tests
+# ---------------------------------------------------------------------------
+
+import io as _privio
+from sqlalchemy.orm import Session as _OrmSession
+from app.database import SessionLocal as _SL
+from app.models import VehicleEventMedia as _VEM, VehicleEventDocument as _VED
+from app import services as _svc_mod
+
+
+def _set_media_pii_status(media_id: str, pii_status: str, pii_kinds: list = None) -> None:
+    """Directly update pii_status (and optionally pii_kinds) in the test DB."""
+    from sqlalchemy import update as _upd
+    with _SL() as db:
+        vals = {"pii_status": pii_status}
+        if pii_kinds is not None:
+            vals["pii_kinds"] = pii_kinds
+        db.execute(_upd(_VEM).where(_VEM.id == media_id).values(**vals))
+        db.commit()
+
+
+def _set_doc_pii_status(doc_id: str, pii_status: str, pii_kinds: list = None) -> None:
+    from sqlalchemy import update as _upd
+    with _SL() as db:
+        vals = {"pii_status": pii_status}
+        if pii_kinds is not None:
+            vals["pii_kinds"] = pii_kinds
+        db.execute(_upd(_VED).where(_VED.id == doc_id).values(**vals))
+        db.commit()
+
+
+def test_event_media_defaults_private_and_non_owner_gets_no_url():
+    """New event media defaults to private; non-owner sees url=None + canView=False."""
+    owner = signup("privmedia-owner", "privmedia-owner@example.com")
+    other = signup("privmedia-other", "privmedia-other@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Oil change",
+            "eventDate": "2026-01-15",
+            "media": [{"url": "/media/vehicle_event_media/test.jpg", "media_type": "image"}],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event = event_resp.json()
+    media = event["media"][0]
+
+    # Owner sees media (url is the raw stored value for legacy rows / presigned fallback in tests)
+    assert media["canView"] is True
+    assert media["isPublic"] is False
+    assert media["piiStatus"] == "unknown"
+
+    # Non-owner read
+    anon_resp = client.get(f"/vehicle-events/{event['id']}")
+    assert anon_resp.status_code == 200, anon_resp.text
+    anon_media = anon_resp.json()["media"][0]
+    assert anon_media["url"] is None
+    assert anon_media["canView"] is False
+    assert anon_media["isPublic"] is False
+
+    # Other authenticated user
+    other_resp = client.get(
+        f"/vehicle-events/{event['id']}",
+        headers=auth_headers(other["accessToken"]),
+    )
+    assert other_resp.status_code == 200, other_resp.text
+    other_media = other_resp.json()["media"][0]
+    assert other_media["url"] is None
+    assert other_media["canView"] is False
+
+
+def test_toggle_event_media_public_works_when_pii_none():
+    """Owner can toggle media public when pii_status='none'."""
+    owner = signup("togglemedia-owner", "togglemedia-owner@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Toggle test",
+            "eventDate": "2026-02-01",
+            "media": [{"url": "/media/vehicle_event_media/toggle.jpg", "media_type": "image"}],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    media_id = event_resp.json()["media"][0]["id"]
+
+    # Manually set pii_status to 'none' (simulating completed classification)
+    _set_media_pii_status(media_id, "none")
+
+    # Toggle to public
+    toggle_resp = client.patch(
+        f"/vehicle-event-media/{media_id}",
+        headers=auth_headers(owner["accessToken"]),
+        json={"isPublic": True},
+    )
+    assert toggle_resp.status_code == 200, toggle_resp.text
+    body = toggle_resp.json()
+    assert body["isPublic"] is True
+    assert body["canView"] is True
+
+    # Now non-owner also sees it as viewable
+    anon_event = client.get(f"/vehicle-events/{event_resp.json()['id']}").json()
+    anon_m = anon_event["media"][0]
+    assert anon_m["isPublic"] is True
+    assert anon_m["canView"] is True
+
+    # Toggle back to private
+    toggle_back = client.patch(
+        f"/vehicle-event-media/{media_id}",
+        headers=auth_headers(owner["accessToken"]),
+        json={"isPublic": False},
+    )
+    assert toggle_back.status_code == 200, toggle_back.text
+    assert toggle_back.json()["isPublic"] is False
+
+
+def test_toggle_event_media_public_rejected_409_when_pii_detected():
+    """Toggling to public is rejected (409) when pii_status='detected'."""
+    owner = signup("piimedia-owner", "piimedia-owner@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "PII test",
+            "eventDate": "2026-03-01",
+            "media": [{"url": "/media/vehicle_event_media/pii.jpg", "media_type": "image"}],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    media_id = event_resp.json()["media"][0]["id"]
+
+    # Simulate PII detected
+    _set_media_pii_status(media_id, "detected", ["name", "address", "vin"])
+
+    resp = client.patch(
+        f"/vehicle-event-media/{media_id}",
+        headers=auth_headers(owner["accessToken"]),
+        json={"isPublic": True},
+    )
+    assert resp.status_code == 409, resp.text
+    assert "Locked private" in resp.json()["detail"]
+
+
+def test_blur_placeholder_produces_small_jpeg():
+    """make_blur_placeholder returns a valid JPEG significantly smaller than the input."""
+    from PIL import Image
+    import io
+
+    # Create a fake 200x100 red image
+    img = Image.new("RGB", (200, 100), color=(180, 30, 30))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=95)
+    original_bytes = buf.getvalue()
+
+    blur_bytes = _svc_mod.make_blur_placeholder(original_bytes)
+
+    # Must be a valid JPEG
+    out_img = Image.open(io.BytesIO(blur_bytes))
+    assert out_img.format == "JPEG"
+    # Width should be 480
+    assert out_img.width == 480
+    # Height should be proportional (original was 200x100, so 480 wide → 240 tall)
+    assert out_img.height == 240
+    # File size should be small (blur + low quality JPEG)
+    assert len(blur_bytes) < len(original_bytes) or len(blur_bytes) < 20_000
+
+
+# ---------------------------------------------------------------------------
+# Provenance tests
+# ---------------------------------------------------------------------------
+
+def test_event_provenance_manual_default():
+    """Events created without scan data have source='manual'."""
+    owner = signup("prov-manual", "prov-manual@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={"eventType": "maintenance", "title": "Manual oil change", "eventDate": "2026-01-10"},
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    body = event_resp.json()
+    assert body["source"] == "manual"
+    assert body["editedFields"] == []
+    assert body["scanSnapshot"] is None
+
+
+def test_event_provenance_scan_unedited():
+    """Event created from scan with matching values → source='scan', editedFields=[]."""
+    owner = signup("prov-scan", "prov-scan@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    snapshot = {
+        "eventDate": "2026-03-15",
+        "costCents": 15000,
+        "mileage": 52000,
+        "shopName": "Quick Lube",
+    }
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Oil change",
+            "eventDate": "2026-03-15",
+            "costCents": 15000,
+            "mileage": 52000,
+            "shopName": "Quick Lube",
+            "source": "scan",
+            "scanSnapshot": snapshot,
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    body = event_resp.json()
+    assert body["source"] == "scan"
+    assert body["editedFields"] == []
+    # Owner sees snapshot
+    assert body["scanSnapshot"] == snapshot
+
+
+def test_event_provenance_scan_edited_on_cost_change():
+    """Scan event with changed cost → source='scan_edited', editedFields includes 'cost_cents'."""
+    owner = signup("prov-edited", "prov-edited@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    snapshot = {
+        "eventDate": "2026-04-01",
+        "costCents": 20000,
+        "mileage": None,
+        "shopName": "Jiffy Lube",
+    }
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Lube job",
+            "eventDate": "2026-04-01",
+            "costCents": 18500,  # Different from snapshot (20000)
+            "shopName": "Jiffy Lube",
+            "source": "scan",
+            "scanSnapshot": snapshot,
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    body = event_resp.json()
+    assert body["source"] == "scan_edited"
+    assert "cost_cents" in body["editedFields"]
+
+
+def test_event_provenance_title_only_change_stays_scan():
+    """Changing only the title (not a trust-relevant field) doesn't flip source to scan_edited."""
+    owner = signup("prov-title", "prov-title@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    snapshot = {
+        "eventDate": "2026-05-01",
+        "costCents": 5000,
+        "mileage": 60000,
+        "shopName": "Bob's",
+    }
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Quick service",  # title not in trust fields
+            "eventDate": "2026-05-01",
+            "costCents": 5000,
+            "mileage": 60000,
+            "shopName": "Bob's",
+            "source": "scan",
+            "scanSnapshot": snapshot,
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    body = event_resp.json()
+    assert body["source"] == "scan"
+    assert body["editedFields"] == []
+
+
+def test_scan_snapshot_hidden_from_non_owner():
+    """Non-owners do not see scanSnapshot in event read."""
+    owner = signup("prov-hidden-owner", "prov-hidden-owner@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    snapshot = {"eventDate": "2026-06-01", "costCents": 9900}
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Service",
+            "eventDate": "2026-06-01",
+            "source": "scan",
+            "scanSnapshot": snapshot,
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event_id = event_resp.json()["id"]
+
+    anon_resp = client.get(f"/vehicle-events/{event_id}")
+    assert anon_resp.status_code == 200
+    assert anon_resp.json()["scanSnapshot"] is None
+
+
+def test_toggle_requires_auth():
+    """Toggle endpoint requires authentication."""
+    resp = client.patch("/vehicle-event-media/nonexistent-id", json={"isPublic": True})
+    assert resp.status_code == 401

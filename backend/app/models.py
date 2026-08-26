@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     true,
 )
@@ -185,6 +186,10 @@ class VehicleEvent(TimestampMixin, Base):
     location: Mapped[str | None] = mapped_column(String(160))
     visibility: Mapped[str] = mapped_column(String(20), default="public", nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Provenance
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual", server_default="manual")
+    scan_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    edited_fields: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
 
     vehicle: Mapped[Vehicle] = relationship(back_populates="events")
     media: Mapped[list["VehicleEventMedia"]] = relationship(
@@ -206,6 +211,17 @@ class VehicleEventMedia(Base):
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Media privacy — receipts/docs private by default
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    pii_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="unknown", server_default="unknown"
+    )
+    pii_kinds: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
+    blur_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # storage_key: bucket-relative key in the private bucket (None for legacy rows)
+    storage_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -222,6 +238,17 @@ class VehicleEventDocument(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     content_type: Mapped[str] = mapped_column(String(120), nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Document privacy — private by default
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    pii_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="unknown", server_default="unknown"
+    )
+    pii_kinds: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
+    blur_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # storage_key: bucket-relative key in the private bucket (None for legacy rows)
+    storage_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

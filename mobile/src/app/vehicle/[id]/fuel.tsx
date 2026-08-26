@@ -19,8 +19,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   aiApi,
   eventApi,
-  mediaUrl,
   uploadImage,
+  type FuelScan,
   type Media,
   type PickedAsset,
 } from "@/lib/api";
@@ -49,6 +49,7 @@ export default function FuelScreen() {
   });
   const [fullTank, setFullTank] = useState(true);
   const [missedPrevious, setMissedPrevious] = useState(false);
+  const [fuelScanResult, setFuelScanResult] = useState<FuelScan | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,6 +92,7 @@ export default function FuelScreen() {
         station: scan.stationName ?? prev.station,
         mileage: scan.mileage != null ? String(scan.mileage) : prev.mileage,
       }));
+      setFuelScanResult(scan);
       setScanNote(
         scan.confidence === "high"
           ? "Numbers read — check them, then save."
@@ -131,7 +133,9 @@ export default function FuelScreen() {
         description: details.length ? details.join(" · ") : null,
         media: slots
           .filter((s) => s.media)
-          .map((s, i) => ({ ...(s.media as Media), sort_order: i })),
+          .map((s, i) => ({ url: (s.media as Media).url, sort_order: i })),
+        // Provenance: send scan source + snapshot when numbers were read from photos
+        ...(fuelScanResult ? { source: "scan" as const, scanSnapshot: fuelScanResult } : {}),
       });
       router.back();
     } catch (err) {
@@ -164,9 +168,9 @@ export default function FuelScreen() {
               {busySlot === index && <ActivityIndicator />}
             </View>
           </View>
-          {slot.media && (
+          {slot.asset && (
             <Image
-              source={{ uri: mediaUrl(slot.media.url) ?? undefined }}
+              source={{ uri: slot.asset.uri }}
               style={styles.thumb}
               contentFit="cover"
             />

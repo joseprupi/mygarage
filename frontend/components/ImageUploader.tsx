@@ -20,19 +20,28 @@ export function ImageUploader({
   async function upload(file: File) {
     setBusy(true);
     setError(null);
+    // Create a local object URL now so we can:
+    // 1. Use it for dimension-reading without a second URL creation.
+    // 2. Pass it back as localPreviewUrl for private-bucket purposes (vehicle_event_media)
+    //    where the returned `url` is a non-displayable storage path.
+    const localPreviewUrl = URL.createObjectURL(file);
     try {
-      // Direct upload streams through the API to storage, so it works even when
-      // the browser cannot reach the object store host directly (e.g. a tunnel).
-      const { url } = await mediaApi.upload(file, purpose);
-      const dimensions = await readDimensions(file);
+      const [{ url }, dimensions] = await Promise.all([
+        mediaApi.upload(file, purpose),
+        readDimensions(localPreviewUrl)
+      ]);
       onUploaded({
         url,
         thumbnail_url: url,
         media_type: "image",
         width: dimensions.width,
-        height: dimensions.height
+        height: dimensions.height,
+        localPreviewUrl // callers use this for in-form preview; they own the URL lifetime
       });
+      // Note: we intentionally do NOT revoke localPreviewUrl here.
+      // The form component that receives it will revoke it (or it will be reclaimed on page unload).
     } catch (err) {
+      URL.revokeObjectURL(localPreviewUrl);
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(false);
@@ -57,18 +66,11 @@ export function ImageUploader({
   );
 }
 
-function readDimensions(file: File): Promise<{ width: number; height: number }> {
+function readDimensions(url: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
     const image = new Image();
-    image.onload = () => {
-      resolve({ width: image.width, height: image.height });
-      URL.revokeObjectURL(url);
-    };
-    image.onerror = () => {
-      resolve({ width: 1, height: 1 });
-      URL.revokeObjectURL(url);
-    };
+    image.onload = () => resolve({ width: image.width, height: image.height });
+    image.onerror = () => resolve({ width: 1, height: 1 });
     image.src = url;
   });
 }

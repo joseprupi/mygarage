@@ -53,11 +53,29 @@ export type PublicUser = {
   avatar_url?: string | null;
 };
 
-export type Media = {
+export type PostMedia = {
   id?: string;
   url: string;
-  media_type?: string | null;
+  media_type?: "image" | "video" | null;
   thumbnail_url?: string | null;
+  sort_order?: number;
+  width?: number | null;
+  height?: number | null;
+  mediaType?: string; // set by uploadImage before posting; ignored by the backend (media_type defaults to image)
+};
+
+export type Media = {
+  id?: string;
+  url: string | null;           // null for non-owners when private; presigned absolute URL for owners
+  mediaType?: string | null;    // camelCase from backend
+  thumbnailUrl?: string | null; // camelCase from backend
+  sortOrder?: number;
+  isPublic?: boolean;
+  piiStatus?: "unknown" | "none" | "detected";
+  piiKinds?: string[];
+  blurUrl?: string | null;      // relative /media/... path (public bucket)
+  canView?: boolean;
+  createdAt?: string;
 };
 
 export type VehicleSummary = {
@@ -73,7 +91,7 @@ export type Post = {
   caption: string | null;
   created_at: string;
   author: PublicUser;
-  media: Media[];
+  media: PostMedia[];
   vehicles: VehicleSummary[];
   like_count: number;
   comment_count: number;
@@ -158,10 +176,15 @@ export type Vehicle = {
 
 export type EventDocument = {
   id?: string;
-  url: string;
+  url: string | null;           // null for non-owners when private
   filename: string;
   content_type: string;
   sort_order?: number;
+  isPublic?: boolean;
+  piiStatus?: "unknown" | "none" | "detected";
+  piiKinds?: string[];
+  blurUrl?: string | null;
+  canView?: boolean;
 };
 
 export type VehicleEvent = {
@@ -188,6 +211,10 @@ export type VehicleEvent = {
   ownershipId: string | null;
   isPreviousOwner: boolean;
   canEdit: boolean;
+  // Provenance fields
+  source?: "manual" | "scan" | "scan_edited";
+  editedFields?: string[];
+  scanSnapshot?: unknown; // owner-only raw scan object
 };
 
 export type VehicleOwnership = {
@@ -255,8 +282,10 @@ export type EventPayload = {
   shopName?: string | null;
   location?: string | null;
   visibility?: string;
-  media?: Media[];
+  media?: Array<{ url: string | null; sort_order?: number }>;
   documents?: EventDocument[];
+  source?: "manual" | "scan";
+  scanSnapshot?: unknown;
 };
 
 export type ModPayload = {
@@ -370,7 +399,7 @@ export const modApi = {
 
 export const postApi = {
   get: (id: string) => request<Post>(`/posts/${id}`),
-  create: (payload: { caption: string | null; vehicleIds: string[]; media: Media[] }) =>
+  create: (payload: { caption: string | null; vehicleIds: string[]; media: PostMedia[] }) =>
     request<Post>("/posts", { method: "POST", body: JSON.stringify(payload) }),
   delete: (id: string) => request<void>(`/posts/${id}`, { method: "DELETE" }),
   like: (id: string) => request<void>(`/posts/${id}/like`, { method: "POST" }),
@@ -423,12 +452,12 @@ async function postForm<T>(path: string, form: FormData, errorLabel: string): Pr
  * Upload an image picked with expo-image-picker.
  * Native: FormData with a {uri, name, type} file part. Web: fetch the blob first.
  */
-export async function uploadImage(asset: PickedAsset, purpose: string): Promise<Media> {
+export async function uploadImage(asset: PickedAsset, purpose: string): Promise<{ url: string; mediaType: "image" }> {
   const form = new FormData();
   await appendAsset(form, "file", asset);
   form.append("purpose", purpose);
   const data = await postForm<{ url: string }>("/media/upload", form, "Upload failed");
-  return { url: data.url, media_type: "image" };
+  return { url: data.url, mediaType: "image" };
 }
 
 // --- AI scanning (backend-proxied Gemini) ---
@@ -493,4 +522,22 @@ export const appleAuthApi = {
     await setToken(data.accessToken);
     return data;
   },
+};
+
+export const eventMediaApi = {
+  /** Toggle public/private on an event media item. Throws with detail on 409 (PII lock). */
+  setPublic: (id: string, isPublic: boolean) =>
+    request<Media>(`/vehicle-event-media/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isPublic }),
+    }),
+};
+
+export const eventDocumentApi = {
+  /** Toggle public/private on an event document. Throws with detail on 409 (PII lock). */
+  setPublic: (id: string, isPublic: boolean) =>
+    request<EventDocument>(`/vehicle-event-documents/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isPublic }),
+    }),
 };

@@ -16,7 +16,7 @@ from typing import Any
 
 import boto3
 from botocore.config import Config
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from sqlalchemy import Select, and_, delete, desc, func, or_, select
@@ -43,6 +43,8 @@ from app.schemas import (
     AppleLoginRequest,
     CommentCreate,
     CommentRead,
+    EventDocumentRead,
+    EventMediaRead,
     GoogleLoginRequest,
     LoginRequest,
     MediaCreate,
@@ -401,6 +403,17 @@ def delete_vehicle(db: Session, vehicle: Vehicle, user: User) -> None:
     # vehicle survive (only the tag rows are removed).
     event_ids = list(db.scalars(select(VehicleEvent.id).where(VehicleEvent.vehicle_id == vehicle.id)))
     if event_ids:
+        # Clean up storage objects for media and documents before deleting rows
+        media_rows = list(db.scalars(
+            select(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids))
+        ))
+        for m in media_rows:
+            _delete_event_media_storage(m)
+        doc_rows = list(db.scalars(
+            select(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids))
+        ))
+        for d in doc_rows:
+            _delete_event_doc_storage(d)
         db.execute(delete(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids)))
         db.execute(delete(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids)))
         db.execute(delete(VehicleEvent).where(VehicleEvent.vehicle_id == vehicle.id))
@@ -603,6 +616,84 @@ def delete_vehicle_ownership(db: Session, period: VehicleOwnership, user: User) 
     db.commit()
 
 
+def _resolve_event_media_url(m: VehicleEventMedia, is_owner: bool) -> str | None:
+    """Return the appropriate URL for an event media item based on viewer permissions."""
+    can_view = is_owner or m.is_public
+    if not can_view:
+        return None
+    if m.storage_key:
+        if m.is_public:
+            # Object has been copied to the public bucket; serve the public URL.
+            settings = get_settings()
+            return f"{settings.public_media_base_url}/{m.storage_key}"
+        elif is_owner:
+            try:
+                return generate_private_read_url(m.storage_key)
+            except Exception:
+                return m.url  # Fallback to stored URL (e.g., in tests / MinIO down)
+        else:
+            return None
+    # Legacy row without storage_key: use the stored URL directly.
+    return m.url
+
+
+def _resolve_event_doc_url(d: VehicleEventDocument, is_owner: bool) -> str | None:
+    """Return the appropriate URL for an event document based on viewer permissions."""
+    can_view = is_owner or d.is_public
+    if not can_view:
+        return None
+    if d.storage_key:
+        if d.is_public:
+            settings = get_settings()
+            return f"{settings.public_media_base_url}/{d.storage_key}"
+        elif is_owner:
+            try:
+                return generate_private_read_url(d.storage_key)
+            except Exception:
+                return d.url
+        else:
+            return None
+    return d.url
+
+
+def _event_media_read(m: VehicleEventMedia, is_owner: bool) -> EventMediaRead:
+    """Build a visibility-aware EventMediaRead. Non-owners only see private items' blur."""
+    can_view = is_owner or m.is_public
+    return EventMediaRead(
+        id=m.id,
+        url=_resolve_event_media_url(m, is_owner),
+        media_type=m.media_type,
+        thumbnail_url=m.thumbnail_url if can_view else None,
+        width=m.width,
+        height=m.height,
+        sort_order=m.sort_order,
+        is_public=m.is_public,
+        pii_status=m.pii_status if m.pii_status is not None else "unknown",
+        pii_kinds=m.pii_kinds or [],
+        blur_url=m.blur_url,
+        can_view=can_view,
+        created_at=m.created_at,
+    )
+
+
+def _event_doc_read(d: VehicleEventDocument, is_owner: bool) -> EventDocumentRead:
+    """Build a visibility-aware EventDocumentRead. Non-owners only see metadata."""
+    can_view = is_owner or d.is_public
+    return EventDocumentRead(
+        id=d.id,
+        url=_resolve_event_doc_url(d, is_owner),
+        filename=d.filename,
+        content_type=d.content_type,
+        sort_order=d.sort_order,
+        is_public=d.is_public,
+        pii_status=d.pii_status if d.pii_status is not None else "unknown",
+        pii_kinds=d.pii_kinds or [],
+        blur_url=d.blur_url,  # None for PDFs
+        can_view=can_view,
+        created_at=d.created_at,
+    )
+
+
 def _enrich_event(
     event: VehicleEvent,
     periods: list[VehicleOwnership],
@@ -617,6 +708,7 @@ def _enrich_event(
         and viewer.id == vehicle_owner_id
         and viewer.id == event.author_user_id
     )
+    is_owner = viewer is not None and viewer.id == vehicle_owner_id
     return VehicleEventRead(
         id=event.id,
         vehicle_id=event.vehicle_id,
@@ -636,13 +728,16 @@ def _enrich_event(
         shop_name=event.shop_name,
         location=event.location,
         visibility=event.visibility,
-        media=[MediaRead.model_validate(m) for m in (event.media or [])],
-        documents=[DocumentRead.model_validate(d) for d in (event.documents or [])],
+        media=[_event_media_read(m, is_owner) for m in (event.media or [])],
+        documents=[_event_doc_read(d, is_owner) for d in (event.documents or [])],
         created_at=event.created_at,
         updated_at=event.updated_at,
         ownership_id=period.id if period else None,
         is_previous_owner=is_prev,
         can_edit=can_edit,
+        source=event.source if event.source is not None else "manual",
+        edited_fields=event.edited_fields or [],
+        scan_snapshot=event.scan_snapshot if is_owner else None,
     )
 
 
@@ -838,38 +933,271 @@ class NewestFeedService:
         return items, next_cursor, has_more
 
 
+# ---------------------------------------------------------------------------
+# Blur placeholder + PII classification (background tasks)
+# ---------------------------------------------------------------------------
+
+def make_blur_placeholder(image_bytes: bytes) -> bytes:
+    """EXIF-transpose, downscale to 48px, Gaussian blur, upscale to 480px → JPEG."""
+    import io as _io
+    from PIL import Image, ImageFilter, ImageOps
+    img = Image.open(_io.BytesIO(image_bytes))
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    ratio = 48 / img.width
+    small = img.resize((48, max(1, int(img.height * ratio))), Image.LANCZOS)
+    blurred = small.filter(ImageFilter.GaussianBlur(radius=6))
+    ratio2 = 480 / blurred.width
+    result = blurred.resize((480, max(1, int(blurred.height * ratio2))), Image.BILINEAR)
+    out = _io.BytesIO()
+    result.save(out, format="JPEG", quality=60)
+    return out.getvalue()
+
+
+_PII_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "is_document": {"type": "BOOLEAN"},
+        "pii_kinds": {
+            "type": "ARRAY",
+            "items": {
+                "type": "STRING",
+                "enum": [
+                    "name", "address", "phone", "email", "license_number",
+                    "signature", "vin", "plate", "payment_card", "other",
+                ],
+            },
+        },
+    },
+    "required": ["is_document", "pii_kinds"],
+}
+
+_PII_PROMPT = (
+    "You are a privacy classifier. Examine the image or document and respond with:\n"
+    "1. is_document: true if this looks like a receipt, invoice, service record, "
+    "document, or similar paperwork (NOT a photo of a car, part, or scenery).\n"
+    "2. pii_kinds: list ONLY personally-identifiable information (PII) of an individual "
+    "that is visibly present: person names, home/street addresses, phone numbers, "
+    "email addresses, driver's license or government ID numbers, handwritten signatures, "
+    "VINs, license plate numbers, payment card numbers.\n"
+    "EXCLUDE shop/business name, business address/phone — those are not personal PII.\n"
+    "Return an empty pii_kinds array if no personal PII is found."
+)
+
+
+def classify_media_pii(image_or_pdf_bytes: bytes, mime: str) -> dict:
+    """Run Gemini PII classification. Returns {is_document: bool, pii_kinds: list[str]}.
+    Raises RuntimeError if AI is disabled or call fails."""
+    raw = _gemini_generate(
+        _inline_parts([(image_or_pdf_bytes, mime)]),
+        _PII_PROMPT,
+        _PII_SCHEMA,
+    )
+    return {
+        "is_document": bool(raw.get("is_document", False)),
+        "pii_kinds": [k for k in (raw.get("pii_kinds") or []) if isinstance(k, str)],
+    }
+
+
+def _process_event_media_bg(media_id: str, url: str, storage_key: str | None, mime: str) -> None:
+    """Background task: generate blur placeholder + PII classify for a VehicleEventMedia row."""
+    from app.database import SessionLocal
+    settings = get_settings()
+    key = storage_key or _object_key_from_url(url)
+    if not key:
+        return
+
+    # Fetch bytes from private bucket (new rows) or public bucket (legacy rows without storage_key)
+    try:
+        client = _s3_client()
+        bucket = settings.storage_private_bucket if storage_key else settings.storage_bucket
+        obj = client.get_object(Bucket=bucket, Key=key)
+        content = obj["Body"].read()
+    except Exception:
+        return
+
+    # Generate blur placeholder (images only)
+    blur_url = None
+    if mime.startswith("image/"):
+        try:
+            blur_bytes = make_blur_placeholder(content)
+            blur_key = f"event_media_blur/{media_id}-blur.jpg"
+            client.put_object(
+                Bucket=settings.storage_bucket,  # blur goes to PUBLIC bucket (safe)
+                Key=blur_key,
+                Body=blur_bytes,
+                ContentType="image/jpeg",
+            )
+            blur_url = f"{settings.public_media_base_url}/{blur_key}"
+        except Exception:
+            pass
+
+    # PII classification
+    pii_kinds: list[str] = []
+    pii_status = "unknown"
+    if settings.ai_scan_enabled:
+        try:
+            result = classify_media_pii(content, mime)
+            pii_kinds = result["pii_kinds"]
+            pii_status = "detected" if pii_kinds else "none"
+        except Exception:
+            pass
+
+    with SessionLocal() as db:
+        row = db.get(VehicleEventMedia, media_id)
+        if row:
+            row.blur_url = blur_url
+            row.pii_status = pii_status
+            row.pii_kinds = pii_kinds
+            db.commit()
+
+
+def _process_event_doc_bg(doc_id: str, url: str, storage_key: str | None, mime: str) -> None:
+    """Background task: PII classify for a VehicleEventDocument row (PDFs have no blur)."""
+    from app.database import SessionLocal
+    settings = get_settings()
+    key = storage_key or _object_key_from_url(url)
+    if not key:
+        return
+
+    try:
+        client = _s3_client()
+        bucket = settings.storage_private_bucket if storage_key else settings.storage_bucket
+        obj = client.get_object(Bucket=bucket, Key=key)
+        content = obj["Body"].read()
+    except Exception:
+        return
+
+    pii_kinds: list[str] = []
+    pii_status = "unknown"
+    if settings.ai_scan_enabled:
+        try:
+            result = classify_media_pii(content, mime)
+            pii_kinds = result["pii_kinds"]
+            pii_status = "detected" if pii_kinds else "none"
+        except Exception:
+            pass
+
+    with SessionLocal() as db:
+        row = db.get(VehicleEventDocument, doc_id)
+        if row:
+            row.pii_status = pii_status
+            row.pii_kinds = pii_kinds
+            db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Provenance helpers
+# ---------------------------------------------------------------------------
+
+_PROVENANCE_FIELDS = {
+    "event_date": "eventDate",
+    "cost_cents": "costCents",
+    "mileage": "mileage",
+    "shop_name": "shopName",
+    "fuel_gallons": "fuelGallons",
+    "fuel_price_cents": "fuelPriceCents",
+}
+
+
+def _compute_edited_fields(event: "VehicleEvent") -> list[str]:
+    """Compare saved event values against the stored scan_snapshot.
+    Returns the list of trust-relevant fields that differ."""
+    snap = event.scan_snapshot
+    if not snap:
+        return []
+    diffs: list[str] = []
+    for field, snap_key in _PROVENANCE_FIELDS.items():
+        snap_val = snap.get(snap_key)
+        saved_val = getattr(event, field, None)
+        if snap_val is None and saved_val is None:
+            continue
+        # Normalise for comparison
+        if field == "event_date":
+            snap_norm = str(snap_val).strip() if snap_val is not None else None
+            saved_norm = saved_val.isoformat() if saved_val is not None else None
+        elif field == "shop_name":
+            snap_norm = snap_val.strip().casefold() if isinstance(snap_val, str) else snap_val
+            saved_norm = saved_val.strip().casefold() if isinstance(saved_val, str) else saved_val
+        else:
+            snap_norm = snap_val
+            saved_norm = saved_val
+        if snap_norm != saved_norm:
+            diffs.append(field)
+    return diffs
+
+
+def _apply_provenance(event: "VehicleEvent", source: str, scan_snapshot: dict | None) -> None:
+    """Set / recompute provenance fields on a newly-created or updated event."""
+    if scan_snapshot is not None:
+        event.scan_snapshot = scan_snapshot
+    # Compute edited_fields against the stored snapshot
+    edited = _compute_edited_fields(event) if event.scan_snapshot else []
+    event.edited_fields = edited
+    if event.scan_snapshot:
+        event.source = "scan_edited" if edited else "scan"
+    else:
+        event.source = source if source in ("manual", "scan", "scan_edited") else "manual"
+
+
 def create_vehicle_event(
-    db: Session, vehicle: Vehicle, user: User, data: VehicleEventCreate
+    db: Session, vehicle: Vehicle, user: User, data: VehicleEventCreate,
+    background_tasks: "BackgroundTasks | None" = None,
 ) -> VehicleEventRead:
     assert_vehicle_owner(vehicle, user)
-    values = data.model_dump(exclude={"media"}, by_alias=False)
-    values.pop("documents", None)
+    values = data.model_dump(
+        exclude={"media", "documents", "source", "scan_snapshot"}, by_alias=False
+    )
     event = VehicleEvent(vehicle_id=vehicle.id, author_user_id=user.id, **values)
     db.add(event)
     db.flush()
+    # Apply provenance before commit so _compute_edited_fields sees the saved values
+    _apply_provenance(event, data.source, data.scan_snapshot)
+    new_media_rows: list[VehicleEventMedia] = []
     for index, media in enumerate(data.media):
-        db.add(
-            VehicleEventMedia(
-                vehicle_event_id=event.id,
-                sort_order=media.sort_order or index,
-                media_type=media.media_type,
-                url=media.url,
-                thumbnail_url=media.thumbnail_url,
-                width=media.width,
-                height=media.height,
-            )
+        sk = _object_key_from_url(media.url)
+        m_row = VehicleEventMedia(
+            vehicle_event_id=event.id,
+            sort_order=media.sort_order or index,
+            media_type=media.media_type,
+            url=media.url,
+            thumbnail_url=media.thumbnail_url,
+            width=media.width,
+            height=media.height,
+            storage_key=sk,
         )
+        db.add(m_row)
+        new_media_rows.append(m_row)
+    new_doc_rows: list[VehicleEventDocument] = []
     for index, doc in enumerate(data.documents):
-        db.add(
-            VehicleEventDocument(
-                vehicle_event_id=event.id,
-                sort_order=doc.sort_order or index,
-                url=doc.url,
-                filename=doc.filename,
-                content_type=doc.content_type,
-            )
+        sk = _object_key_from_url(doc.url)
+        d_row = VehicleEventDocument(
+            vehicle_event_id=event.id,
+            sort_order=doc.sort_order or index,
+            url=doc.url,
+            filename=doc.filename,
+            content_type=doc.content_type,
+            storage_key=sk,
         )
+        db.add(d_row)
+        new_doc_rows.append(d_row)
+    db.flush()
+    # Capture IDs before commit for background tasks
+    bg_media = [(m.id, m.url, m.storage_key, m.media_type) for m in new_media_rows]
+    bg_docs = [(d.id, d.url, d.storage_key, d.content_type) for d in new_doc_rows]
     db.commit()
+    # Schedule background tasks for privacy processing
+    if background_tasks is not None:
+        for mid, murl, msk, mime in bg_media:
+            # Treat image media_type as image/jpeg for MIME detection
+            _mime = "image/jpeg" if mime == "image" else mime
+            background_tasks.add_task(_process_event_media_bg, mid, murl, msk, _mime)
+        for did, durl, dsk, dctype in bg_docs:
+            background_tasks.add_task(_process_event_doc_bg, did, durl, dsk, dctype)
     event_orm = get_vehicle_event_or_404(db, event.id, user)
     periods = _load_ownerships(db, vehicle.id)
     return _enrich_event(event_orm, periods, vehicle.owner_user_id, user)
@@ -925,7 +1253,11 @@ def get_vehicle_event_read(
 
 
 def update_vehicle_event(
-    db: Session, event: VehicleEvent, user: User, data: VehicleEventUpdate
+    db: Session,
+    event: VehicleEvent,
+    user: User,
+    data: VehicleEventUpdate,
+    background_tasks: "BackgroundTasks | None" = None,
 ) -> VehicleEventRead:
     if event.vehicle.owner_user_id != user.id:
         raise HTTPException(status_code=403, detail="You do not own this vehicle")
@@ -938,39 +1270,60 @@ def update_vehicle_event(
     payload.pop("documents", None)
     for key, value in payload.items():
         setattr(event, key, value)
+    new_media_rows: list[VehicleEventMedia] = []
     if media_provided:
-        # Replace the event's media with the supplied set.
+        # Delete old storage objects, then delete the rows.
         for existing in list(event.media):
+            _delete_event_media_storage(existing)
             db.delete(existing)
         db.flush()
         for index, media in enumerate(data.media or []):
-            db.add(
-                VehicleEventMedia(
-                    vehicle_event_id=event.id,
-                    sort_order=media.sort_order or index,
-                    media_type=media.media_type,
-                    url=media.url,
-                    thumbnail_url=media.thumbnail_url,
-                    width=media.width,
-                    height=media.height,
-                )
+            sk = _object_key_from_url(media.url)
+            m_row = VehicleEventMedia(
+                vehicle_event_id=event.id,
+                sort_order=media.sort_order or index,
+                media_type=media.media_type,
+                url=media.url,
+                thumbnail_url=media.thumbnail_url,
+                width=media.width,
+                height=media.height,
+                storage_key=sk,
             )
+            db.add(m_row)
+            new_media_rows.append(m_row)
+    new_doc_rows: list[VehicleEventDocument] = []
     if documents_provided:
-        # Replace the event's documents with the supplied set.
         for existing in list(event.documents):
+            _delete_event_doc_storage(existing)
             db.delete(existing)
         db.flush()
         for index, doc in enumerate(data.documents or []):
-            db.add(
-                VehicleEventDocument(
-                    vehicle_event_id=event.id,
-                    sort_order=doc.sort_order or index,
-                    url=doc.url,
-                    filename=doc.filename,
-                    content_type=doc.content_type,
-                )
+            sk = _object_key_from_url(doc.url)
+            d_row = VehicleEventDocument(
+                vehicle_event_id=event.id,
+                sort_order=doc.sort_order or index,
+                url=doc.url,
+                filename=doc.filename,
+                content_type=doc.content_type,
+                storage_key=sk,
             )
+            db.add(d_row)
+            new_doc_rows.append(d_row)
+    if new_media_rows or new_doc_rows:
+        db.flush()
+    # Recompute provenance if the event was scan-sourced
+    if event.scan_snapshot:
+        _apply_provenance(event, event.source, None)  # snapshot unchanged, re-diff
+    # Capture IDs for background tasks
+    bg_media = [(m.id, m.url, m.storage_key, m.media_type) for m in new_media_rows]
+    bg_docs = [(d.id, d.url, d.storage_key, d.content_type) for d in new_doc_rows]
     db.commit()
+    if background_tasks is not None:
+        for mid, murl, msk, mime in bg_media:
+            _mime = "image/jpeg" if mime == "image" else mime
+            background_tasks.add_task(_process_event_media_bg, mid, murl, msk, _mime)
+        for did, durl, dsk, dctype in bg_docs:
+            background_tasks.add_task(_process_event_doc_bg, did, durl, dsk, dctype)
     # expire_on_commit is off, so refresh the (now stale) collections.
     expired = [rel for rel, provided in (("media", media_provided), ("documents", documents_provided)) if provided]
     if expired:
@@ -987,6 +1340,78 @@ def delete_vehicle_event(db: Session, event: VehicleEvent, user: User) -> None:
         raise HTTPException(status_code=403, detail="You did not create this event")
     event.deleted_at = datetime.now(UTC)
     db.commit()
+
+
+def toggle_event_media_public(
+    db: Session, media_id: str, is_public: bool, user: User
+) -> "EventMediaRead":
+    """Toggle is_public on a VehicleEventMedia row. Owner only.
+    Raises 409 if pii_status != 'none' when attempting to make public."""
+    from sqlalchemy.orm import selectinload as _sil
+    row = db.scalar(
+        select(VehicleEventMedia)
+        .options(
+            _sil(VehicleEventMedia.event).options(
+                _sil(VehicleEvent.vehicle)
+            )
+        )
+        .where(VehicleEventMedia.id == media_id)
+    )
+    if not row or not row.event or not row.event.vehicle:
+        raise HTTPException(status_code=404, detail="Event media not found")
+    if row.event.vehicle.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    if is_public and row.pii_status != "none":
+        raise HTTPException(status_code=409, detail="Locked private: contains personal info")
+    if is_public and not row.is_public:
+        # Copy to public bucket so the public URL is accessible
+        if row.storage_key:
+            try:
+                _copy_to_public_bucket(row.storage_key)
+            except Exception:
+                pass
+    elif not is_public and row.is_public:
+        # Remove the public copy
+        if row.storage_key:
+            _delete_from_public_bucket(row.storage_key)
+    row.is_public = is_public
+    db.commit()
+    return _event_media_read(row, is_owner=True)
+
+
+def toggle_event_document_public(
+    db: Session, doc_id: str, is_public: bool, user: User
+) -> "EventDocumentRead":
+    """Toggle is_public on a VehicleEventDocument row. Owner only.
+    Raises 409 if pii_status != 'none' when attempting to make public."""
+    from sqlalchemy.orm import selectinload as _sil
+    row = db.scalar(
+        select(VehicleEventDocument)
+        .options(
+            _sil(VehicleEventDocument.event).options(
+                _sil(VehicleEvent.vehicle)
+            )
+        )
+        .where(VehicleEventDocument.id == doc_id)
+    )
+    if not row or not row.event or not row.event.vehicle:
+        raise HTTPException(status_code=404, detail="Event document not found")
+    if row.event.vehicle.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    if is_public and row.pii_status != "none":
+        raise HTTPException(status_code=409, detail="Locked private: contains personal info")
+    if is_public and not row.is_public:
+        if row.storage_key:
+            try:
+                _copy_to_public_bucket(row.storage_key)
+            except Exception:
+                pass
+    elif not is_public and row.is_public:
+        if row.storage_key:
+            _delete_from_public_bucket(row.storage_key)
+    row.is_public = is_public
+    db.commit()
+    return _event_doc_read(row, is_owner=True)
 
 
 def create_vehicle_mod(
@@ -1234,9 +1659,31 @@ def build_upload_url(data: UploadUrlRequest) -> UploadUrlResponse:
     )
 
 
-def store_upload(content: bytes, content_type: str, filename: str, purpose: str) -> tuple[str, str]:
-    """Upload bytes to object storage server-side and return (public_url, object_key).
+def _ensure_private_bucket() -> None:
+    """Create the private bucket if it doesn't exist (best-effort, local dev only)."""
+    settings = get_settings()
+    client = _s3_client()
+    try:
+        client.head_bucket(Bucket=settings.storage_private_bucket)
+    except Exception:
+        try:
+            client.create_bucket(Bucket=settings.storage_private_bucket)
+        except Exception:
+            pass
 
+
+def store_upload(
+    content: bytes,
+    content_type: str,
+    filename: str,
+    purpose: str,
+    private: bool = False,
+) -> tuple[str, str]:
+    """Upload bytes to object storage server-side and return (url, object_key).
+
+    When private=True, uploads to the private bucket. The returned url is a
+    relative path usable as a storage reference; callers that need an accessible
+    URL for private objects must generate a presigned URL separately.
     Unlike build_upload_url (which hands a presigned URL to the browser), this
     streams the file through the API, so it works when the browser cannot reach
     the storage host directly.
@@ -1245,13 +1692,91 @@ def store_upload(content: bytes, content_type: str, filename: str, purpose: str)
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
     object_key = f"{purpose}/{uuid.uuid4()}.{extension}"
     client = _s3_client()
+    bucket = settings.storage_private_bucket if private else settings.storage_bucket
+    if private:
+        _ensure_private_bucket()
     client.put_object(
-        Bucket=settings.storage_bucket,
+        Bucket=bucket,
         Key=object_key,
         Body=content,
         ContentType=content_type,
     )
-    return f"{settings.public_media_base_url}/{object_key}", object_key
+    # Private objects: return a relative URL (not directly accessible)
+    # Public objects: return the full public URL
+    if private:
+        url = f"/media/{object_key}"
+    else:
+        url = f"{settings.public_media_base_url}/{object_key}"
+    return url, object_key
+
+
+def generate_private_read_url(storage_key: str, expiry: int = 3600) -> str:
+    """Generate a presigned GET URL for a private bucket object."""
+    settings = get_settings()
+    return _s3_client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.storage_private_bucket, "Key": storage_key},
+        ExpiresIn=expiry,
+    )
+
+
+def _copy_to_public_bucket(storage_key: str) -> None:
+    """Copy an object from the private bucket to the public bucket."""
+    settings = get_settings()
+    client = _s3_client()
+    client.copy_object(
+        CopySource={"Bucket": settings.storage_private_bucket, "Key": storage_key},
+        Bucket=settings.storage_bucket,
+        Key=storage_key,
+    )
+
+
+def _delete_from_public_bucket(storage_key: str) -> None:
+    """Delete an object from the public bucket (best-effort)."""
+    settings = get_settings()
+    try:
+        _s3_client().delete_object(Bucket=settings.storage_bucket, Key=storage_key)
+    except Exception:
+        pass
+
+
+def _delete_from_private_bucket(storage_key: str) -> None:
+    """Delete an object from the private bucket (best-effort)."""
+    settings = get_settings()
+    try:
+        _s3_client().delete_object(Bucket=settings.storage_private_bucket, Key=storage_key)
+    except Exception:
+        pass
+
+
+def _delete_event_media_storage(m: "VehicleEventMedia") -> None:
+    """Best-effort delete of all storage objects for an event media row."""
+    if m.storage_key:
+        _delete_from_private_bucket(m.storage_key)
+        if m.is_public:
+            _delete_from_public_bucket(m.storage_key)
+    if m.blur_url:
+        blur_key = _object_key_from_url(m.blur_url)
+        if blur_key:
+            try:
+                _s3_client().delete_object(Bucket=get_settings().storage_bucket, Key=blur_key)
+            except Exception:
+                pass
+
+
+def _delete_event_doc_storage(d: "VehicleEventDocument") -> None:
+    """Best-effort delete of all storage objects for an event document row."""
+    if d.storage_key:
+        _delete_from_private_bucket(d.storage_key)
+        if d.is_public:
+            _delete_from_public_bucket(d.storage_key)
+    if d.blur_url:
+        blur_key = _object_key_from_url(d.blur_url)
+        if blur_key:
+            try:
+                _s3_client().delete_object(Bucket=get_settings().storage_bucket, Key=blur_key)
+            except Exception:
+                pass
 
 
 # --- Vehicle make/model/year catalog (standardized dropdowns) -----------------

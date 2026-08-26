@@ -15,12 +15,12 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { mediaUrl, postApi, uploadImage, userApi, type Media, type Vehicle } from "@/lib/api";
+import { mediaUrl, postApi, uploadImage, userApi, type PostMedia, type Vehicle } from "@/lib/api";
 
 export default function NewPostScreen() {
   const router = useRouter();
   const [caption, setCaption] = useState("");
-  const [media, setMedia] = useState<Media[]>([]);
+  const [media, setMedia] = useState<PostMedia[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicles, setSelectedVehicles] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -50,7 +50,7 @@ export default function NewPostScreen() {
     try {
       for (const asset of result.assets) {
         const uploaded = await uploadImage(asset, "post_media");
-        setMedia((prev) => [...prev, uploaded]);
+        setMedia((prev) => [...prev, { url: uploaded.url, media_type: "image" }]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");

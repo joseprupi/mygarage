@@ -43,6 +43,7 @@ export type VehicleSummary = {
   cover_image_url?: string | null;
 };
 
+// Used for post/mod/gallery media (snake_case, public bucket).
 export type Media = {
   id?: string;
   url: string;
@@ -52,14 +53,53 @@ export type Media = {
   height?: number | null;
   duration_seconds?: number | null;
   sort_order?: number;
+  /** Client-only: object URL for in-form preview of private-bucket items. Never sent to API. */
+  localPreviewUrl?: string;
 };
 
+// API response shape for items in VehicleEvent.media (camelCase + privacy fields).
+export type EventMedia = {
+  id: string;
+  /** null for non-owners when the item is private. */
+  url: string | null;
+  /** Blurred placeholder image URL (always public). */
+  blurUrl: string | null;
+  isPublic: boolean;
+  piiStatus: "unknown" | "none" | "detected";
+  piiKinds: string[];
+  /** Whether the current viewer can see the full item. */
+  canView: boolean;
+  mediaType: "image" | "video";
+  thumbnailUrl: string | null;
+  sortOrder: number;
+  createdAt: string;
+};
+
+// Simple form-state type used in VehicleEventForm + DocumentUploader (upload flow).
 export type EventDocument = {
   id?: string;
   url: string;
   filename: string;
   content_type: string;
   sort_order?: number;
+};
+
+// API response shape for items in VehicleEvent.documents (camelCase + privacy fields).
+export type EventDocumentRead = {
+  id: string;
+  /** null for non-owners when the item is private. */
+  url: string | null;
+  /** Blurred placeholder image URL (always public). */
+  blurUrl: string | null;
+  isPublic: boolean;
+  piiStatus: "unknown" | "none" | "detected";
+  piiKinds: string[];
+  /** Whether the current viewer can see the full item. */
+  canView: boolean;
+  filename: string;
+  contentType: string;
+  sortOrder: number;
+  createdAt: string;
 };
 
 export type Post = {
@@ -113,8 +153,14 @@ export type VehicleEvent = {
   location?: string | null;
   tags?: string[];
   visibility: "public" | "private";
-  media: Media[];
-  documents: EventDocument[];
+  media: EventMedia[];
+  documents: EventDocumentRead[];
+  /** How the event was created: manual entry, scanned receipt, or scan that was then edited. */
+  source: "manual" | "scan" | "scan_edited";
+  /** Which trust fields were changed after a scan prefill (backend-computed). */
+  editedFields: string[];
+  /** Original scan output — owner-only; null for visitors. */
+  scanSnapshot: Record<string, unknown> | null;
   created_at: string;
   // Ownership attribution (camelCase — matches backend aliases)
   ownershipId: string | null;
