@@ -92,6 +92,14 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [x] (LIVE 2026-08-26) **Report** (post / comment / user / vehicle / event; reasons spam·harassment·inappropriate·privacy·other) + **Block** users (both directions hide feed posts + comments; blocked can't comment). `backend/scripts/list_reports.py` for the 24h-action store rule. Web + mobile UI.
 - [x] (LIVE 2026-08-26) **Password change / set** (Settings; passwordless Google/Apple accounts can set one) — web + mobile.
 
+## Receipt visibility — SIMPLIFIED MODEL (owner decision 2026-08-26, NEXT)
+Replace the propose/publish flow with one per-receipt setting.
+- At upload, every receipt image gets three versions automatically: **original** (private bucket), **redacted** (AI PII boxes blurred, public bucket), **placeholder** (fully blurred, public bucket) + `pii_kinds`.
+- One field `visibility: private | redacted | original` (default private). Visitors see the matching version; owner always sees the original.
+- Rules: `original` disabled while PII detected (shows "Contains: name, address, …"); `redacted` disabled until the copy exists ("Preparing…").
+- UI: 3-way segmented control on each receipt (web + mobile) + PII line; optional small "Adjust redaction" link → existing box editor (re-renders the redacted copy).
+- Backend: migration adds `visibility`, backfills from is_public/redaction_status; upload pipeline renders all three; `PATCH /vehicle-event-media/{id} {visibility}`; propose/publish endpoints removed (boxes PATCH kept). Backfill script generates redacted copies for existing rows.
+
 ## Receipt privacy & provenance (DEV 2026-08-26, not deployed — owner P0)
 - [x] Receipts/documents private by default, private bucket + presigned owner URLs, blurred "Receipt on file" placeholder for visitors.
 - [x] PII detection (Gemini) → locked private when detected; owner sees "Contains personal info: …" banner; "Visible to everyone" switch only when clean.
