@@ -44,9 +44,10 @@ export function MileageChart({ points, boundaries }: { points: Point[]; boundari
 
   // y ticks: min, mid, max (mid dropped when the line is flat).
   const yTicks = mMax === mMin ? [mMin] : [mMin, Math.round((mMin + mMax) / 2), mMax];
-  // x ticks: first, middle (when >=3 points), last — at real data points.
-  const xTickIdx =
-    sorted.length >= 3 ? [0, Math.floor((sorted.length - 1) / 2), sorted.length - 1] : [0, sorted.length - 1];
+  // x ticks: real data points, chosen by pixel spacing so labels never collide.
+  // Greedy left→right with a minimum gap; the last point always keeps its label
+  // (dropping a neighbour that would overlap it).
+  const xTickIdx = pickTickIndices(coords.map((c) => c.px), 64);
 
   return (
     <div className="surface rounded-2xl p-4">
@@ -108,4 +109,17 @@ export function MileageChart({ points, boundaries }: { points: Point[]; boundari
       </svg>
     </div>
   );
+}
+
+/** Indices of points whose labels fit: first, then any point ≥ minGap px after the last kept, last always. */
+function pickTickIndices(px: number[], minGap: number): number[] {
+  if (px.length <= 1) return px.length ? [0] : [];
+  const keep: number[] = [0];
+  for (let i = 1; i < px.length - 1; i++) {
+    if (px[i] - px[keep[keep.length - 1]] >= minGap) keep.push(i);
+  }
+  const last = px.length - 1;
+  while (keep.length > 1 && px[last] - px[keep[keep.length - 1]] < minGap) keep.pop();
+  if (keep[keep.length - 1] !== last) keep.push(last);
+  return keep;
 }

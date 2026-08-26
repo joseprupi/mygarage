@@ -63,8 +63,8 @@ export function MileageChart({
   const areaPts = `${coords[0].px},${baseY} ${linePts} ${coords[coords.length - 1].px},${baseY}`;
 
   const yTicks = mMax === mMin ? [mMin] : [mMin, Math.round((mMin + mMax) / 2), mMax];
-  const xTickIdx =
-    points.length >= 3 ? [0, Math.floor((points.length - 1) / 2), points.length - 1] : [0, points.length - 1];
+  // x ticks chosen by pixel spacing so labels never collide (last point always labelled).
+  const xTickIdx = pickTickIndices(coords.map((c) => c.px), 84);
 
   // Compute boundary lines that fall within the x-range
   const visibleBoundaries = (boundaries ?? [])
@@ -149,4 +149,17 @@ export function MileageChart({
       </Svg>
     </View>
   );
+}
+
+/** Indices of points whose labels fit: first, then any point ≥ minGap px after the last kept, last always. */
+function pickTickIndices(px: number[], minGap: number): number[] {
+  if (px.length <= 1) return px.length ? [0] : [];
+  const keep: number[] = [0];
+  for (let i = 1; i < px.length - 1; i++) {
+    if (px[i] - px[keep[keep.length - 1]] >= minGap) keep.push(i);
+  }
+  const last = px.length - 1;
+  while (keep.length > 1 && px[last] - px[keep[keep.length - 1]] < minGap) keep.pop();
+  if (keep[keep.length - 1] !== last) keep.push(last);
+  return keep;
 }

@@ -2499,6 +2499,19 @@ def _ownership_label_for_export(period: VehicleOwnership | None) -> str:
     return period.label or "Previous owner"
 
 
+def _read_object_any_bucket(client, key: str, *, prefer_private: bool) -> bytes:
+    """Read an object trying the private bucket first (receipts live there now), then the public one."""
+    settings = get_settings()
+    order = [settings.storage_private_bucket, settings.storage_bucket] if prefer_private else [settings.storage_bucket, settings.storage_private_bucket]
+    last_exc: Exception | None = None
+    for bucket in order:
+        try:
+            return client.get_object(Bucket=bucket, Key=key)["Body"].read()
+        except Exception as exc:  # noqa: BLE001 — fall through to the other bucket
+            last_exc = exc
+    raise last_exc or RuntimeError(f"object not found: {key}")
+
+
 def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> bytes:
     events = list_vehicle_events(db, vehicle, viewer)
     periods = _load_ownerships(db, vehicle.id)
@@ -2516,7 +2529,7 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
         for idx, event in enumerate(events, start=1):
             photo_files: list[str] = []
             for n, media in enumerate(event.media, start=1):
-                key = _object_key_from_url(media.url)
+                key = media.storage_key or _object_key_from_url(media.url)
                 if not key:
                     continue
                 ext = key.rsplit(".", 1)[-1] if "." in key else "jpg"
@@ -2525,14 +2538,13 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
                     f"{slugify(event.event_type)}_{slugify(event.title)}_{n}.{ext}"
                 )
                 try:
-                    obj = client.get_object(Bucket=settings.storage_bucket, Key=key)
-                    zf.writestr(f"images/{fname}", obj["Body"].read())
+                    zf.writestr(f"images/{fname}", _read_object_any_bucket(client, key, prefer_private=bool(media.storage_key)))
                     photo_files.append(fname)
                 except Exception:
                     continue
             doc_files: list[str] = []
             for n, doc in enumerate(event.documents, start=1):
-                key = _object_key_from_url(doc.url)
+                key = doc.storage_key or _object_key_from_url(doc.url)
                 if not key:
                     continue
                 ext = key.rsplit(".", 1)[-1] if "." in key else "pdf"
@@ -2541,8 +2553,7 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
                     f"{slugify(event.event_type)}_{slugify(event.title)}_{n}.{ext}"
                 )
                 try:
-                    obj = client.get_object(Bucket=settings.storage_bucket, Key=key)
-                    zf.writestr(f"documents/{fname}", obj["Body"].read())
+                    zf.writestr(f"documents/{fname}", _read_object_any_bucket(client, key, prefer_private=bool(doc.storage_key)))
                     doc_files.append(fname)
                 except Exception:
                     continue

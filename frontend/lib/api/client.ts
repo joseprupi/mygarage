@@ -2,6 +2,11 @@ import type { Comment, FeedPage, Post, PreviousVehicle, PublicUser, UserSettings
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
+/** Absolute-or-proxied URL for a backend path — use this for raw fetches (downloads) that bypass `api()`. */
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 function humanizeField(field: string): string {
   const spaced = field.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);

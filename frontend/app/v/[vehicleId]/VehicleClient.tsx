@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import React, { Suspense, use, useState } from "react";
 import { ChevronDown, ChevronUp, Download, ExternalLink, Pencil, Plus } from "lucide-react";
 
-import { eventApi, eventDocumentApi, eventMediaApi, getToken, modApi, ownershipApi, reportApi, transferApi, vehicleApi } from "@/lib/api/client";
+import { eventApi, eventDocumentApi, eventMediaApi, getToken, modApi, ownershipApi, reportApi, transferApi, vehicleApi, apiUrl } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
@@ -431,7 +431,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     setExportError(null);
     try {
       const token = getToken();
-      const res = await fetch(`/api/vehicles/${vehicleId}/history/export`, {
+      const res = await fetch(apiUrl(`/vehicles/${vehicleId}/history/export`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
