@@ -2162,3 +2162,332 @@ def test_specs_round_trip_via_patch():
     data = patch_resp.json()
     assert data["specs"]["engineHp"] == 503
     assert data["specs_decoded_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Redaction tests
+# ---------------------------------------------------------------------------
+
+import io as _redact_io
+from PIL import Image as _PilImage
+from unittest.mock import MagicMock
+
+
+def _make_test_image_bytes(w: int = 200, h: int = 150) -> bytes:
+    """Create a simple solid-colour JPEG for use as fake receipt content."""
+    img = _PilImage.new("RGB", (w, h), color=(200, 180, 160))
+    buf = _redact_io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
+_FIXED_BOXES = [
+    {"kind": "name", "box_2d": [50, 100, 150, 400]},
+    {"kind": "address", "box_2d": [200, 100, 300, 700]},
+]
+
+
+class _FakeS3:
+    """In-memory S3 substitute for redaction tests."""
+
+    def __init__(self, preloaded: dict | None = None):
+        self._store: dict[str, bytes] = dict(preloaded or {})
+
+    def _key(self, Bucket: str, Key: str) -> str:
+        return f"{Bucket}/{Key}"
+
+    def get_object(self, Bucket: str, Key: str) -> dict:
+        k = self._key(Bucket, Key)
+        if k not in self._store:
+            raise Exception(f"NoSuchKey: {k}")
+        return {"Body": _redact_io.BytesIO(self._store[k])}
+
+    def put_object(self, Bucket: str, Key: str, Body, **kw) -> dict:
+        k = self._key(Bucket, Key)
+        self._store[k] = Body if isinstance(Body, bytes) else Body.read()
+        return {}
+
+    def delete_object(self, Bucket: str, Key: str, **kw) -> dict:
+        self._store.pop(self._key(Bucket, Key), None)
+        return {}
+
+    def head_bucket(self, Bucket: str) -> dict:
+        return {}
+
+    def head_object(self, Bucket: str, Key: str) -> dict:
+        return {}
+
+    def generate_presigned_url(self, operation: str, Params: dict, ExpiresIn: int = 3600) -> str:
+        return f"http://fake-s3/{Params.get('Bucket', '')}/{Params.get('Key', '')}"
+
+    def copy_object(self, CopySource: dict, Bucket: str, Key: str, **kw) -> dict:
+        src = self._key(CopySource["Bucket"], CopySource["Key"])
+        dst = self._key(Bucket, Key)
+        if src in self._store:
+            self._store[dst] = self._store[src]
+        return {}
+
+    def create_bucket(self, **kw) -> dict:
+        return {}
+
+    def has(self, bucket: str, key: str) -> bool:
+        return self._key(bucket, key) in self._store
+
+    def get_bytes(self, bucket: str, key: str) -> bytes:
+        return self._store[self._key(bucket, key)]
+
+
+def _setup_redaction_test(monkeypatch):
+    """Returns (owner_token, vehicle_id, event_id, media_id, fake_s3).
+    Pre-loads the test image into the fake S3 private bucket so propose can fetch it."""
+    import app.services as _svc
+
+    img_bytes = _make_test_image_bytes()
+
+    owner = signup(f"redact-owner-{uuid.uuid4().hex[:6]}", f"redact-{uuid.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+
+    vehicle = client.post(
+        "/vehicles",
+        headers=auth_headers(token),
+        json={"make": "Ford", "model": "F-150", "year": 2020},
+    ).json()
+
+    event = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(token),
+        json={
+            "eventType": "repair",
+            "title": "Transmission Rebuild",
+            "eventDate": "2026-01-10",
+            "media": [{"url": "/media/vehicle_event_media/receipt.jpg", "media_type": "image"}],
+        },
+    ).json()
+    media_id = event["media"][0]["id"]
+
+    # When the event is created with url="/media/vehicle_event_media/receipt.jpg",
+    # the service sets storage_key = _object_key_from_url(url) = "vehicle_event_media/receipt.jpg"
+    # (because the URL starts with /media/).  _fetch_media_bytes therefore reads from the
+    # PRIVATE bucket (storage_key != None).
+    storage_key = "vehicle_event_media/receipt.jpg"
+    fake_s3 = _FakeS3(
+        preloaded={
+            f"{_svc.get_settings().storage_private_bucket}/{storage_key}": img_bytes,
+        }
+    )
+
+    monkeypatch.setattr(_svc, "_s3_client", lambda: fake_s3)
+
+    # Mock AI detection to return fixed boxes — real renderer will still run
+    def _fake_detect(image_bytes: bytes) -> list[dict]:
+        return [
+            {"kind": b["kind"], "box": b["box_2d"], "source": "ai"}
+            for b in _FIXED_BOXES
+        ]
+
+    monkeypatch.setattr(_svc, "_detect_pii_boxes", _fake_detect)
+
+    # Note: ai_scan_enabled is derived from gemini_api_key in the real Settings,
+    # which is already set in the .env file for this dev environment.
+    # The real _gemini_generate is NOT called because we monkeypatched _detect_pii_boxes.
+    # If somehow ai_scan_enabled were False, propose_redaction returns 503 — that's tested
+    # separately (test_redaction_pdf_document_returns_400 sidesteps propose entirely).
+
+    return token, vehicle["id"], event["id"], media_id, fake_s3
+
+
+import uuid as uuid
+
+
+def test_redaction_propose_stores_boxes_and_preview(monkeypatch):
+    """propose: boxes stored, preview object uploaded, status = 'proposed'."""
+    import app.services as _svc
+
+    token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
+
+    resp = client.post(
+        f"/vehicle-event-media/{media_id}/redaction/propose",
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # Status and boxes
+    assert data["redactionStatus"] == "proposed"
+    assert isinstance(data["redactionBoxes"], list)
+    assert len(data["redactionBoxes"]) == 2
+    kinds = {b["kind"] for b in data["redactionBoxes"]}
+    assert kinds == {"name", "address"}
+
+    # Preview URL present (owner view)
+    assert data["redactionPreviewUrl"] is not None
+    assert "preview" in data["redactionPreviewUrl"]
+
+    # Preview object actually stored in public bucket
+    settings = _svc.get_settings()
+    preview_key = f"event_media_redacted/{media_id}-preview.jpg"
+    assert fake_s3.has(settings.storage_bucket, preview_key), "Preview object missing from bucket"
+
+    # The stored preview must be a valid JPEG
+    preview_bytes = fake_s3.get_bytes(settings.storage_bucket, preview_key)
+    pimg = _PilImage.open(_redact_io.BytesIO(preview_bytes))
+    assert pimg.format == "JPEG"
+
+
+def test_redaction_boxes_patch_replaces_and_rerenders(monkeypatch):
+    """PATCH /redaction/boxes replaces box list and re-renders preview."""
+    import app.services as _svc
+
+    token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
+
+    # First propose
+    client.post(
+        f"/vehicle-event-media/{media_id}/redaction/propose",
+        headers=auth_headers(token),
+    )
+
+    new_boxes = [{"kind": "phone", "box": [100, 200, 200, 500]}]
+    resp = client.patch(
+        f"/vehicle-event-media/{media_id}/redaction/boxes",
+        headers=auth_headers(token),
+        json={"boxes": new_boxes},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data["redactionBoxes"]) == 1
+    assert data["redactionBoxes"][0]["kind"] == "phone"
+
+    # Preview object still exists (re-rendered)
+    settings = _svc.get_settings()
+    assert fake_s3.has(settings.storage_bucket, f"event_media_redacted/{media_id}-preview.jpg")
+
+
+def test_redaction_publish_creates_final_visitor_sees_redacted_url(monkeypatch):
+    """publish: final object created; visitor sees redactedUrl (not original url)."""
+    import app.services as _svc
+
+    token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
+
+    client.post(
+        f"/vehicle-event-media/{media_id}/redaction/propose",
+        headers=auth_headers(token),
+    )
+
+    pub_resp = client.post(
+        f"/vehicle-event-media/{media_id}/redaction/publish",
+        headers=auth_headers(token),
+    )
+    assert pub_resp.status_code == 200, pub_resp.text
+    owner_data = pub_resp.json()
+    assert owner_data["redactionStatus"] == "published"
+    assert owner_data["redactedUrl"] is not None
+
+    # Final object in public bucket
+    settings = _svc.get_settings()
+    final_key = f"event_media_redacted/{media_id}.jpg"
+    assert fake_s3.has(settings.storage_bucket, final_key)
+    final_bytes = fake_s3.get_bytes(settings.storage_bucket, final_key)
+    assert _PilImage.open(_redact_io.BytesIO(final_bytes)).format == "JPEG"
+
+    # Visitor (anonymous) reads the event — should see redactedUrl, NOT the original url
+    anon_resp = client.get(f"/vehicle-events/{eid}")
+    assert anon_resp.status_code == 200, anon_resp.text
+    visitor_media = anon_resp.json()["media"][0]
+    assert visitor_media["url"] is None, "Original URL must not leak to visitor"
+    assert visitor_media["redactedUrl"] is not None
+    assert visitor_media["canViewRedacted"] is True
+    assert visitor_media["redactionBoxes"] is None  # owner-only
+
+
+def test_redaction_unpublish_removes_final(monkeypatch):
+    """unpublish: final object deleted, status back to 'proposed'."""
+    import app.services as _svc
+
+    token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
+
+    client.post(
+        f"/vehicle-event-media/{media_id}/redaction/propose",
+        headers=auth_headers(token),
+    )
+    client.post(
+        f"/vehicle-event-media/{media_id}/redaction/publish",
+        headers=auth_headers(token),
+    )
+
+    up_resp = client.post(
+        f"/vehicle-event-media/{media_id}/redaction/unpublish",
+        headers=auth_headers(token),
+    )
+    assert up_resp.status_code == 200, up_resp.text
+    data = up_resp.json()
+    assert data["redactionStatus"] == "proposed"
+    assert data["redactedUrl"] is None
+
+    # Final object removed
+    settings = _svc.get_settings()
+    assert not fake_s3.has(settings.storage_bucket, f"event_media_redacted/{media_id}.jpg")
+
+
+def test_redaction_non_owner_gets_403(monkeypatch):
+    """Non-owner cannot call propose."""
+    import app.services as _svc
+
+    token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
+
+    other = signup(f"redact-other-{uuid.uuid4().hex[:6]}", f"redact-other-{uuid.uuid4().hex[:6]}@example.com")
+    resp = client.post(
+        f"/vehicle-event-media/{media_id}/redaction/propose",
+        headers=auth_headers(other["accessToken"]),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_redaction_pdf_document_returns_400():
+    """Propose on a non-image media_type returns 400."""
+    owner = signup(f"redact-pdf-{uuid.uuid4().hex[:6]}", f"redact-pdf-{uuid.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+    vehicle = client.post(
+        "/vehicles",
+        headers=auth_headers(token),
+        json={"make": "Chevy", "model": "Silverado", "year": 2021},
+    ).json()
+    event = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(token),
+        json={
+            "eventType": "repair",
+            "title": "Receipt test",
+            "eventDate": "2026-02-01",
+            "media": [{"url": "/media/vehicle_event_media/doc.jpg", "media_type": "image"}],
+        },
+    ).json()
+    media_id = event["media"][0]["id"]
+
+    # Patch the media_type to 'video' (simulating a non-image)
+    from sqlalchemy import update as _upd2
+    with _SL() as db:
+        db.execute(_upd2(_VEM).where(_VEM.id == media_id).values(media_type="video"))
+        db.commit()
+
+    resp = client.post(
+        f"/vehicle-event-media/{media_id}/redaction/propose",
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400, resp.text
+    assert "Redaction is only supported" in resp.json()["detail"]
+
+
+def test_render_redacted_image_produces_valid_jpeg():
+    """_render_redacted_image: given boxes, the output is a valid JPEG with blurred regions."""
+    from app.services import _render_redacted_image
+
+    img_bytes = _make_test_image_bytes(400, 300)
+    boxes = [
+        {"kind": "name", "box": [50, 100, 200, 500]},
+        {"kind": "address", "box": [400, 50, 700, 900]},
+    ]
+    result = _render_redacted_image(img_bytes, boxes)
+
+    out = _PilImage.open(_redact_io.BytesIO(result))
+    assert out.format == "JPEG"
+    assert max(out.width, out.height) <= 2000

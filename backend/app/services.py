@@ -699,6 +699,30 @@ def _resolve_event_doc_url(d: VehicleEventDocument, is_owner: bool) -> str | Non
 def _event_media_read(m: VehicleEventMedia, is_owner: bool) -> EventMediaRead:
     """Build a visibility-aware EventMediaRead. Non-owners only see private items' blur."""
     can_view = is_owner or m.is_public
+    settings = get_settings()
+
+    # Redaction status — default 'none' for rows that predate migration
+    redaction_status: str = getattr(m, "redaction_status", None) or "none"
+    raw_redacted_url: str | None = getattr(m, "redacted_url", None)
+
+    # Owner sees all redaction details; visitor only sees published redacted URL
+    if is_owner:
+        out_redaction_status: str | None = redaction_status
+        out_redaction_boxes: list | None = getattr(m, "redaction_boxes", None)
+        out_redacted_url: str | None = raw_redacted_url
+        out_redaction_preview_url: str | None = (
+            f"{settings.public_media_base_url}/event_media_redacted/{m.id}-preview.jpg"
+            if redaction_status in ("proposed", "published")
+            else None
+        )
+        out_can_view_redacted = False
+    else:
+        out_redaction_status = None
+        out_redaction_boxes = None
+        out_redacted_url = raw_redacted_url if redaction_status == "published" else None
+        out_redaction_preview_url = None
+        out_can_view_redacted = redaction_status == "published"
+
     return EventMediaRead(
         id=m.id,
         url=_resolve_event_media_url(m, is_owner),
@@ -713,6 +737,11 @@ def _event_media_read(m: VehicleEventMedia, is_owner: bool) -> EventMediaRead:
         blur_url=m.blur_url,
         can_view=can_view,
         created_at=m.created_at,
+        redaction_status=out_redaction_status,
+        redaction_boxes=out_redaction_boxes,
+        redacted_url=out_redacted_url,
+        redaction_preview_url=out_redaction_preview_url,
+        can_view_redacted=out_can_view_redacted,
     )
 
 
@@ -1936,6 +1965,8 @@ def _delete_event_media_storage(m: "VehicleEventMedia") -> None:
                 _s3_client().delete_object(Bucket=get_settings().storage_bucket, Key=blur_key)
             except Exception:
                 pass
+    # Delete redacted preview and published final objects (best-effort)
+    _delete_redaction_objects(m.id, getattr(m, "redacted_url", None))
 
 
 def _delete_event_doc_storage(d: "VehicleEventDocument") -> None:
@@ -2447,6 +2478,36 @@ def _safe_float(val: str | None) -> float | None:
         return None
 
 
+_DRIVE_TYPE_MAP = {
+    "4WD/4-Wheel Drive/4x4": "4WD",
+    "AWD/All-Wheel Drive": "AWD",
+    "RWD/Rear-Wheel Drive": "RWD",
+    "FWD/Front-Wheel Drive": "FWD",
+    "4x2": "2WD",
+    "2WD/4WD": "2WD/4WD",
+}
+
+
+def _friendly_drive_type(value: str | None) -> str | None:
+    """vPIC returns strings like '4WD/4-Wheel Drive/4x4'; keep the short form."""
+    v = (value or "").strip()
+    if not v:
+        return None
+    return _DRIVE_TYPE_MAP.get(v) or v.split("/", 1)[0].strip()
+
+
+def _friendly_body_class(value: str | None) -> str | None:
+    """'Sport Utility Vehicle [SUV]/Multipurpose Vehicle [MPV]' → 'SUV'; 'Sedan/Saloon' → 'Sedan'."""
+    import re as _re
+    v = (value or "").strip()
+    if not v:
+        return None
+    m = _re.search(r"\[([A-Z]{2,5})\]", v)
+    if m:
+        return m.group(1)
+    return _re.sub(r"\s*\[.*?\]", "", v.split("/", 1)[0]).strip() or None
+
+
 def decode_vin(vin: str) -> VinDecodeResult:
     """Decode a 17-char VIN via NHTSA vPIC. Raises 422 for invalid VINs, 502 on network error.
     Results are cached in-process (max 500 entries) since VIN→specs is immutable.
@@ -2499,8 +2560,8 @@ def decode_vin(vin: str) -> VinDecodeResult:
         model=model_out,
         trim=trim,
         **{
-            "bodyClass": raw.get("BodyClass", "").strip() or None,
-            "driveType": raw.get("DriveType", "").strip() or None,
+            "bodyClass": _friendly_body_class(raw.get("BodyClass", "")),
+            "driveType": _friendly_drive_type(raw.get("DriveType", "")),
             "engineCylinders": _safe_int(raw.get("EngineCylinders")),
             "displacementL": _safe_float(raw.get("DisplacementL")),
             "engineHp": _safe_int(raw.get("EngineHP")),
@@ -2906,17 +2967,22 @@ printed fuel receipt) and a photo of the car's ODOMETER (mileage).
 - confidence: low if displays are blurry/unreadable; explain in notes."""
 
 
-def _gemini_generate(parts: list[dict], prompt: str, schema: dict) -> dict:
+def _gemini_generate(
+    parts: list[dict], prompt: str, schema: dict, temperature: float | None = None
+) -> dict:
     """One Gemini generateContent call with a JSON response schema. Raises RuntimeError."""
     settings = get_settings()
     if not settings.ai_scan_enabled:
         raise RuntimeError("AI scan is not configured")
+    gen_config: dict = {
+        "response_mime_type": "application/json",
+        "response_schema": schema,
+    }
+    if temperature is not None:
+        gen_config["temperature"] = temperature
     body = {
         "contents": [{"parts": [*parts, {"text": prompt}]}],
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": schema,
-        },
+        "generationConfig": gen_config,
     }
     try:
         response = httpx.post(
@@ -2941,6 +3007,340 @@ def _inline_parts(files: list[tuple[bytes, str]]) -> list[dict]:
         {"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode()}}
         for data, mime in files
     ]
+
+
+# ---------------------------------------------------------------------------
+# PII bounding-box detection + redaction rendering
+# ---------------------------------------------------------------------------
+
+_PII_BOX_SCHEMA: dict = {
+    "type": "OBJECT",
+    "properties": {
+        "boxes": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "kind": {
+                        "type": "STRING",
+                        "enum": [
+                            "name", "address", "phone", "email", "license_number",
+                            "signature", "vin", "plate", "payment_card", "other",
+                        ],
+                    },
+                    "box_2d": {
+                        "type": "ARRAY",
+                        "items": {"type": "INTEGER"},
+                    },
+                    "text": {"type": "STRING", "nullable": True},
+                },
+                "required": ["kind", "box_2d"],
+            },
+        },
+    },
+    "required": ["boxes"],
+}
+
+_PII_BOX_PROMPT = (
+    "Find every piece of PERSONAL information about a private individual that is visibly "
+    "present in this image: person names, home/street addresses, personal phone numbers, "
+    "personal email addresses, driver's license or government ID numbers, handwritten "
+    "signatures, VINs, license plate numbers, payment card numbers. "
+    "Do NOT include the business's own name, business address, or business phone number — "
+    "those are not personal PII. "
+    "For each item found, provide its bounding box as [ymin, xmin, ymax, xmax] on a "
+    "0-1000 scale (0=top/left edge, 1000=bottom/right edge of the image). "
+    "One box per distinct occurrence. Return an empty boxes array if no personal PII is found."
+)
+
+
+def _detect_pii_boxes(image_bytes: bytes) -> list[dict]:
+    """Detect PII bounding boxes using Gemini.
+    Returns list of {kind, box:[ymin,xmin,ymax,xmax] 0-1000, source:'ai'}.
+    Raises RuntimeError if AI disabled or the call fails."""
+    import io as _io
+    from PIL import Image, ImageOps
+
+    # EXIF-transpose and downscale to max 1600px before sending to Gemini
+    img = Image.open(_io.BytesIO(image_bytes))
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    max_dim = 1600
+    w, h = img.size
+    if max(w, h) > max_dim:
+        ratio = max_dim / max(w, h)
+        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+
+    out = _io.BytesIO()
+    img.save(out, format="JPEG", quality=90)
+    small_bytes = out.getvalue()
+
+    raw = _gemini_generate(
+        _inline_parts([(small_bytes, "image/jpeg")]),
+        _PII_BOX_PROMPT,
+        _PII_BOX_SCHEMA,
+        temperature=0,
+    )
+
+    results: list[dict] = []
+    for item in raw.get("boxes") or []:
+        kind = item.get("kind")
+        box_2d = item.get("box_2d") or []
+        if kind and len(box_2d) == 4:
+            try:
+                results.append({
+                    "kind": kind,
+                    "box": [int(v) for v in box_2d],
+                    "source": "ai",
+                })
+            except (ValueError, TypeError):
+                pass
+    return results
+
+
+def _render_redacted_image(image_bytes: bytes, boxes: list[dict]) -> bytes:
+    """EXIF-transpose the image, apply GaussianBlur + grey outline to each PII box.
+    Saves JPEG quality=85, max 2000px longest side."""
+    import io as _io
+    from PIL import Image, ImageDraw, ImageFilter, ImageOps
+
+    img = Image.open(_io.BytesIO(image_bytes))
+    try:
+        img = ImageOps.exif_transpose(img)
+    except Exception:
+        pass
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
+    orig_w, orig_h = img.size
+
+    for box_info in boxes:
+        box = box_info.get("box") or []
+        if len(box) != 4:
+            continue
+        ymin, xmin, ymax, xmax = box
+        # Convert from 0-1000 scale to pixel coordinates
+        x0 = int(xmin / 1000 * orig_w)
+        y0 = int(ymin / 1000 * orig_h)
+        x1 = int(xmax / 1000 * orig_w)
+        y1 = int(ymax / 1000 * orig_h)
+        # Add ~0.5% margin
+        margin = max(2, int(orig_w * 0.005))
+        x0 = max(0, x0 - margin)
+        y0 = max(0, y0 - margin)
+        x1 = min(orig_w, x1 + margin)
+        y1 = min(orig_h, y1 + margin)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        box_h = y1 - y0
+        radius = max(12, box_h // 3)
+        region = img.crop((x0, y0, x1, y1))
+        blurred = region.filter(ImageFilter.GaussianBlur(radius=radius))
+        img.paste(blurred, (x0, y0))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([x0, y0, x1, y1], outline="#94a3b8", width=2)
+
+    # Downscale to max 2000px longest side
+    max_dim = 2000
+    w, h = img.size
+    if max(w, h) > max_dim:
+        ratio = max_dim / max(w, h)
+        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+
+    out = _io.BytesIO()
+    img.save(out, format="JPEG", quality=85)
+    return out.getvalue()
+
+
+def _delete_redaction_objects(media_id: str, redacted_url: str | None) -> None:
+    """Best-effort delete of preview and final redacted objects from the public bucket."""
+    settings = get_settings()
+    client = _s3_client()
+    for key in [
+        f"event_media_redacted/{media_id}-preview.jpg",
+        f"event_media_redacted/{media_id}.jpg",
+    ]:
+        try:
+            client.delete_object(Bucket=settings.storage_bucket, Key=key)
+        except Exception:
+            pass
+
+
+def _load_event_media_for_redaction(
+    db: Session, media_id: str, user: User
+) -> "VehicleEventMedia":
+    """Load VehicleEventMedia with event+vehicle. Raises 404/403/400 as needed."""
+    from sqlalchemy.orm import selectinload as _sil
+    row = db.scalar(
+        select(VehicleEventMedia)
+        .options(
+            _sil(VehicleEventMedia.event).options(
+                _sil(VehicleEvent.vehicle)
+            )
+        )
+        .where(VehicleEventMedia.id == media_id)
+    )
+    if not row or not row.event or not row.event.vehicle:
+        raise HTTPException(status_code=404, detail="Event media not found")
+    if row.event.vehicle.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    if row.media_type != "image":
+        raise HTTPException(
+            status_code=400, detail="Redaction is only supported for image media"
+        )
+    return row
+
+
+def _fetch_media_bytes(row: "VehicleEventMedia") -> bytes:
+    """Fetch the original media bytes from storage. Raises HTTPException on failure."""
+    settings = get_settings()
+    client = _s3_client()
+    key = row.storage_key or _object_key_from_url(row.url)
+    if not key:
+        raise HTTPException(status_code=422, detail="Media has no storage key — cannot redact")
+    bucket = settings.storage_private_bucket if row.storage_key else settings.storage_bucket
+    try:
+        obj = client.get_object(Bucket=bucket, Key=key)
+        return obj["Body"].read()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to fetch media from storage: {exc}"
+        ) from exc
+
+
+def _upload_redacted_object(media_id: str, image_bytes: bytes, *, final: bool) -> str:
+    """Upload a redacted image to the public bucket. Returns the public URL."""
+    settings = get_settings()
+    suffix = "" if final else "-preview"
+    key = f"event_media_redacted/{media_id}{suffix}.jpg"
+    _s3_client().put_object(
+        Bucket=settings.storage_bucket,
+        Key=key,
+        Body=image_bytes,
+        ContentType="image/jpeg",
+    )
+    return f"{settings.public_media_base_url}/{key}"
+
+
+def propose_redaction(db: Session, media_id: str, user: User) -> "EventMediaRead":
+    """Run Gemini PII box detection on the private original, render a blurred preview to the
+    public bucket, set status 'proposed'.  Idempotent: re-run replaces AI boxes, keeps user boxes.
+    Raises 503 if AI disabled, 502 on Gemini/storage error."""
+    settings = get_settings()
+    if not settings.ai_scan_enabled:
+        raise HTTPException(status_code=503, detail="AI scan is not configured")
+
+    row = _load_event_media_for_redaction(db, media_id, user)
+    image_bytes = _fetch_media_bytes(row)
+
+    try:
+        ai_boxes = _detect_pii_boxes(image_bytes)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    # Keep existing user-drawn boxes; replace AI boxes
+    existing: list[dict] = row.redaction_boxes or []
+    user_boxes = [b for b in existing if b.get("source") == "user"]
+    new_boxes = user_boxes + ai_boxes
+
+    preview_bytes = _render_redacted_image(image_bytes, new_boxes)
+    try:
+        _upload_redacted_object(media_id, preview_bytes, final=False)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to upload preview: {exc}") from exc
+
+    row.redaction_boxes = new_boxes
+    row.redaction_status = "proposed"
+    db.commit()
+    db.expire(row)
+    db.refresh(row)
+    return _event_media_read(row, is_owner=True)
+
+
+def update_redaction_boxes(
+    db: Session, media_id: str, boxes: list[dict], user: User
+) -> "EventMediaRead":
+    """Replace the full box list, re-render the preview. Each box is marked source='user'
+    unless it is identical (kind + coords) to an existing AI box."""
+    row = _load_event_media_for_redaction(db, media_id, user)
+    image_bytes = _fetch_media_bytes(row)
+
+    existing_ai: set[tuple] = {
+        (b["kind"], tuple(b["box"]))
+        for b in (row.redaction_boxes or [])
+        if b.get("source") == "ai"
+    }
+    new_boxes = []
+    for b in boxes:
+        kind = b["kind"]
+        box = b["box"]
+        source = "ai" if (kind, tuple(box)) in existing_ai else "user"
+        new_boxes.append({"kind": kind, "box": box, "source": source})
+
+    preview_bytes = _render_redacted_image(image_bytes, new_boxes)
+    try:
+        _upload_redacted_object(media_id, preview_bytes, final=False)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to upload preview: {exc}") from exc
+
+    row.redaction_boxes = new_boxes
+    db.commit()
+    db.expire(row)
+    db.refresh(row)
+    return _event_media_read(row, is_owner=True)
+
+
+def publish_redaction(db: Session, media_id: str, user: User) -> "EventMediaRead":
+    """Render the final redacted image to the public bucket, set status 'published'.
+    Requires status == 'proposed'."""
+    row = _load_event_media_for_redaction(db, media_id, user)
+    if row.redaction_status != "proposed":
+        raise HTTPException(
+            status_code=409,
+            detail="Redaction must be in 'proposed' state before publishing",
+        )
+
+    image_bytes = _fetch_media_bytes(row)
+    boxes = row.redaction_boxes or []
+    final_bytes = _render_redacted_image(image_bytes, boxes)
+    try:
+        redacted_url = _upload_redacted_object(media_id, final_bytes, final=True)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to upload final: {exc}") from exc
+
+    row.redacted_url = redacted_url
+    row.redaction_status = "published"
+    row.redaction_reviewed_at = datetime.now(UTC)
+    db.commit()
+    db.expire(row)
+    db.refresh(row)
+    return _event_media_read(row, is_owner=True)
+
+
+def unpublish_redaction(db: Session, media_id: str, user: User) -> "EventMediaRead":
+    """Delete the published final redacted image; revert to 'proposed' (keeps boxes)."""
+    row = _load_event_media_for_redaction(db, media_id, user)
+
+    # Delete final object (best-effort)
+    settings = get_settings()
+    try:
+        _s3_client().delete_object(
+            Bucket=settings.storage_bucket,
+            Key=f"event_media_redacted/{media_id}.jpg",
+        )
+    except Exception:
+        pass
+
+    row.redacted_url = None
+    row.redaction_status = "proposed"
+    db.commit()
+    db.expire(row)
+    db.refresh(row)
+    return _event_media_read(row, is_owner=True)
 
 
 def scan_receipt(files: list[tuple[bytes, str]]) -> dict:

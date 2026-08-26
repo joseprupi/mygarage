@@ -297,6 +297,26 @@ class EventMediaRead(BaseModel):
     blur_url: str | None = Field(default=None, alias="blurUrl")
     can_view: bool = Field(default=False, alias="canView")
     created_at: datetime | None = Field(default=None, alias="createdAt")
+    # Redaction fields (owner-only for most; redactedUrl + canViewRedacted exposed to visitors
+    # when status == 'published')
+    redaction_status: str | None = Field(default=None, alias="redactionStatus")
+    redaction_boxes: list | None = Field(default=None, alias="redactionBoxes")
+    redacted_url: str | None = Field(default=None, alias="redactedUrl")
+    redaction_preview_url: str | None = Field(default=None, alias="redactionPreviewUrl")
+    can_view_redacted: bool = Field(default=False, alias="canViewRedacted")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RedactionBox(BaseModel):
+    kind: str
+    box: list[int] = Field(..., min_length=4, max_length=4)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RedactionBoxesUpdate(BaseModel):
+    boxes: list[RedactionBox]
 
     model_config = ConfigDict(populate_by_name=True)
 

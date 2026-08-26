@@ -58,6 +58,7 @@ from app.schemas import (
     VehicleUpdate,
     VinDecodeResult,
     RecallsResponse,
+    RedactionBoxesUpdate,
 )
 from app.security import get_current_user, get_optional_user
 from app import services
@@ -538,6 +539,48 @@ def toggle_event_media_public(
     user: User = Depends(get_current_user),
 ) -> EventMediaRead:
     return services.toggle_event_media_public(db, media_id, body.is_public, user)
+
+
+@app.post("/vehicle-event-media/{media_id}/redaction/propose", response_model=EventMediaRead)
+def propose_redaction(
+    media_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> EventMediaRead:
+    """Run Gemini PII box detection, render blurred preview to public bucket, set status 'proposed'."""
+    return services.propose_redaction(db, media_id, user)
+
+
+@app.patch("/vehicle-event-media/{media_id}/redaction/boxes", response_model=EventMediaRead)
+def update_redaction_boxes(
+    media_id: str,
+    body: RedactionBoxesUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> EventMediaRead:
+    """Replace the full box list (owner-drawn corrections), re-render preview."""
+    raw_boxes = [{"kind": b.kind, "box": b.box} for b in body.boxes]
+    return services.update_redaction_boxes(db, media_id, raw_boxes, user)
+
+
+@app.post("/vehicle-event-media/{media_id}/redaction/publish", response_model=EventMediaRead)
+def publish_redaction(
+    media_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> EventMediaRead:
+    """Render final redacted image, mark as published. Requires status 'proposed'."""
+    return services.publish_redaction(db, media_id, user)
+
+
+@app.post("/vehicle-event-media/{media_id}/redaction/unpublish", response_model=EventMediaRead)
+def unpublish_redaction(
+    media_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> EventMediaRead:
+    """Delete published final redacted image, revert status to 'proposed' (keeps boxes)."""
+    return services.unpublish_redaction(db, media_id, user)
 
 
 @app.patch("/vehicle-event-documents/{doc_id}", response_model=EventDocumentRead)
