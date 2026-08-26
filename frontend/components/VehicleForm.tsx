@@ -72,6 +72,10 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
 
   // Decoded specs kept in form state so they can be included in the payload.
   const [decodedSpecs, setDecodedSpecs] = useState<VehicleSpecs | null>(null);
+  // Values that came from the VIN decode; a field shows the "from VIN" tag while it still holds that value.
+  const [decodedValues, setDecodedValues] = useState<Record<string, string>>({});
+  const fromVin = (key: string) => decodedValues[key] != null && decodedValues[key] !== "" && form[key as keyof typeof form] === decodedValues[key];
+  const VinTag = ({ k }: { k: string }) => (fromVin(k) ? <span className="ml-2 rounded-full bg-petrol/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-petrol">from VIN</span> : null);
   const [decoding, setDecoding] = useState(false);
   const [decodeError, setDecodeError] = useState<string | null>(null);
 
@@ -223,6 +227,20 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
         newForm.trim = result.trim;
       }
 
+      // Engine / drivetrain / transmission free-text fields.
+      const engineBits: string[] = [];
+      if (result.displacementL != null && result.engineCylinders != null) engineBits.push(`${Number(result.displacementL).toFixed(1)}L V${result.engineCylinders}`);
+      else if (result.displacementL != null) engineBits.push(`${Number(result.displacementL).toFixed(1)}L`);
+      else if (result.engineCylinders != null) engineBits.push(`V${result.engineCylinders}`);
+      if (result.engineHp != null) engineBits.push(`${result.engineHp} hp`);
+      if (engineBits.length) newForm.engine = engineBits.join(" · ");
+      if (result.driveType) newForm.drivetrain = result.driveType;
+      if (result.transmission) newForm.transmission = result.transmission;
+
+      setDecodedValues({
+        year: newForm.year, make: newForm.make, model: newForm.model, trim: newForm.trim,
+        engine: newForm.engine, drivetrain: newForm.drivetrain, transmission: newForm.transmission,
+      });
       setForm(newForm);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Decode failed";
@@ -315,7 +333,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
       <div className="grid gap-3 sm:grid-cols-2">
         {/* Make */}
         <label className="space-y-1 text-sm">
-          <span>Make</span>
+          <span>Make<VinTag k="make" /></span>
           {makeOther ? (
             <div className="flex gap-2">
               <input
@@ -365,7 +383,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
 
         {/* Year */}
         <label className="space-y-1 text-sm">
-          <span>Year</span>
+          <span>Year<VinTag k="year" /></span>
           {yearOther ? (
             <div className="flex gap-2">
               <input
@@ -414,7 +432,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
 
         {/* Model */}
         <label className="space-y-1 text-sm sm:col-span-2">
-          <span>Model</span>
+          <span>Model<VinTag k="model" /></span>
           {makeOther || yearOther || modelOther ? (
             <div className="flex gap-2">
               <input
@@ -471,9 +489,9 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
         {/* Remaining free-text fields (VIN moved to top) */}
         {textFields.map(([key, label]) => (
           <label className="space-y-1 text-sm" key={key}>
-            <span>{label}</span>
+            <span>{label}<VinTag k={key} /></span>
             <input
-              className={inputClass}
+              className={`${inputClass}${fromVin(key) ? " border-petrol/60" : ""}`}
               value={form[key]}
               onChange={(event) => setForm({ ...form, [key]: event.target.value })}
             />

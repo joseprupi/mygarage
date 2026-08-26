@@ -46,6 +46,10 @@ export default function VehicleFormScreen() {
   const [decoding, setDecoding] = useState(false);
   const [decodedSummary, setDecodedSummary] = useState<string | null>(null);
   const [pendingSpecs, setPendingSpecs] = useState<VehicleSpecs | null>(null);
+  // Values that came from the VIN decode; the "from VIN" tag shows while the field still holds that value.
+  const [decodedValues, setDecodedValues] = useState<Record<string, string>>({});
+  const fromVin = (key: keyof typeof form) => !!decodedValues[key] && form[key] === decodedValues[key];
+  const vinTag = (key: keyof typeof form) => (fromVin(key) ? <Text style={styles.vinTag}>  from VIN</Text> : null);
 
   useEffect(() => {
     void catalogApi.makes().then(setMakes).catch(() => setMakes([]));
@@ -142,12 +146,19 @@ export default function VehicleFormScreen() {
       setPendingSpecs(specs);
       setDecodedSummary(buildSpecSummary(specs));
       // Fill in year / make / model / trim from decode if they're empty or we're creating
+      const filled = {
+        year: result.year != null ? String(result.year) : "",
+        make: result.make || "",
+        model: result.model || "",
+        trim: result.trim || "",
+      };
+      setDecodedValues(filled);
       setForm((prev) => ({
         ...prev,
-        year: result.year != null ? String(result.year) : prev.year,
-        make: result.make || prev.make,
-        model: result.model || prev.model,
-        trim: result.trim || prev.trim,
+        year: filled.year || prev.year,
+        make: filled.make || prev.make,
+        model: filled.model || prev.model,
+        trim: filled.trim || prev.trim,
       }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Decode failed";
@@ -298,7 +309,7 @@ export default function VehicleFormScreen() {
         {uploading && <ActivityIndicator />}
       </View>
 
-      <Text style={styles.label}>Year</Text>
+      <Text style={styles.label}>Year{vinTag("year")}</Text>
       <TextInput
         style={styles.input}
         keyboardType="number-pad"
@@ -308,7 +319,7 @@ export default function VehicleFormScreen() {
         onChangeText={(v) => setForm({ ...form, year: v.replace(/[^\d]/g, "").slice(0, 4) })}
       />
 
-      <Text style={styles.label}>Make *</Text>
+      <Text style={styles.label}>Make *{vinTag("make")}</Text>
       <TextInput
         style={styles.input}
         value={form.make}
@@ -329,7 +340,7 @@ export default function VehicleFormScreen() {
         </View>
       )}
 
-      <Text style={styles.label}>Model *</Text>
+      <Text style={styles.label}>Model *{vinTag("model")}</Text>
       <TextInput
         style={styles.input}
         value={form.model}
@@ -418,6 +429,7 @@ export default function VehicleFormScreen() {
 }
 
 const styles = StyleSheet.create({
+  vinTag: { color: "#2563eb", fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   container: { flex: 1, backgroundColor: "#fff" },
   content: { padding: 16, gap: 8, maxWidth: 560, width: "100%", alignSelf: "center", paddingBottom: 48 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
