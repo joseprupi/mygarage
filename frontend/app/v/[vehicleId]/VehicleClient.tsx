@@ -470,7 +470,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                 {[v.year, v.make, v.model].filter(Boolean).join(" ")}
               </h1>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
               <ShareButton
                 title="Share vehicle"
                 url={typeof window !== "undefined" ? `${window.location.origin}/v/${v.id}` : `/v/${v.id}`}
