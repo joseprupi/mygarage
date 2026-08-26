@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -112,8 +112,12 @@ function MediaViewerModal({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-
-  const visibility = media.visibility ?? "private";
+  // Local copy so the control reflects the change immediately (the parent refetch is async).
+  const [visibility, setLocalVisibility] = useState<"private" | "redacted" | "original">(media.visibility ?? "private");
+  const [previewVisitor, setPreviewVisitor] = useState(false);
+  useEffect(() => {
+    setLocalVisibility(media.visibility ?? "private");
+  }, [media.id, media.visibility]);
   const piiStatus = media.piiStatus ?? "unknown";
   const piiKindsText =
     piiStatus === "detected" && media.piiKinds?.length
@@ -151,12 +155,15 @@ function MediaViewerModal({
   }
 
   async function handleSetVisibility(vis: "private" | "redacted" | "original") {
-    if (!media.id || busy) return;
+    if (!media.id || busy || vis === visibility) return;
+    const previous = visibility;
+    setLocalVisibility(vis);
     setBusy(true);
     try {
       await eventMediaApi.setVisibility(media.id, vis);
       onRefetch();
     } catch (err) {
+      setLocalVisibility(previous);
       Alert.alert(
         "Can't change visibility",
         err instanceof Error ? err.message : "Something went wrong",
@@ -172,7 +179,15 @@ function MediaViewerModal({
     router.push(`/redaction/${media.id}?eventId=${eventId}`);
   }
 
-  const imageUri = mediaUrl(media.url) ?? undefined;
+  const visitorUri =
+    visibility === "original" ? media.url : visibility === "redacted" ? media.redactedUrl : media.blurUrl;
+  const imageUri = mediaUrl(previewVisitor ? visitorUri ?? media.blurUrl : media.url) ?? undefined;
+  const visitorCaption =
+    visibility === "original"
+      ? "Visitors see the original"
+      : visibility === "redacted"
+        ? "Visitors see the redacted copy"
+        : "Visitors see a blurred placeholder";
 
   return (
     <Modal visible animationType="fade" transparent onRequestClose={onClose}>
@@ -216,6 +231,12 @@ function MediaViewerModal({
 
           {/* PII / status line */}
           <Text style={viewerStyles.piiLine}>{piiLine}</Text>
+          <Pressable onPress={() => setPreviewVisitor((v) => !v)} hitSlop={8} style={viewerStyles.previewToggle}>
+            <Ionicons name={previewVisitor ? "eye-off-outline" : "eye-outline"} size={16} color="#2563eb" />
+            <Text style={viewerStyles.previewToggleText}>
+              {previewVisitor ? `${visitorCaption} — show me the original` : "Preview what visitors see"}
+            </Text>
+          </Pressable>
 
           {/* Hint text for disabled segments */}
           {segments.filter((s) => s.disabled && s.hint).map((s) => (
@@ -235,6 +256,8 @@ function MediaViewerModal({
 }
 
 const viewerStyles = StyleSheet.create({
+  previewToggle: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8 },
+  previewToggleText: { color: "#2563eb", fontSize: 15, fontWeight: "600" },
   bg: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.92)",
