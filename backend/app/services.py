@@ -1713,7 +1713,19 @@ def store_upload(
 def generate_private_read_url(storage_key: str, expiry: int = 3600) -> str:
     """Generate a presigned GET URL for a private bucket object."""
     settings = get_settings()
-    return _s3_client().generate_presigned_url(
+    client = _s3_client()
+    if settings.storage_public_endpoint_url and settings.storage_public_endpoint_url != settings.storage_endpoint_url:
+        # Sign against the browser-reachable host (dev: MinIO via the VPN IP); the
+        # signature covers the Host header, so it must match what the client will call.
+        client = boto3.client(
+            "s3",
+            endpoint_url=settings.storage_public_endpoint_url,
+            region_name=settings.storage_region,
+            aws_access_key_id=settings.storage_access_key_id,
+            aws_secret_access_key=settings.storage_secret_access_key,
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        )
+    return client.generate_presigned_url(
         "get_object",
         Params={"Bucket": settings.storage_private_bucket, "Key": storage_key},
         ExpiresIn=expiry,

@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     storage_region: str = "us-east-1"
     storage_bucket: str = "car-social"
     storage_private_bucket: str = "car-social-private"
+    # Host used when SIGNING owner-only read URLs. Must be reachable by the browser/phone;
+    # defaults to storage_endpoint_url (fine in prod, where that is storage.googleapis.com).
+    storage_public_endpoint_url: str | None = None
     storage_access_key_id: str = "minioadmin"
     storage_secret_access_key: str = "minioadmin"
     public_media_base_url: str = "http://localhost:9000/car-social"
