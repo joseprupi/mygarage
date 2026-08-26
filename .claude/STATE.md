@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-26 (late) — DEPLOYED: transfer slice 2 + report/block + password (migrations 0016+0017, backend, web, EAS update). Verified prod owner view (scripts/owner-view.js) desktop+phone: Copy link/Edit/Transfer, no errors. Header-clip bug fixed (actions wrap). All slices through today are LIVE.
+
 ## 2026-08-26 (night) — DEV: transfer slice 2 (migrations 0016 reports/blocks + 0017 transfers/hidden), report/block, password change — backend 66 tests, web+mobile UIs. Pending test transfer on fake Subaru: code R5GPVZNN22 (visitor→anyone). Deploy batch on "deploy": migrations 0016+0017, backend, web, EAS update. Owner tool: backend/scripts/list_reports.py (needs prod env like the backfill script).
 
 ## 2026-08-26 (evening) — PROD BATCH DEPLOYED: migrations 0014+0015, backend, web, EAS update; 4Runner back to PUBLIC. Prod backfill moved 12 receipts → private bucket + blur + PII (9 detected, 2 none, 1 doc/other). First backfill run silently skipped (absolute URLs) — fixed `_object_key_from_url` + skips now count as errors; GCS needs AWS_*_CHECKSUM=when_required (script sets it). Verified: guest sees 0 urls/11 blurs, owner signed URLs OK, browser render clean. Dev fake user visitor@carfable.dev / devtest1234 (otherguy, Subaru w/ PII receipt). Backend redeploy for key fix in flight.
