@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
 import { LocationInput } from "@/components/LocationInput";
-import { authApi, mediaApi, setToken } from "@/lib/api/client";
+import { authApi, mediaApi, setToken, ApiError } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import type { PublicUser } from "@/lib/types";
@@ -14,6 +14,7 @@ import type { PublicUser } from "@/lib/types";
 type MeUser = PublicUser & {
   id: string;
   email?: string;
+  has_password?: boolean;
   created_at?: string;
 };
 
@@ -24,6 +25,9 @@ export function ProfileEditor() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [fields, setFields] = useState({ display_name: "", bio: "", location: "" });
+  const [pwFields, setPwFields] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [pwMsg, setPwMsg] = useState<string | null>(null);
+  const [pwError, setPwError] = useState<string | null>(null);
 
   function logOut() {
     setToken(null);
@@ -56,6 +60,26 @@ export function ProfileEditor() {
       void queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "Could not update profile")
+  });
+
+  const changePassword = useMutation({
+    mutationFn: async () => {
+      if (pwFields.newPassword.length < 8) throw new Error("New password must be at least 8 characters");
+      if (pwFields.newPassword !== pwFields.confirmPassword) throw new Error("Passwords do not match");
+      await authApi.changePassword({
+        ...(user?.has_password ? { currentPassword: pwFields.currentPassword } : {}),
+        newPassword: pwFields.newPassword
+      });
+    },
+    onSuccess: () => {
+      setPwError(null);
+      setPwMsg("Password updated successfully.");
+      setPwFields({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    },
+    onError: (err) => {
+      setPwMsg(null);
+      setPwError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Failed to update password");
+    }
   });
 
   const saveSetting = useMutation({
@@ -194,6 +218,64 @@ export function ProfileEditor() {
         <Link className="surface hover-lift flex items-center justify-center rounded-2xl p-4 font-semibold" href="/posts/new">
           Create a post
         </Link>
+      </div>
+      <div className="surface rounded-3xl p-6">
+        <h2 className="mb-4 text-lg font-bold">Password</h2>
+        {!user?.has_password && (
+          <p className="mb-3 text-sm text-slate-500">
+            You signed in with Google or Apple. Set a password to also log in with email.
+          </p>
+        )}
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!changePassword.isPending) changePassword.mutate();
+          }}
+        >
+          {user?.has_password && (
+            <label className="block space-y-1 text-sm">
+              <span>Current password</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="current-password"
+                value={pwFields.currentPassword}
+                onChange={(e) => setPwFields((f) => ({ ...f, currentPassword: e.target.value }))}
+              />
+            </label>
+          )}
+          <label className="block space-y-1 text-sm">
+            <span>{user?.has_password ? "New password" : "Password"}</span>
+            <input
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              value={pwFields.newPassword}
+              onChange={(e) => setPwFields((f) => ({ ...f, newPassword: e.target.value }))}
+            />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span>Confirm password</span>
+            <input
+              className="input"
+              type="password"
+              autoComplete="new-password"
+              value={pwFields.confirmPassword}
+              onChange={(e) => setPwFields((f) => ({ ...f, confirmPassword: e.target.value }))}
+            />
+          </label>
+          {pwMsg && <p className="text-sm text-green-700">{pwMsg}</p>}
+          {pwError && <p className="text-sm text-red-600">{pwError}</p>}
+          <button
+            type="submit"
+            className="btn btn-primary disabled:opacity-60"
+            disabled={changePassword.isPending || !pwFields.newPassword}
+          >
+            {changePassword.isPending ? "Saving…" : user?.has_password ? "Change password" : "Set password"}
+          </button>
+        </form>
       </div>
       <div className="surface rounded-3xl p-6">
         <h2 className="mb-4 text-lg font-bold">Settings</h2>

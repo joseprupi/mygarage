@@ -11,6 +11,8 @@ export type PublicUser = {
   bio?: string | null;
   location?: string | null;
   settings?: UserSettings;
+  viewerHasBlocked?: boolean;
+  blockedViewer?: boolean;
 };
 
 export type Vehicle = {
@@ -153,6 +155,7 @@ export type VehicleEvent = {
   location?: string | null;
   tags?: string[];
   visibility: "public" | "private";
+  hidden?: boolean;
   media: EventMedia[];
   documents: EventDocumentRead[];
   /** How the event was created: manual entry, scanned receipt, or scan that was then edited. */
@@ -166,6 +169,40 @@ export type VehicleEvent = {
   ownershipId: string | null;
   isPreviousOwner: boolean;
   canEdit: boolean;
+};
+
+export type VehicleTransfer = {
+  id: string;
+  code: string;
+  url: string;
+  status: string;
+  handoverDate: string | null;
+  handoverMileage: number | null;
+  showOwnerName: boolean;
+  keepDocuments: boolean;
+  keepPostsTagged: boolean;
+  expiresAt: string;
+  vehicle: {
+    id: string;
+    year: number | null;
+    make: string;
+    model: string;
+    nickname: string | null;
+    coverUrl: string | null;
+  };
+  fromUser: { username: string; displayName: string | null } | null;
+};
+
+export type VehicleTransferDetail = VehicleTransfer & {
+  counts: { events: number; mods: number; photos: number };
+  canAccept: boolean;
+};
+
+export type PreviousVehicle = {
+  vehicle: Vehicle;
+  period_start: string;
+  period_end: string | null;
+  is_public: boolean;
 };
 
 export type VehicleOwnership = {

@@ -30,7 +30,9 @@ from app.models import (
     PostLike,
     PostMedia,
     PostVehicleTag,
+    Report,
     User,
+    UserBlock,
     Vehicle,
     VehicleEvent,
     VehicleEventDocument,
@@ -38,9 +40,11 @@ from app.models import (
     VehicleMod,
     VehicleModMedia,
     VehicleOwnership,
+    VehicleTransfer,
 )
 from app.schemas import (
     AppleLoginRequest,
+    ChangePasswordRequest,
     CommentCreate,
     CommentRead,
     EventDocumentRead,
@@ -52,11 +56,15 @@ from app.schemas import (
     PostRead,
     PostUpdate,
     PublicUser,
+    ReportCreate,
+    ReportRead,
     SignupRequest,
     SitemapEntries,
     SitemapPostEntry,
     SitemapUserEntry,
     SitemapVehicleEntry,
+    TransferCounts,
+    TransferFromUser,
     UploadUrlRequest,
     UploadUrlResponse,
     UserUpdate,
@@ -70,6 +78,8 @@ from app.schemas import (
     VehicleOwnershipRead,
     VehicleOwnershipUpdate,
     VehicleSummary,
+    VehicleTransferCreate,
+    VehicleTransferRead,
     VehicleUpdate,
     MediaRead,
     DocumentRead,
@@ -329,6 +339,23 @@ def update_user(db: Session, user: User, data: UserUpdate) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def change_password(db: Session, user: User, data: ChangePasswordRequest) -> None:
+    """Change or set the user's password.
+    If the user already has a password hash, currentPassword is required and verified.
+    If the user has no password (Google/Apple-only), currentPassword is not required.
+    """
+    if user.has_password:
+        if not data.current_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="currentPassword is required to change an existing password",
+            )
+        if not verify_password(data.current_password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect current password")
+    user.password_hash = hash_password(data.new_password)
+    db.commit()
 
 
 def create_vehicle(db: Session, user: User, data: VehicleCreate) -> Vehicle:
@@ -738,7 +765,109 @@ def _enrich_event(
         source=event.source if event.source is not None else "manual",
         edited_fields=event.edited_fields or [],
         scan_snapshot=event.scan_snapshot if is_owner else None,
+        hidden=getattr(event, "hidden", False),
     )
+
+
+# ---------------------------------------------------------------------------
+# Block helpers
+# ---------------------------------------------------------------------------
+
+def blocked_user_ids(db: Session, viewer_id: str | None) -> set[str]:
+    """Return all user IDs that the viewer blocks OR that have blocked the viewer (both directions)."""
+    if not viewer_id:
+        return set()
+    rows = list(db.scalars(
+        select(UserBlock.blocked_user_id).where(UserBlock.blocker_user_id == viewer_id)
+        .union(
+            select(UserBlock.blocker_user_id).where(UserBlock.blocked_user_id == viewer_id)
+        )
+    ))
+    return set(rows)
+
+
+def block_user(db: Session, blocker: User, target_id: str) -> None:
+    if blocker.id == target_id:
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    target = db.get(User, target_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    existing = db.get(UserBlock, {"blocker_user_id": blocker.id, "blocked_user_id": target_id})
+    if not existing:
+        db.add(UserBlock(blocker_user_id=blocker.id, blocked_user_id=target_id))
+        db.commit()
+
+
+def unblock_user(db: Session, blocker: User, target_id: str) -> None:
+    existing = db.get(UserBlock, {"blocker_user_id": blocker.id, "blocked_user_id": target_id})
+    if existing:
+        db.delete(existing)
+        db.commit()
+
+
+def list_blocked_users(db: Session, user: User) -> list[PublicUser]:
+    users = list(db.scalars(
+        select(User)
+        .join(UserBlock, and_(UserBlock.blocked_user_id == User.id, UserBlock.blocker_user_id == user.id))
+        .order_by(UserBlock.created_at)
+    ))
+    return [PublicUser.model_validate(u) for u in users]
+
+
+# ---------------------------------------------------------------------------
+# Report helpers
+# ---------------------------------------------------------------------------
+
+_VALID_REPORT_TARGETS = {"post", "comment", "user", "vehicle", "event"}
+
+
+def _validate_report_target(db: Session, target_type: str, target_id: str) -> None:
+    """Raise 404 if the reported target does not exist."""
+    if target_type == "post":
+        row = db.scalar(select(Post.id).where(Post.id == target_id, Post.deleted_at.is_(None)))
+        if not row:
+            raise HTTPException(status_code=404, detail="Post not found")
+    elif target_type == "comment":
+        row = db.scalar(select(Comment.id).where(Comment.id == target_id, Comment.deleted_at.is_(None)))
+        if not row:
+            raise HTTPException(status_code=404, detail="Comment not found")
+    elif target_type == "user":
+        row = db.get(User, target_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+    elif target_type == "vehicle":
+        row = db.scalar(select(Vehicle.id).where(Vehicle.id == target_id))
+        if not row:
+            raise HTTPException(status_code=404, detail="Vehicle not found")
+    elif target_type == "event":
+        row = db.scalar(select(VehicleEvent.id).where(VehicleEvent.id == target_id, VehicleEvent.deleted_at.is_(None)))
+        if not row:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+
+def create_report(db: Session, reporter: User, data: ReportCreate) -> ReportRead:
+    _validate_report_target(db, data.target_type, data.target_id)
+    # Idempotent: return existing if already reported
+    existing = db.scalar(
+        select(Report).where(
+            Report.reporter_user_id == reporter.id,
+            Report.target_type == data.target_type,
+            Report.target_id == data.target_id,
+        )
+    )
+    if existing:
+        return ReportRead.model_validate(existing)
+    report = Report(
+        reporter_user_id=reporter.id,
+        target_type=data.target_type,
+        target_id=data.target_id,
+        reason=data.reason,
+        details=data.details,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return ReportRead.model_validate(report)
 
 
 def _add_post_media(db: Session, post: Post, media: list[MediaCreate]) -> None:
@@ -814,6 +943,11 @@ def delete_post(db: Session, post: Post, user: User) -> None:
 
 
 def list_posts_for_user(db: Session, user_id: str, viewer: User | None) -> list[PostRead]:
+    # If viewer has blocked the target or is blocked by the target, return empty
+    if viewer and viewer.id != user_id:
+        blocked = blocked_user_ids(db, viewer.id)
+        if user_id in blocked:
+            return []
     stmt = (
         select(Post.id)
         .where(Post.author_user_id == user_id, Post.deleted_at.is_(None))
@@ -918,6 +1052,10 @@ class NewestFeedService:
             .order_by(desc(Post.created_at), desc(Post.id))
             .limit(limit + 1)
         )
+        # Filter out posts by blocked/blocking users
+        blocked = blocked_user_ids(db, viewer.id if viewer else None)
+        if blocked:
+            stmt = stmt.where(Post.author_user_id.notin_(blocked))
         decoded = decode_cursor(cursor)
         if decoded:
             created_at, post_id = decoded
@@ -1229,8 +1367,11 @@ def list_vehicle_events(db: Session, vehicle: Vehicle, viewer: User | None) -> l
         .where(VehicleEvent.vehicle_id == vehicle.id, VehicleEvent.deleted_at.is_(None))
         .order_by(desc(VehicleEvent.event_date), desc(VehicleEvent.created_at))
     )
-    if vehicle.owner_user_id != (viewer.id if viewer else None):
+    is_owner = vehicle.owner_user_id == (viewer.id if viewer else None)
+    if not is_owner:
         stmt = stmt.where(VehicleEvent.visibility == "public")
+        # Non-owners don't see hidden events
+        stmt = stmt.where(VehicleEvent.hidden == False)  # noqa: E712
     return list(db.scalars(stmt))
 
 
@@ -1524,6 +1665,11 @@ def list_post_likers(db: Session, post: Post) -> list[PublicUser]:
 
 
 def create_comment(db: Session, post: Post, user: User, data: CommentCreate) -> Comment:
+    # Block check: cannot comment if either direction blocked between commenter and post author
+    if post.author_user_id != user.id:
+        blocked = blocked_user_ids(db, user.id)
+        if post.author_user_id in blocked:
+            raise HTTPException(status_code=403, detail="Cannot comment due to block")
     if data.parent_comment_id:
         parent = db.get(Comment, data.parent_comment_id)
         if not parent or parent.post_id != post.id or parent.deleted_at is not None:
@@ -1590,15 +1736,18 @@ def compose_comments(db: Session, comments: list[Comment], viewer: User | None) 
 
 
 def list_comments(db: Session, post: Post, viewer: User | None) -> list[CommentRead]:
-    comments = list(
-        db.scalars(
-            select(Comment)
-            .options(selectinload(Comment.author))
-            .where(Comment.post_id == post.id, Comment.deleted_at.is_(None))
-            .order_by(Comment.created_at)
-            .limit(100)
-        )
+    stmt = (
+        select(Comment)
+        .options(selectinload(Comment.author))
+        .where(Comment.post_id == post.id, Comment.deleted_at.is_(None))
+        .order_by(Comment.created_at)
+        .limit(100)
     )
+    # Filter comments by blocked/blocking users
+    blocked = blocked_user_ids(db, viewer.id if viewer else None)
+    if blocked:
+        stmt = stmt.where(Comment.author_user_id.notin_(blocked))
+    comments = list(db.scalars(stmt))
     return compose_comments(db, comments, viewer)
 
 
@@ -1789,6 +1938,399 @@ def _delete_event_doc_storage(d: "VehicleEventDocument") -> None:
                 _s3_client().delete_object(Bucket=get_settings().storage_bucket, Key=blur_key)
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Event hidden toggle
+# ---------------------------------------------------------------------------
+
+def toggle_event_hidden(db: Session, event: VehicleEvent, user: User, hidden: bool) -> VehicleEventRead:
+    """Toggle the hidden flag on an event. Current owner only (even if not creator)."""
+    if event.vehicle.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    event.hidden = hidden
+    db.commit()
+    periods = _load_ownerships(db, event.vehicle_id)
+    return _enrich_event(event, periods, event.vehicle.owner_user_id, user)
+
+
+# ---------------------------------------------------------------------------
+# Previous-owner garage
+# ---------------------------------------------------------------------------
+
+def list_previous_vehicles(db: Session, user: User) -> list[dict]:
+    """Return vehicles where the user has a CLOSED ownership period and is NOT the current owner."""
+    periods = list(db.scalars(
+        select(VehicleOwnership)
+        .options(selectinload(VehicleOwnership.vehicle).selectinload(Vehicle.owner))
+        .where(
+            VehicleOwnership.owner_user_id == user.id,
+            VehicleOwnership.end_date.isnot(None),
+        )
+        .order_by(desc(VehicleOwnership.end_date))
+    ))
+    results = []
+    seen: set[str] = set()
+    for period in periods:
+        vehicle = period.vehicle
+        if not vehicle:
+            continue
+        # Skip if user is still the current owner
+        if vehicle.owner_user_id == user.id:
+            continue
+        if vehicle.id in seen:
+            continue
+        seen.add(vehicle.id)
+        # Only show public vehicles (previous owners don't have special access)
+        if vehicle.visibility != "public":
+            continue
+        results.append({
+            "vehicle": VehicleSummary.model_validate(vehicle),
+            "period_start": period.start_date,
+            "period_end": period.end_date,
+            "is_public": vehicle.visibility == "public",
+        })
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Vehicle transfers
+# ---------------------------------------------------------------------------
+
+_TRANSFER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # unambiguous: no 0,1,I,O
+
+
+def _tz_aware(dt: datetime) -> datetime:
+    """Ensure a datetime is timezone-aware (assume UTC if naive — for SQLite compat)."""
+    if dt is None:
+        return dt
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
+def _generate_transfer_code() -> str:
+    import secrets as _secrets
+    return "".join(_secrets.choice(_TRANSFER_CODE_ALPHABET) for _ in range(10))
+
+
+def _transfer_to_read(
+    db: Session, transfer: VehicleTransfer, viewer: User | None = None,
+    include_counts: bool = False, can_accept: bool | None = None,
+) -> VehicleTransferRead:
+    settings = get_settings()
+    vehicle = transfer.vehicle
+    from_user = transfer.from_user
+
+    # showOwnerName → hide giver in preview for receiver
+    show_from = transfer.show_owner_name or (viewer is not None and viewer.id == transfer.from_user_id)
+    from_user_out: TransferFromUser | None = None
+    if show_from and from_user:
+        from_user_out = TransferFromUser(
+            username=from_user.username,
+            display_name=from_user.display_name,
+        )
+
+    counts: TransferCounts | None = None
+    if include_counts and vehicle:
+        event_count = db.scalar(
+            select(func.count(VehicleEvent.id)).where(
+                VehicleEvent.vehicle_id == vehicle.id,
+                VehicleEvent.deleted_at.is_(None),
+            )
+        ) or 0
+        mod_count = db.scalar(
+            select(func.count(VehicleMod.id)).where(
+                VehicleMod.vehicle_id == vehicle.id,
+                VehicleMod.deleted_at.is_(None),
+            )
+        ) or 0
+        photo_count = db.scalar(
+            select(func.count(VehicleEventMedia.id))
+            .join(VehicleEvent, VehicleEvent.id == VehicleEventMedia.vehicle_event_id)
+            .where(VehicleEvent.vehicle_id == vehicle.id, VehicleEvent.deleted_at.is_(None))
+        ) or 0
+        counts = TransferCounts(events=event_count, mods=mod_count, photos=photo_count)
+
+    return VehicleTransferRead(
+        id=transfer.id,
+        code=transfer.code,
+        url=f"{settings.public_web_base_url}/transfer/{transfer.code}",
+        status=transfer.status,
+        handover_date=transfer.handover_date,
+        handover_mileage=transfer.handover_mileage,
+        show_owner_name=transfer.show_owner_name,
+        keep_documents=transfer.keep_documents,
+        keep_posts_tagged=transfer.keep_posts_tagged,
+        expires_at=transfer.expires_at,
+        vehicle=VehicleSummary.model_validate(vehicle) if vehicle else VehicleSummary(id="", make="", model=""),
+        from_user=from_user_out,
+        counts=counts,
+        can_accept=can_accept,
+    )
+
+
+def create_vehicle_transfer(
+    db: Session, vehicle: Vehicle, user: User, data: VehicleTransferCreate
+) -> VehicleTransferRead:
+    assert_vehicle_owner(vehicle, user)
+    from datetime import date as _date, timedelta as _timedelta
+
+    handover_date = data.handover_date or _date.today()
+
+    # Default mileage: max event mileage or current period start_mileage
+    if data.handover_mileage is None:
+        # Try max event mileage
+        max_event_mileage = db.scalar(
+            select(func.max(VehicleEvent.mileage)).where(
+                VehicleEvent.vehicle_id == vehicle.id,
+                VehicleEvent.deleted_at.is_(None),
+                VehicleEvent.mileage.isnot(None),
+            )
+        )
+        if max_event_mileage is not None:
+            handover_mileage = max_event_mileage
+        else:
+            # Fall back to current period start_mileage
+            current_period = db.scalar(
+                select(VehicleOwnership).where(
+                    VehicleOwnership.vehicle_id == vehicle.id,
+                    VehicleOwnership.owner_user_id == user.id,
+                    VehicleOwnership.end_date.is_(None),
+                )
+            )
+            handover_mileage = current_period.start_mileage if current_period else None
+    else:
+        handover_mileage = data.handover_mileage
+
+    # Revoke any existing pending transfer for this vehicle
+    existing = db.scalar(
+        select(VehicleTransfer).where(
+            VehicleTransfer.vehicle_id == vehicle.id,
+            VehicleTransfer.status == "pending",
+        )
+    )
+    if existing:
+        existing.status = "revoked"
+
+    now = datetime.now(UTC)
+    transfer = VehicleTransfer(
+        vehicle_id=vehicle.id,
+        from_user_id=user.id,
+        code=_generate_transfer_code(),
+        status="pending",
+        handover_date=handover_date,
+        handover_mileage=handover_mileage,
+        show_owner_name=data.show_owner_name,
+        keep_documents=data.keep_documents,
+        keep_posts_tagged=data.keep_posts_tagged,
+        created_at=now,
+        expires_at=now + _timedelta(days=7),
+    )
+    db.add(transfer)
+    db.commit()
+    db.refresh(transfer)
+    # Load vehicle and from_user for the response
+    db.refresh(transfer.vehicle if transfer.vehicle else vehicle)
+    # Ensure relationships are loaded
+    result = db.scalar(
+        select(VehicleTransfer)
+        .options(
+            selectinload(VehicleTransfer.vehicle),
+            selectinload(VehicleTransfer.from_user),
+        )
+        .where(VehicleTransfer.id == transfer.id)
+    )
+    return _transfer_to_read(db, result, viewer=user)
+
+
+def get_pending_transfer(db: Session, vehicle: Vehicle, user: User) -> VehicleTransfer:
+    assert_vehicle_owner(vehicle, user)
+    transfer = db.scalar(
+        select(VehicleTransfer)
+        .options(
+            selectinload(VehicleTransfer.vehicle),
+            selectinload(VehicleTransfer.from_user),
+        )
+        .where(
+            VehicleTransfer.vehicle_id == vehicle.id,
+            VehicleTransfer.status == "pending",
+        )
+    )
+    if not transfer:
+        raise HTTPException(status_code=404, detail="No pending transfer for this vehicle")
+    return transfer
+
+
+def revoke_transfer(db: Session, transfer_id: str, user: User) -> None:
+    transfer = db.scalar(
+        select(VehicleTransfer).where(VehicleTransfer.id == transfer_id)
+    )
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    if transfer.from_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You did not create this transfer")
+    if transfer.status != "pending":
+        raise HTTPException(status_code=400, detail="Transfer is not pending")
+    transfer.status = "revoked"
+    db.commit()
+
+
+def get_transfer_by_code(db: Session, code: str, viewer: User) -> VehicleTransferRead:
+    transfer = db.scalar(
+        select(VehicleTransfer)
+        .options(
+            selectinload(VehicleTransfer.vehicle),
+            selectinload(VehicleTransfer.from_user),
+        )
+        .where(VehicleTransfer.code == code)
+    )
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    # Lazily expire if past expiry
+    if transfer.status == "pending" and _tz_aware(datetime.now(UTC)) > _tz_aware(transfer.expires_at):
+        transfer.status = "expired"
+        db.commit()
+
+    can_accept = (
+        transfer.status == "pending"
+        and viewer.id != transfer.from_user_id
+        and _tz_aware(datetime.now(UTC)) <= _tz_aware(transfer.expires_at)
+    )
+    return _transfer_to_read(db, transfer, viewer=viewer, include_counts=True, can_accept=can_accept)
+
+
+def accept_transfer(db: Session, code: str, receiver: User) -> "VehicleRead":
+    from app.schemas import VehicleRead as _VehicleRead
+
+    transfer = db.scalar(
+        select(VehicleTransfer)
+        .options(
+            selectinload(VehicleTransfer.vehicle).selectinload(Vehicle.owner),
+            selectinload(VehicleTransfer.from_user),
+        )
+        .where(VehicleTransfer.code == code)
+    )
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+    if transfer.from_user_id == receiver.id:
+        raise HTTPException(status_code=403, detail="You cannot accept your own transfer")
+    if transfer.status == "accepted":
+        raise HTTPException(status_code=409, detail="Transfer already accepted")
+    if transfer.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Transfer is {transfer.status}")
+    if _tz_aware(datetime.now(UTC)) > _tz_aware(transfer.expires_at):
+        transfer.status = "expired"
+        db.commit()
+        raise HTTPException(status_code=400, detail="Transfer has expired")
+
+    vehicle = transfer.vehicle
+    giver_id = transfer.from_user_id
+
+    # 1. Close the current ownership period
+    current_period = db.scalar(
+        select(VehicleOwnership).where(
+            VehicleOwnership.vehicle_id == vehicle.id,
+            VehicleOwnership.end_date.is_(None),
+        )
+    )
+    if current_period:
+        current_period.end_date = transfer.handover_date
+        current_period.end_mileage = transfer.handover_mileage
+        current_period.show_owner_name = transfer.show_owner_name
+
+    # 2. Create new ownership period
+    # ordinal = max existing + 1
+    max_ordinal = db.scalar(
+        select(func.max(VehicleOwnership.ordinal)).where(VehicleOwnership.vehicle_id == vehicle.id)
+    ) or 0
+    new_period = VehicleOwnership(
+        vehicle_id=vehicle.id,
+        ordinal=max_ordinal + 1,
+        owner_user_id=receiver.id,
+        start_date=transfer.handover_date,
+        start_mileage=transfer.handover_mileage,
+        show_owner_name=True,
+        created_by=receiver.id,
+    )
+    db.add(new_period)
+
+    # 3. Update vehicle fields
+    vehicle.owner_user_id = receiver.id
+    vehicle.nickname = None
+    vehicle.purchase_date = transfer.handover_date
+    vehicle.mileage = transfer.handover_mileage
+
+    # 4. If not keep_documents: strip media + documents for events attributed to giver
+    if not transfer.keep_documents:
+        # Load ownerships BEFORE committing (so periods include the closed current one)
+        periods_for_attr = list(db.scalars(
+            select(VehicleOwnership)
+            .where(VehicleOwnership.vehicle_id == vehicle.id)
+            .order_by(VehicleOwnership.start_date)
+        ))
+        events_for_stripping = list(db.scalars(
+            select(VehicleEvent).where(
+                VehicleEvent.vehicle_id == vehicle.id,
+                VehicleEvent.deleted_at.is_(None),
+            )
+        ))
+        event_ids_to_strip: list[str] = []
+        for ev in events_for_stripping:
+            period = ownership_for_event(periods_for_attr, ev.event_date)
+            if period and period.owner_user_id == giver_id:
+                event_ids_to_strip.append(ev.id)
+            elif period is None:
+                # Before known periods — attributed to "previous owner" slot, not giver's user period
+                # Only strip if this event was authored by giver
+                if ev.author_user_id == giver_id:
+                    event_ids_to_strip.append(ev.id)
+        if event_ids_to_strip:
+            media_rows = list(db.scalars(
+                select(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids_to_strip))
+            ))
+            for m in media_rows:
+                _delete_event_media_storage(m)
+            doc_rows = list(db.scalars(
+                select(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids_to_strip))
+            ))
+            for d in doc_rows:
+                _delete_event_doc_storage(d)
+            db.execute(delete(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids_to_strip)))
+            db.execute(delete(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids_to_strip)))
+
+    # 5. If not keep_posts_tagged: remove vehicle tags from giver's posts
+    if not transfer.keep_posts_tagged:
+        # Get giver's post IDs tagged to this vehicle
+        giver_post_ids = list(db.scalars(
+            select(PostVehicleTag.post_id)
+            .join(Post, Post.id == PostVehicleTag.post_id)
+            .where(
+                PostVehicleTag.vehicle_id == vehicle.id,
+                Post.author_user_id == giver_id,
+            )
+        ))
+        if giver_post_ids:
+            db.execute(
+                delete(PostVehicleTag).where(
+                    PostVehicleTag.vehicle_id == vehicle.id,
+                    PostVehicleTag.post_id.in_(giver_post_ids),
+                )
+            )
+
+    # 6. Mark transfer accepted
+    transfer.status = "accepted"
+    transfer.to_user_id = receiver.id
+    transfer.accepted_at = datetime.now(UTC)
+
+    db.commit()
+
+    # Return the vehicle as the new owner
+    vehicle_fresh = db.scalar(
+        select(Vehicle).options(selectinload(Vehicle.owner)).where(Vehicle.id == vehicle.id)
+    )
+    out = _VehicleRead.model_validate(vehicle_fresh)
+    return out
 
 
 # --- Vehicle make/model/year catalog (standardized dropdowns) -----------------

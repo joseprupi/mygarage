@@ -12,7 +12,9 @@ from app.database import get_db
 from app.models import User
 from app.schemas import (
     AppleLoginRequest,
+    ChangePasswordRequest,
     EventDocumentRead,
+    EventHiddenToggle,
     EventMediaRead,
     FuelScanResult,
     ReceiptScanResult,
@@ -26,6 +28,8 @@ from app.schemas import (
     PostRead,
     PostUpdate,
     PublicUser,
+    ReportCreate,
+    ReportRead,
     SignupRequest,
     SitemapEntries,
     TokenResponse,
@@ -48,6 +52,8 @@ from app.schemas import (
     VehicleOwnershipRead,
     VehicleOwnershipUpdate,
     VehicleRead,
+    VehicleTransferCreate,
+    VehicleTransferRead,
     VehicleUpdate,
 )
 from app.security import get_current_user, get_optional_user
@@ -116,25 +122,52 @@ def logout() -> dict[str, bool]:
     return {"ok": True}
 
 
+@app.post("/auth/change-password", status_code=204)
+def change_password(
+    data: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    services.change_password(db, user, data)
+
+
 @app.get("/auth/me", response_model=UserRead)
 def me(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def _user_out(user: User, viewer: User | None, db: Session) -> UserRead:
+    """Serialize a user, injecting block flags for the viewer."""
+    from app.models import UserBlock as _UB
+    out = UserRead.model_validate(user)
+    if viewer and viewer.id != user.id:
+        out.viewer_has_blocked = bool(db.get(_UB, {"blocker_user_id": viewer.id, "blocked_user_id": user.id}))
+        out.blocked_viewer = bool(db.get(_UB, {"blocker_user_id": user.id, "blocked_user_id": viewer.id}))
+    return out
+
+
 @app.get("/users/{user_id}", response_model=UserRead)
-def get_user(user_id: str, db: Session = Depends(get_db)) -> User:
+def get_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    viewer: User | None = Depends(get_optional_user),
+) -> UserRead:
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return _user_out(user, viewer, db)
 
 
 @app.get("/users/by-username/{username}", response_model=UserRead)
-def get_user_by_username(username: str, db: Session = Depends(get_db)) -> User:
+def get_user_by_username(
+    username: str,
+    db: Session = Depends(get_db),
+    viewer: User | None = Depends(get_optional_user),
+) -> UserRead:
     user = db.scalar(select(User).where(User.username == username.lower()))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return _user_out(user, viewer, db)
 
 
 @app.patch("/users/me", response_model=UserRead)
@@ -142,6 +175,49 @@ def update_me(
     data: UserUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ) -> User:
     return services.update_user(db, user, data)
+
+
+@app.post("/users/{user_id}/block", status_code=204)
+def block_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    services.block_user(db, user, user_id)
+
+
+@app.delete("/users/{user_id}/block", status_code=204)
+def unblock_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    services.unblock_user(db, user, user_id)
+
+
+@app.get("/users/me/blocks", response_model=list[PublicUser])
+def list_blocks(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[PublicUser]:
+    return services.list_blocked_users(db, user)
+
+
+@app.post("/reports", response_model=ReportRead, status_code=201)
+def create_report(
+    data: ReportCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ReportRead:
+    return services.create_report(db, user, data)
+
+
+@app.get("/users/me/vehicles/previous")
+def previous_vehicles(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list:
+    return services.list_previous_vehicles(db, user)
 
 
 
@@ -524,6 +600,66 @@ def delete_vehicle_ownership(
 ) -> None:
     period = services.get_ownership_or_404(db, ownership_id, user)
     services.delete_vehicle_ownership(db, period, user)
+
+
+@app.patch("/vehicle-events/{event_id}/hidden", response_model=VehicleEventRead)
+def set_event_hidden(
+    event_id: str,
+    data: EventHiddenToggle,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> VehicleEventRead:
+    event = services.get_vehicle_event_or_404(db, event_id, user)
+    return services.toggle_event_hidden(db, event, user, data.hidden)
+
+
+@app.post("/vehicles/{vehicle_id}/transfers", response_model=VehicleTransferRead, status_code=201)
+def create_vehicle_transfer(
+    vehicle_id: str,
+    data: VehicleTransferCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> VehicleTransferRead:
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, user)
+    return services.create_vehicle_transfer(db, vehicle, user, data)
+
+
+@app.get("/vehicles/{vehicle_id}/transfers/pending", response_model=VehicleTransferRead)
+def get_pending_transfer(
+    vehicle_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> VehicleTransferRead:
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, user)
+    transfer = services.get_pending_transfer(db, vehicle, user)
+    return services._transfer_to_read(db, transfer, viewer=user)
+
+
+@app.delete("/transfers/{transfer_id}", status_code=204)
+def revoke_transfer(
+    transfer_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    services.revoke_transfer(db, transfer_id, user)
+
+
+@app.get("/transfers/by-code/{code}", response_model=VehicleTransferRead)
+def get_transfer_by_code(
+    code: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> VehicleTransferRead:
+    return services.get_transfer_by_code(db, code, user)
+
+
+@app.post("/transfers/by-code/{code}/accept", response_model=VehicleRead)
+def accept_transfer(
+    code: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> VehicleRead:
+    return services.accept_transfer(db, code, user)
 
 
 @app.post("/posts/{post_id}/like", status_code=204)

@@ -53,6 +53,11 @@ class User(TimestampMixin, Base):
     vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="owner")
     posts: Mapped[list["Post"]] = relationship(back_populates="author")
 
+    @property
+    def has_password(self) -> bool:
+        """True if the user set a password (vs Google/Apple-only account)."""
+        return bool(self.password_hash and self.password_hash.startswith("pbkdf2_sha256"))
+
 
 class Vehicle(TimestampMixin, Base):
     __tablename__ = "vehicles"
@@ -190,6 +195,8 @@ class VehicleEvent(TimestampMixin, Base):
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual", server_default="manual")
     scan_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     edited_fields: Mapped[list] = mapped_column(JSON, nullable=True, default=list)
+    # Hidden flag: current owner can suppress from public view without deleting
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
 
     vehicle: Mapped[Vehicle] = relationship(back_populates="events")
     media: Mapped[list["VehicleEventMedia"]] = relationship(
@@ -356,6 +363,82 @@ class VehicleOwnership(TimestampMixin, Base):
 
     vehicle: Mapped["Vehicle"] = relationship(back_populates="ownerships", foreign_keys=[vehicle_id])
     owner_user: Mapped["User | None"] = relationship(foreign_keys=[owner_user_id])
+
+
+class Report(Base):
+    __tablename__ = "reports"
+    __table_args__ = (
+        UniqueConstraint("reporter_user_id", "target_type", "target_id", name="uq_report_per_reporter"),
+        CheckConstraint(
+            "target_type in ('post','comment','user','vehicle','event')",
+            name="ck_report_target_type",
+        ),
+        CheckConstraint(
+            "reason in ('spam','harassment','inappropriate','privacy','other')",
+            name="ck_report_reason",
+        ),
+        CheckConstraint("status in ('open','resolved')", name="ck_report_status"),
+        Index("idx_reports_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    reporter_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str] = mapped_column(String(30), nullable=False)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open", server_default="open")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    reporter: Mapped[User] = relationship(foreign_keys=[reporter_user_id])
+
+
+class UserBlock(Base):
+    __tablename__ = "user_blocks"
+
+    blocker_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    blocked_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    blocker: Mapped[User] = relationship(foreign_keys=[blocker_user_id])
+    blocked: Mapped[User] = relationship(foreign_keys=[blocked_user_id])
+
+
+class VehicleTransfer(Base):
+    __tablename__ = "vehicle_transfers"
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('pending','accepted','revoked','expired')",
+            name="ck_vehicle_transfer_status",
+        ),
+        Index("idx_vehicle_transfers_vehicle_id", "vehicle_id"),
+        Index("idx_vehicle_transfers_code", "code"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    vehicle_id: Mapped[str] = mapped_column(ForeignKey("vehicles.id"), nullable=False)
+    from_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    to_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default="pending")
+    handover_date: Mapped[date] = mapped_column(Date, nullable=False)
+    handover_mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    show_owner_name: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    keep_documents: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    keep_posts_tagged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    vehicle: Mapped["Vehicle"] = relationship(foreign_keys=[vehicle_id])
+    from_user: Mapped["User"] = relationship(foreign_keys=[from_user_id])
+    to_user: Mapped["User | None"] = relationship(foreign_keys=[to_user_id])
 
 
 class Follow(Base):

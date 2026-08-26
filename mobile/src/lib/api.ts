@@ -151,6 +151,9 @@ export type UserProfile = PublicUser & {
   location?: string | null;
   created_at?: string;
   settings?: UserSettings;
+  has_password?: boolean;
+  viewerHasBlocked?: boolean;
+  blockedViewer?: boolean;
 };
 
 export type Vehicle = {
@@ -211,6 +214,7 @@ export type VehicleEvent = {
   ownershipId: string | null;
   isPreviousOwner: boolean;
   canEdit: boolean;
+  hidden?: boolean;
   // Provenance fields
   source?: "manual" | "scan" | "scan_edited";
   editedFields?: string[];
@@ -372,6 +376,8 @@ export const eventApi = {
   update: (eventId: string, payload: Partial<EventPayload>) =>
     request<VehicleEvent>(`/vehicle-events/${eventId}`, { method: "PATCH", body: JSON.stringify(payload) }),
   delete: (eventId: string) => request<void>(`/vehicle-events/${eventId}`, { method: "DELETE" }),
+  setHidden: (eventId: string, hidden: boolean) =>
+    request<void>(`/vehicle-events/${eventId}/hidden`, { method: "PATCH", body: JSON.stringify({ hidden }) }),
 };
 
 export const ownershipApi = {
@@ -540,4 +546,100 @@ export const eventDocumentApi = {
       method: "PATCH",
       body: JSON.stringify({ isPublic }),
     }),
+};
+
+// --- Transfer types ---
+
+export type TransferRecord = {
+  id: string;
+  code: string;
+  url: string;
+  status: string;
+  handoverDate: string | null;
+  handoverMileage: number | null;
+  showOwnerName: boolean;
+  keepDocuments: boolean;
+  keepPostsTagged: boolean;
+  expiresAt: string;
+  vehicle: {
+    id: string;
+    year: number | null;
+    make: string;
+    model: string;
+    nickname: string | null;
+    coverUrl: string | null;
+  };
+  fromUser: { username: string; displayName: string | null } | null;
+};
+
+export type TransferPreview = TransferRecord & {
+  counts: { events: number; mods: number; photos: number };
+  canAccept: boolean;
+};
+
+export type PreviousVehicle = {
+  vehicle: Vehicle;
+  period_start: string;
+  period_end: string | null;
+  is_public: boolean;
+};
+
+// --- New API groups ---
+
+export const authApiExtra = {
+  changePassword: (currentPassword: string | undefined, newPassword: string) =>
+    request<void>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(
+        currentPassword !== undefined
+          ? { currentPassword, newPassword }
+          : { newPassword },
+      ),
+    }),
+};
+
+export type ReportPayload = {
+  targetType: "post" | "comment" | "user" | "vehicle" | "event";
+  targetId: string;
+  reason: "spam" | "harassment" | "inappropriate" | "privacy" | "other";
+  details?: string;
+};
+
+export const reportApi = {
+  create: (payload: ReportPayload) =>
+    request<void>("/reports", { method: "POST", body: JSON.stringify(payload) }),
+};
+
+export const blockApi = {
+  block: (userId: string) =>
+    request<void>(`/users/${userId}/block`, { method: "POST" }),
+  unblock: (userId: string) =>
+    request<void>(`/users/${userId}/block`, { method: "DELETE" }),
+  list: () => request<UserProfile[]>("/users/me/blocks"),
+};
+
+export type TransferCreatePayload = {
+  handoverDate?: string | null;
+  handoverMileage?: number | null;
+  showOwnerName?: boolean;
+  keepDocuments?: boolean;
+  keepPostsTagged?: boolean;
+};
+
+export const transferApi = {
+  create: (vehicleId: string, payload: TransferCreatePayload) =>
+    request<TransferRecord>(`/vehicles/${vehicleId}/transfers`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  pending: (vehicleId: string) =>
+    request<TransferRecord>(`/vehicles/${vehicleId}/transfers/pending`),
+  revoke: (transferId: string) =>
+    request<void>(`/transfers/${transferId}`, { method: "DELETE" }),
+  byCode: (code: string) =>
+    request<TransferPreview>(`/transfers/by-code/${code}`),
+  accept: (code: string) =>
+    request<Vehicle>(`/transfers/by-code/${code}/accept`, { method: "POST" }),
+  previousVehicles: () =>
+    request<PreviousVehicle[]>("/users/me/vehicles/previous"),
 };

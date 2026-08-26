@@ -30,6 +30,7 @@ import {
   type VehicleMod,
   type VehicleOwnership,
 } from "@/lib/api";
+import { ReportSheet } from "@/components/report-sheet";
 import type { GapInfo } from "@/lib/stats";
 import { eventTypeColors, eventTypeLabel, formatDate, formatMoney, tagLabel } from "@/lib/events";
 import { computeVehicleStats } from "@/lib/stats";
@@ -235,12 +236,14 @@ function EventRow({
   showPrevOwnerBadge,
   isOwner,
   onOpenMedia,
+  onToggleHidden,
 }: {
   event: VehicleEvent;
   onPress?: () => void;
   showPrevOwnerBadge?: boolean;
   isOwner?: boolean;
   onOpenMedia?: (media: Media) => void;
+  onToggleHidden?: () => void;
 }) {
   const colors = eventTypeColors(event.event_type);
   const cost = formatMoney(event.cost_cents, event.currency);
@@ -318,7 +321,12 @@ function EventRow({
   }
 
   return (
-    <Pressable style={styles.eventRow} onPress={onPress} disabled={!onPress}>
+    <Pressable
+      style={[styles.eventRow, event.hidden && { opacity: 0.6 }]}
+      onPress={onPress}
+      onLongPress={isOwner && onToggleHidden ? onToggleHidden : undefined}
+      disabled={!onPress && !(isOwner && onToggleHidden)}
+    >
       <View style={{ flex: 1, gap: 4 }}>
         <View style={styles.eventTop}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -330,6 +338,12 @@ function EventRow({
             {showPrevOwnerBadge && (
               <View style={styles.prevOwnerPill}>
                 <Text style={styles.prevOwnerPillText}>prev owner</Text>
+              </View>
+            )}
+            {event.hidden && (
+              <View style={styles.hiddenPill}>
+                <Ionicons name="eye-off-outline" size={11} color="#94a3b8" />
+                <Text style={styles.hiddenPillText}>hidden</Text>
               </View>
             )}
           </View>
@@ -452,6 +466,10 @@ export default function VehicleScreen() {
   // media viewer
   const [viewerMedia, setViewerMedia] = useState<Media | null>(null);
 
+  // vehicle menu (non-owner)
+  const [vehicleMenuVisible, setVehicleMenuVisible] = useState(false);
+  const [reportVehicleVisible, setReportVehicleVisible] = useState(false);
+
   const load = useCallback(async () => {
     if (!id) return;
     try {
@@ -571,6 +589,21 @@ export default function VehicleScreen() {
     void load();
   }
 
+  function handleToggleHidden(event: VehicleEvent) {
+    const newVal = !event.hidden;
+    // Optimistic update
+    setEvents((prev) =>
+      prev ? prev.map((e) => (e.id === event.id ? { ...e, hidden: newVal } : e)) : prev,
+    );
+    void eventApi.setHidden(event.id, newVal).catch(() => {
+      // Revert
+      setEvents((prev) =>
+        prev ? prev.map((e) => (e.id === event.id ? { ...e, hidden: event.hidden } : e)) : prev,
+      );
+      Alert.alert("Error", "Couldn't update visibility");
+    });
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Stack.Screen
@@ -579,6 +612,12 @@ export default function VehicleScreen() {
           headerRight: isOwner
             ? () => (
                 <View style={{ flexDirection: "row", gap: 18 }}>
+                  <Pressable
+                    onPress={() => router.push(`/vehicle/${vehicle.id}/transfer`)}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="swap-horizontal-outline" size={22} color="#64748b" />
+                  </Pressable>
                   <Pressable
                     onPress={() => router.push(`/vehicle-form?vehicleId=${vehicle.id}`)}
                     hitSlop={8}
@@ -589,6 +628,12 @@ export default function VehicleScreen() {
                     <Ionicons name="trash-outline" size={20} color="#dc2626" />
                   </Pressable>
                 </View>
+              )
+            : meId
+            ? () => (
+                <Pressable onPress={() => setVehicleMenuVisible(true)} hitSlop={8}>
+                  <Ionicons name="ellipsis-horizontal" size={22} color="#0b1120" />
+                </Pressable>
               )
             : undefined,
         }}
@@ -740,6 +785,7 @@ export default function VehicleScreen() {
                     showPrevOwnerBadge={event.isPreviousOwner}
                     isOwner={isOwner}
                     onOpenMedia={(media) => setViewerMedia(media)}
+                    onToggleHidden={isOwner ? () => handleToggleHidden(event) : undefined}
                     onPress={
                       event.canEdit
                         ? () => router.push(`/vehicle/${vehicle.id}/event-form?eventId=${event.id}`)
@@ -834,6 +880,33 @@ export default function VehicleScreen() {
           onTogglePublic={(val) => handleTogglePublic(viewerMedia, val)}
         />
       )}
+
+      {/* Vehicle overflow menu (non-owner) */}
+      {vehicleMenuVisible && (
+        <Modal transparent animationType="fade" onRequestClose={() => setVehicleMenuVisible(false)}>
+          <Pressable style={styles.menuOverlay} onPress={() => setVehicleMenuVisible(false)}>
+            <View style={styles.menuSheet}>
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setVehicleMenuVisible(false);
+                  setReportVehicleVisible(true);
+                }}
+              >
+                <Ionicons name="flag-outline" size={18} color="#0b1120" />
+                <Text style={styles.menuItemText}>Report vehicle</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
+
+      <ReportSheet
+        visible={reportVehicleVisible}
+        onClose={() => setReportVehicleVisible(false)}
+        targetType="vehicle"
+        targetId={vehicle.id}
+      />
     </ScrollView>
   );
 }
@@ -1007,4 +1080,38 @@ const styles = StyleSheet.create({
   gapBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
   gapBtnSecondary: { backgroundColor: "transparent", borderWidth: 1, borderColor: "#cbd5e1" },
   gapBtnSecondaryText: { color: "#64748b", fontWeight: "600", fontSize: 13 },
+  // hidden pill
+  hiddenPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    backgroundColor: "#f1f5f9",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  hiddenPillText: { fontSize: 11, fontWeight: "600", color: "#94a3b8" },
+  // vehicle overflow menu
+  menuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+  },
+  menuSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 32,
+    paddingTop: 8,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  menuItemText: { fontSize: 16, color: "#0b1120", fontWeight: "500" },
 });

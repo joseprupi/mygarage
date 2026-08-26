@@ -2,16 +2,17 @@
 
 import { InfiniteData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { Heart, MessageCircle, Trash2 } from "lucide-react";
+import { Heart, MessageCircle, MoreHorizontal, Trash2 } from "lucide-react";
 
-import { getToken, postApi } from "@/lib/api/client";
+import { blockApi, getToken, postApi } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { formatDateTime } from "@/lib/format";
 import type { FeedPage, Post } from "@/lib/types";
 import { ImageCarousel } from "@/components/ImageCarousel";
+import { ReportDialog } from "@/components/ReportDialog";
 import { ShareButton } from "@/components/ShareButton";
 import { UserListModal } from "@/components/UserListModal";
 
@@ -23,6 +24,9 @@ export function PostCard({ post }: { post: Post }) {
   const currentUser = me.data as { id: string } | undefined;
   const [hidden, setHidden] = useState(false);
   const [likersOpen, setLikersOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<"post" | "user" | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   // Liked state + count are read straight off the `post` prop, which is the
   // cached value from whichever query rendered this card (feed/post/vehicle/
   // user lists). Driving the toggle through the query cache (below) keeps it
@@ -79,6 +83,15 @@ export function PostCard({ post }: { post: Post }) {
     }
   });
 
+  const blockMutation = useMutation({
+    mutationFn: () => blockApi.block(post.author.id),
+    onSuccess: () => {
+      setHidden(true);
+      setMenuOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["feed"] });
+    }
+  });
+
   function handleLike() {
     if (likeMutation.isPending) return;
     if (!currentUser) {
@@ -115,18 +128,63 @@ export function PostCard({ post }: { post: Post }) {
             <p className="text-xs text-slate-500">{formatDateTime(post.created_at)}</p>
           </div>
         </div>
-        {currentUser?.id === post.author.id && (
-          <button
-            className="rounded-full p-2 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-            disabled={deleteMutation.isPending}
-            onClick={() => {
-              if (window.confirm("Delete this post?")) deleteMutation.mutate();
-            }}
-            title="Delete post"
-            type="button"
-          >
-            <Trash2 size={17} />
-          </button>
+        {currentUser && (
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-asphalt"
+              aria-label="More options"
+              onClick={() => setMenuOpen((o) => !o)}
+            >
+              <MoreHorizontal size={17} />
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute right-0 top-8 z-20 min-w-[160px] rounded-2xl border border-slate-100 bg-white py-1.5 shadow-lg"
+                onBlur={(e) => {
+                  if (!menuRef.current?.contains(e.relatedTarget as Node)) setMenuOpen(false);
+                }}
+              >
+                {currentUser.id === post.author.id ? (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (window.confirm("Delete this post?")) deleteMutation.mutate();
+                    }}
+                  >
+                    <Trash2 size={15} />
+                    Delete post
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                      onClick={() => { setMenuOpen(false); setReportTarget("post"); }}
+                    >
+                      Report post
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      disabled={blockMutation.isPending}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (window.confirm(`Block @${post.author.username}? Their posts and comments will be hidden.`)) {
+                          blockMutation.mutate();
+                        }
+                      }}
+                    >
+                      Block @{post.author.username}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </header>
 
@@ -188,6 +246,12 @@ export function PostCard({ post }: { post: Post }) {
           loading={likers.isLoading}
           emptyText="No likes yet."
           onClose={() => setLikersOpen(false)}
+        />
+      )}
+      {reportTarget === "post" && (
+        <ReportDialog
+          target={{ type: "post", id: post.id, label: "post" }}
+          onClose={() => setReportTarget(null)}
         />
       )}
     </article>

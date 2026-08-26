@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     storage_secret_access_key: str = "minioadmin"
     public_media_base_url: str = "http://localhost:9000/car-social"
     max_upload_bytes: int = 10 * 1024 * 1024
+    public_web_base_url: str = "https://carfable.com"
 
     # --- Cloudflare Stream (video) — all optional; video uploads stay disabled
     # until all three are set. The customer code is the "<CODE>" in

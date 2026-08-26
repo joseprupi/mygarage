@@ -1,18 +1,20 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
+  Alert,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { mediaUrl, userApi, type Vehicle } from "@/lib/api";
+import { mediaUrl, transferApi, userApi, type PreviousVehicle, type Vehicle } from "@/lib/api";
 
 function vehicleTitle(v: Vehicle): string {
   return v.nickname || [v.year, v.make, v.model].filter(Boolean).join(" ");
@@ -29,16 +31,30 @@ function placeholderColors(id: string): { bg: string; icon: string } {
   return { bg: PLACEHOLDER_COLORS[i], icon: PLACEHOLDER_ICON[i] };
 }
 
+function formatDateShort(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.getFullYear().toString();
+}
+
 export default function GarageScreen() {
   const router = useRouter();
   const [vehicles, setVehicles] = useState<Vehicle[] | null>(null);
+  const [previousVehicles, setPreviousVehicles] = useState<PreviousVehicle[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transferCode, setTransferCode] = useState("");
+  const [showCodeInput, setShowCodeInput] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const me = await userApi.me();
-      setVehicles(await userApi.vehicles(me.id));
+      const [v, prev] = await Promise.all([
+        userApi.vehicles(me.id),
+        transferApi.previousVehicles().catch(() => [] as PreviousVehicle[]),
+      ]);
+      setVehicles(v);
+      setPreviousVehicles(prev);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't load your garage");
@@ -73,11 +89,20 @@ export default function GarageScreen() {
     );
   }
 
+  function goToTransferCode() {
+    const code = transferCode.trim().toUpperCase();
+    if (!code) {
+      Alert.alert("Enter a code", "Type the transfer code you received.");
+      return;
+    }
+    setTransferCode("");
+    setShowCodeInput(false);
+    router.push(`/transfer/${code}`);
+  }
+
   return (
-    <FlatList
+    <ScrollView
       style={styles.container}
-      data={vehicles}
-      keyExtractor={(v) => v.id}
       contentContainerStyle={styles.list}
       refreshControl={
         <RefreshControl
@@ -88,17 +113,24 @@ export default function GarageScreen() {
           }}
         />
       }
-      ListHeaderComponent={
-        <Pressable style={styles.addVehicleBtn} onPress={() => router.push("/vehicle-form")}>
-          <Ionicons name="add" size={20} color="#fff" />
-          <Text style={styles.addVehicleText}>Add vehicle</Text>
-        </Pressable>
-      }
-      renderItem={({ item }) => {
+    >
+      <Pressable style={styles.addVehicleBtn} onPress={() => router.push("/vehicle-form")}>
+        <Ionicons name="add" size={20} color="#fff" />
+        <Text style={styles.addVehicleText}>Add vehicle</Text>
+      </Pressable>
+
+      {(vehicles ?? []).length === 0 && !error && (
+        <View style={styles.center}>
+          <Text style={styles.emptyTitle}>No vehicles yet.</Text>
+          <Text style={styles.emptyDetail}>Add your first car to get started.</Text>
+        </View>
+      )}
+
+      {(vehicles ?? []).map((item) => {
         const cover = mediaUrl(item.cover_image_url);
         const colors = placeholderColors(item.id);
         return (
-          <Pressable style={styles.card} onPress={() => router.push(`/vehicle/${item.id}`)}>
+          <Pressable key={item.id} style={styles.card} onPress={() => router.push(`/vehicle/${item.id}`)}>
             {cover ? (
               <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" />
             ) : (
@@ -118,14 +150,77 @@ export default function GarageScreen() {
             <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
           </Pressable>
         );
-      }}
-      ListEmptyComponent={
-        <View style={styles.center}>
-          <Text style={styles.emptyTitle}>No vehicles yet.</Text>
-          <Text style={styles.emptyDetail}>Add your first car on the web app — mobile add is coming next.</Text>
-        </View>
-      }
-    />
+      })}
+
+      {/* Previously owned section */}
+      {previousVehicles.length > 0 && (
+        <>
+          <Text style={styles.sectionHeader}>Previously owned</Text>
+          {previousVehicles.map((pv) => {
+            const cover = mediaUrl(pv.vehicle.cover_image_url);
+            const colors = placeholderColors(pv.vehicle.id);
+            const period = [
+              formatDateShort(pv.period_start),
+              formatDateShort(pv.period_end) || "now",
+            ].join(" – ");
+            return (
+              <Pressable
+                key={pv.vehicle.id}
+                style={[styles.card, !pv.is_public && styles.cardMuted]}
+                onPress={pv.is_public ? () => router.push(`/vehicle/${pv.vehicle.id}`) : undefined}
+                disabled={!pv.is_public}
+              >
+                {cover ? (
+                  <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" />
+                ) : (
+                  <View style={[styles.cover, styles.coverPlaceholder, { backgroundColor: colors.bg }]}>
+                    <Ionicons name="car-sport" size={40} color={colors.icon} />
+                  </View>
+                )}
+                <View style={styles.cardBody}>
+                  <Text style={[styles.title, !pv.is_public && { color: "#94a3b8" }]}>
+                    {vehicleTitle(pv.vehicle)}
+                  </Text>
+                  <Text style={styles.subtitle}>
+                    {[pv.vehicle.year, pv.vehicle.make, pv.vehicle.model].filter(Boolean).join(" ")}
+                  </Text>
+                  <Text style={styles.meta}>{period}{!pv.is_public ? " · now private" : ""}</Text>
+                </View>
+                {pv.is_public && <Ionicons name="chevron-forward" size={20} color="#94a3b8" />}
+              </Pressable>
+            );
+          })}
+        </>
+      )}
+
+      {/* Transfer code entry */}
+      <View style={styles.transferSection}>
+        {showCodeInput ? (
+          <View style={styles.codeRow}>
+            <TextInput
+              style={styles.codeInput}
+              value={transferCode}
+              onChangeText={setTransferCode}
+              placeholder="Transfer code"
+              placeholderTextColor="#94a3b8"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              onSubmitEditing={goToTransferCode}
+            />
+            <Pressable style={styles.codeGoBtn} onPress={goToTransferCode}>
+              <Text style={styles.codeGoBtnText}>Go</Text>
+            </Pressable>
+            <Pressable onPress={() => { setShowCodeInput(false); setTransferCode(""); }} hitSlop={8}>
+              <Text style={styles.codeCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable onPress={() => setShowCodeInput(true)}>
+            <Text style={styles.transferCodeLink}>Have a transfer code?</Text>
+          </Pressable>
+        )}
+      </View>
+    </ScrollView>
   );
 }
 
@@ -163,4 +258,47 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   addVehicleText: { color: "#fff", fontWeight: "700", fontSize: 17 },
+  sectionHeader: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748b",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 16,
+    marginBottom: 4,
+    marginLeft: 2,
+  },
+  cardMuted: { opacity: 0.6 },
+  transferSection: {
+    marginTop: 20,
+    alignItems: "center",
+  },
+  transferCodeLink: { fontSize: 15, color: "#2563eb", fontWeight: "600" },
+  codeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+  },
+  codeInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: "#0b1120",
+    backgroundColor: "#fff",
+    fontFamily: "monospace",
+    letterSpacing: 2,
+  },
+  codeGoBtn: {
+    backgroundColor: "#2563eb",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  codeGoBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
+  codeCancelText: { color: "#64748b", fontWeight: "600", fontSize: 15 },
 });

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Heart, Trash2 } from "lucide-react";
 
 import { postApi } from "@/lib/api/client";
+import { ReportDialog } from "@/components/ReportDialog";
 import { useMe } from "@/lib/useMe";
 import { formatDateTime } from "@/lib/format";
 import type { Comment } from "@/lib/types";
@@ -24,6 +25,7 @@ function CommentRow({
   const queryClient = useQueryClient();
   const [liked, setLiked] = useState(comment.viewer_has_liked);
   const [likeCount, setLikeCount] = useState(comment.like_count);
+  const [reporting, setReporting] = useState(false);
   const likeMutation = useMutation({
     mutationFn: () => (liked ? postApi.unlikeComment(comment.id) : postApi.likeComment(comment.id)),
     onMutate: () => {
@@ -49,6 +51,7 @@ function CommentRow({
     }
   });
   const canDelete = currentUserId === comment.author_user_id || currentUserId === postAuthorId;
+  const canReport = currentUserId && currentUserId !== comment.author_user_id;
 
   return (
     <article className="rounded-2xl bg-slate-50 p-3 text-sm">
@@ -72,15 +75,32 @@ function CommentRow({
           </button>
         )}
       </div>
-      <button
-        className="mt-2 flex items-center gap-1 text-xs text-slate-500 disabled:opacity-50"
-        disabled={!currentUserId || likeMutation.isPending}
-        onClick={() => likeMutation.mutate()}
-        type="button"
-      >
-        <Heart size={14} className={liked ? "fill-red-500 text-red-500" : ""} />
-        {likeCount}
-      </button>
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          className="flex items-center gap-1 text-xs text-slate-500 disabled:opacity-50"
+          disabled={!currentUserId || likeMutation.isPending}
+          onClick={() => likeMutation.mutate()}
+          type="button"
+        >
+          <Heart size={14} className={liked ? "fill-red-500 text-red-500" : ""} />
+          {likeCount}
+        </button>
+        {canReport && (
+          <button
+            type="button"
+            className="text-xs text-slate-400 hover:text-slate-600"
+            onClick={() => setReporting(true)}
+          >
+            Report
+          </button>
+        )}
+      </div>
+      {reporting && (
+        <ReportDialog
+          target={{ type: "comment", id: comment.id, label: "comment" }}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </article>
   );
 }

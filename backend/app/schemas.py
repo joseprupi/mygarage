@@ -60,6 +60,10 @@ class UserRead(BaseModel):
     avatar_url: str | None = None
     location: str | None = None
     settings: UserSettings = Field(default_factory=UserSettings)
+    has_password: bool = False
+    # Block flags (set by route handlers; false for /auth/me self-view)
+    viewer_has_blocked: bool = Field(default=False, alias="viewerHasBlocked")
+    blocked_viewer: bool = Field(default=False, alias="blockedViewer")
     created_at: datetime
     updated_at: datetime
 
@@ -375,6 +379,8 @@ class VehicleEventRead(BaseModel):
     source: EventSource = "manual"
     edited_fields: list[str] = Field(default_factory=list, alias="editedFields")
     scan_snapshot: dict | None = Field(default=None, alias="scanSnapshot")
+    # Hidden flag: set by current owner; non-owners never see hidden events
+    hidden: bool = False
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -614,3 +620,102 @@ class SitemapEntries(BaseModel):
     vehicles: list[SitemapVehicleEntry] = []
     posts: list[SitemapPostEntry] = []
     users: list[SitemapUserEntry] = []
+
+
+# ---------------------------------------------------------------------------
+# Password change
+# ---------------------------------------------------------------------------
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str | None = Field(default=None, alias="currentPassword")
+    new_password: str = Field(min_length=8, max_length=128, alias="newPassword")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# ---------------------------------------------------------------------------
+# Reports
+# ---------------------------------------------------------------------------
+
+ReportTargetType = Literal["post", "comment", "user", "vehicle", "event"]
+ReportReason = Literal["spam", "harassment", "inappropriate", "privacy", "other"]
+ReportStatus = Literal["open", "resolved"]
+
+
+class ReportCreate(BaseModel):
+    target_type: ReportTargetType = Field(alias="targetType")
+    target_id: str = Field(alias="targetId", min_length=1, max_length=255)
+    reason: ReportReason
+    details: str | None = Field(default=None, max_length=1000)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ReportRead(BaseModel):
+    id: str
+    reporter_user_id: str = Field(alias="reporterUserId")
+    target_type: ReportTargetType = Field(alias="targetType")
+    target_id: str = Field(alias="targetId")
+    reason: ReportReason
+    details: str | None = None
+    status: ReportStatus
+    created_at: datetime = Field(alias="createdAt")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+# ---------------------------------------------------------------------------
+# Vehicle transfers
+# ---------------------------------------------------------------------------
+
+class VehicleTransferCreate(BaseModel):
+    handover_date: date | None = Field(default=None, alias="handoverDate")
+    handover_mileage: int | None = Field(default=None, ge=0, alias="handoverMileage")
+    show_owner_name: bool = Field(default=True, alias="showOwnerName")
+    keep_documents: bool = Field(default=True, alias="keepDocuments")
+    keep_posts_tagged: bool = Field(default=True, alias="keepPostsTagged")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TransferFromUser(BaseModel):
+    username: str
+    display_name: str | None = Field(default=None, alias="displayName")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TransferCounts(BaseModel):
+    events: int
+    mods: int
+    photos: int
+
+
+class VehicleTransferRead(BaseModel):
+    id: str
+    code: str
+    url: str
+    status: str
+    handover_date: date = Field(alias="handoverDate")
+    handover_mileage: int | None = Field(default=None, alias="handoverMileage")
+    show_owner_name: bool = Field(alias="showOwnerName")
+    keep_documents: bool = Field(alias="keepDocuments")
+    keep_posts_tagged: bool = Field(alias="keepPostsTagged")
+    expires_at: datetime = Field(alias="expiresAt")
+    vehicle: "VehicleSummary"
+    from_user: TransferFromUser | None = Field(default=None, alias="fromUser")
+    # only in preview
+    counts: TransferCounts | None = None
+    can_accept: bool | None = Field(default=None, alias="canAccept")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# ---------------------------------------------------------------------------
+# Event hidden toggle
+# ---------------------------------------------------------------------------
+
+class EventHiddenToggle(BaseModel):
+    hidden: bool
+
+    model_config = ConfigDict(populate_by_name=True)

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import React, { Suspense, use, useState } from "react";
 import { ChevronDown, ChevronUp, Download, ExternalLink, Pencil, Plus } from "lucide-react";
 
-import { eventApi, eventDocumentApi, eventMediaApi, getToken, modApi, ownershipApi, vehicleApi } from "@/lib/api/client";
+import { eventApi, eventDocumentApi, eventMediaApi, getToken, modApi, ownershipApi, reportApi, transferApi, vehicleApi } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
@@ -17,10 +17,11 @@ import { LoadErrorCard } from "@/components/LoadErrorCard";
 import { MileageChart } from "@/components/MileageChart";
 import { tagLabel } from "@/lib/events";
 import { computeVehicleStats, type GapInfo } from "@/lib/stats";
+import { ReportDialog } from "@/components/ReportDialog";
 import { ShareButton } from "@/components/ShareButton";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { VehicleModForm } from "@/components/VehicleModForm";
-import type { EventMedia, Media, VehicleMod, VehicleOwnership } from "@/lib/types";
+import type { EventMedia, Media, VehicleMod, VehicleOwnership, VehicleTransfer } from "@/lib/types";
 
 // Map a post/mod Media list to lightbox items (video → iframe url, image → full url).
 const toLightboxItems = (media: Media[]): LightboxItem[] =>
@@ -115,6 +116,19 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const [ownershipSubmitting, setOwnershipSubmitting] = useState(false);
   const [ownershipSectionOpen, setOwnershipSectionOpen] = useState(false);
   const [mediaPublicError, setMediaPublicError] = useState<string | null>(null);
+  // Transfer modal state
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferData, setTransferData] = useState({
+    handoverDate: new Date().toISOString().slice(0, 10),
+    handoverMileage: "",
+    showOwnerName: true,
+    keepDocuments: true,
+    keepPostsTagged: true
+  });
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [pendingTransfer, setPendingTransfer] = useState<VehicleTransfer | null | undefined>(undefined);
+  const [reportVehicleOpen, setReportVehicleOpen] = useState(false);
   const queryClient = useQueryClient();
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useMe();
@@ -363,6 +377,54 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     }
   }
 
+  async function openTransferModal() {
+    setTransferError(null);
+    setTransferOpen(true);
+    // Pre-fill mileage from vehicle if available
+    setTransferData((d) => ({
+      ...d,
+      handoverDate: new Date().toISOString().slice(0, 10),
+      handoverMileage: v?.mileage != null ? String(v.mileage) : d.handoverMileage
+    }));
+    // Load pending transfer (if any)
+    try {
+      const p = await transferApi.pending(vehicleId);
+      setPendingTransfer(p);
+    } catch {
+      setPendingTransfer(null);
+    }
+  }
+
+  async function submitTransfer() {
+    if (transferSubmitting) return;
+    setTransferError(null);
+    setTransferSubmitting(true);
+    try {
+      const t = await transferApi.create(vehicleId, {
+        handoverDate: transferData.handoverDate || null,
+        handoverMileage: transferData.handoverMileage ? Number(transferData.handoverMileage) : null,
+        showOwnerName: transferData.showOwnerName,
+        keepDocuments: transferData.keepDocuments,
+        keepPostsTagged: transferData.keepPostsTagged
+      });
+      setPendingTransfer(t);
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : "Failed to create transfer");
+    } finally {
+      setTransferSubmitting(false);
+    }
+  }
+
+  async function revokeTransfer(id: string) {
+    if (!window.confirm("Revoke this transfer link? The receiver will no longer be able to accept.")) return;
+    try {
+      await transferApi.revoke(id);
+      setPendingTransfer(null);
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : "Failed to revoke");
+    }
+  }
+
   async function exportHistory() {
     if (exporting) return;
     setExporting(true);
@@ -413,12 +475,29 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                 title="Share vehicle"
                 url={typeof window !== "undefined" ? `${window.location.origin}/v/${v.id}` : `/v/${v.id}`}
               />
-              {isOwner && (
-                <Link className="btn btn-secondary shrink-0" href={`/vehicles/${v.id}/edit`}>
-                  <Pencil size={15} />
-                  Edit
-                </Link>
-              )}
+              {isOwner ? (
+                <>
+                  <Link className="btn btn-secondary shrink-0" href={`/vehicles/${v.id}/edit`}>
+                    <Pencil size={15} />
+                    Edit
+                  </Link>
+                  <button
+                    type="button"
+                    className="btn btn-secondary shrink-0"
+                    onClick={openTransferModal}
+                  >
+                    Transfer
+                  </button>
+                </>
+              ) : currentUser ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary shrink-0 text-xs"
+                  onClick={() => setReportVehicleOpen(true)}
+                >
+                  Report
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -1041,8 +1120,27 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                         {eventTypeLabel(event.event_type)}
                       </span>
                       <div className="flex items-center gap-2">
+                        {event.hidden && isOwner && (
+                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] text-slate-500">hidden</span>
+                        )}
                         {event.isPreviousOwner && (
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-400">prev. owner</span>
+                        )}
+                        {isOwner && (
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-slate-400 hover:text-slate-700"
+                            onClick={async () => {
+                              try {
+                                await eventApi.setHidden(event.id, !event.hidden);
+                                await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
+                              } catch {
+                                // silent fail — the toggle stays at its previous value
+                              }
+                            }}
+                          >
+                            {event.hidden ? "Unhide" : "Hide"}
+                          </button>
                         )}
                         {event.canEdit && (
                           <Link
@@ -1525,6 +1623,237 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
       {lightbox && (
         <Lightbox items={lightbox.items} startIndex={lightbox.index} onClose={() => setLightbox(null)} />
       )}
+
+      {/* Transfer ownership modal */}
+      {transferOpen && isOwner && (
+        <TransferModal
+          vehicleLabel={[v.year, v.make, v.model].filter(Boolean).join(" ")}
+          pending={pendingTransfer}
+          data={transferData}
+          onChange={setTransferData}
+          submitting={transferSubmitting}
+          error={transferError}
+          onSubmit={submitTransfer}
+          onRevoke={(id) => void revokeTransfer(id)}
+          onClose={() => { setTransferOpen(false); setPendingTransfer(undefined); }}
+        />
+      )}
+
+      {reportVehicleOpen && (
+        <ReportDialog
+          target={{ type: "vehicle", id: v.id, label: [v.year, v.make, v.model].filter(Boolean).join(" ") }}
+          onClose={() => setReportVehicleOpen(false)}
+        />
+      )}
     </section>
+  );
+}
+
+// ─── Transfer Ownership Modal ────────────────────────────────────────────────
+
+function TransferModal({
+  vehicleLabel,
+  pending,
+  data,
+  onChange,
+  submitting,
+  error,
+  onSubmit,
+  onRevoke,
+  onClose
+}: {
+  vehicleLabel: string;
+  pending: VehicleTransfer | null | undefined;
+  data: {
+    handoverDate: string;
+    handoverMileage: string;
+    showOwnerName: boolean;
+    keepDocuments: boolean;
+    keepPostsTagged: boolean;
+  };
+  onChange: React.Dispatch<React.SetStateAction<{
+    handoverDate: string;
+    handoverMileage: string;
+    showOwnerName: boolean;
+    keepDocuments: boolean;
+    keepPostsTagged: boolean;
+  }>>;
+  submitting: boolean;
+  error: string | null;
+  onSubmit: () => void;
+  onRevoke: (id: string) => void;
+  onClose: () => void;
+}) {
+  const { useEffect, useId, useState: useLocalState } = React;
+  const titleId = useId();
+  const [copied, setCopied] = useLocalState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function copyLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }
+
+  const loading = pending === undefined;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="surface flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto rounded-3xl p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="mb-4 flex items-center justify-between">
+          <h2 id={titleId} className="text-base font-semibold">Transfer ownership — {vehicleLabel}</h2>
+          <button
+            className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-asphalt"
+            onClick={onClose}
+            aria-label="Close"
+            type="button"
+          >
+            ✕
+          </button>
+        </header>
+
+        {loading ? (
+          <p className="py-6 text-center text-sm text-slate-500">Loading…</p>
+        ) : pending ? (
+          /* Pending transfer — show code + link */
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">A transfer link is active. Share it with the new owner.</p>
+            <div className="rounded-2xl border border-dashed border-petrol/40 bg-petrol/5 p-4 text-center">
+              <p className="font-mono text-2xl font-bold tracking-widest text-petrol">{pending.code}</p>
+              <p className="mt-1 text-xs text-slate-500">Expires {new Date(pending.expiresAt).toLocaleDateString()}</p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                className="input flex-1 font-mono text-xs"
+                readOnly
+                value={pending.url}
+              />
+              <button
+                type="button"
+                className="btn btn-primary shrink-0"
+                onClick={() => void copyLink(pending.url)}
+              >
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <button
+              type="button"
+              className="text-xs text-slate-500 hover:text-red-600"
+              onClick={() => onRevoke(pending.id)}
+            >
+              Revoke link
+            </button>
+          </div>
+        ) : (
+          /* No pending transfer — show form */
+          <form
+            className="space-y-4"
+            onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
+          >
+            <p className="text-sm text-slate-600">
+              The vehicle history, mods, and media stay with the car. A one-time link (7-day expiry) lets the new owner accept.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block space-y-1 text-sm">
+                <span>Handover date</span>
+                <input
+                  type="date"
+                  className="input text-sm"
+                  value={data.handoverDate}
+                  onChange={(e) => onChange((d) => ({ ...d, handoverDate: e.target.value }))}
+                />
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span>Handover mileage</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className="input text-sm"
+                  placeholder="e.g. 95000"
+                  value={data.handoverMileage}
+                  onChange={(e) => onChange((d) => ({ ...d, handoverMileage: e.target.value.replace(/[^\d]/g, "") }))}
+                />
+              </label>
+            </div>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-semibold text-slate-700">Options</legend>
+              <label className="flex cursor-pointer items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-petrol"
+                  checked={data.showOwnerName}
+                  onChange={(e) => onChange((d) => ({ ...d, showOwnerName: e.target.checked }))}
+                />
+                <span className="space-y-0.5">
+                  <span className="block font-medium">Show my name on the previous-owner period</span>
+                  <span className="block text-xs text-slate-500">Unchecking shows "Previous owner" instead of your username.</span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-petrol"
+                  checked={data.keepDocuments}
+                  onChange={(e) => onChange((d) => ({ ...d, keepDocuments: e.target.checked }))}
+                />
+                <span className="space-y-0.5">
+                  <span className="block font-medium">Keep receipts/documents attached</span>
+                  <span className="block text-xs text-slate-500">Unchecking removes document files from your period's events (amounts stay).</span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-petrol"
+                  checked={data.keepPostsTagged}
+                  onChange={(e) => onChange((d) => ({ ...d, keepPostsTagged: e.target.checked }))}
+                />
+                <span className="space-y-0.5">
+                  <span className="block font-medium">Keep my posts tagged to this vehicle</span>
+                  <span className="block text-xs text-slate-500">Posts remain yours; the vehicle's Posts tab keeps showing them with attribution.</span>
+                </span>
+              </label>
+            </fieldset>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="submit"
+                className="btn btn-primary disabled:opacity-60"
+                disabled={submitting}
+              >
+                {submitting ? "Generating…" : "Generate transfer link"}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={onClose}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }

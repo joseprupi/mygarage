@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -107,6 +108,18 @@ export default function SettingsScreen() {
 
       <Text style={styles.sectionHeader}>Account</Text>
       <View style={styles.card}>
+        <Pressable
+          onPress={() =>
+            router.push(
+              `/change-password?hasPassword=${me?.has_password === true ? "true" : "false"}`,
+            )
+          }
+        >
+          <Text style={styles.linkBtn}>
+            {me?.has_password === false ? "Set a password" : "Change password"}
+          </Text>
+        </Pressable>
+        <View style={styles.divider} />
         <Text style={styles.logoutBtn} onPress={logout}>
           Log out
         </Text>
@@ -147,6 +160,13 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 16, fontWeight: "500", color: "#0b1120" },
   rowSub: { fontSize: 13, color: "#64748b", lineHeight: 18 },
   divider: { height: 1, backgroundColor: "#f1f5f9", marginHorizontal: 16 },
+  linkBtn: {
+    color: "#2563eb",
+    fontWeight: "600",
+    fontSize: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
   logoutBtn: {
     color: "#dc2626",
     fontWeight: "600",

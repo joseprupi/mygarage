@@ -1276,3 +1276,632 @@ def test_toggle_requires_auth():
     """Toggle endpoint requires authentication."""
     resp = client.patch("/vehicle-event-media/nonexistent-id", json={"isPublic": True})
     assert resp.status_code == 401
+
+
+# =============================================================================
+# A) PASSWORD CHANGE / SET
+# =============================================================================
+
+def test_has_password_true_for_password_user():
+    """Normal signup user has hasPassword=true."""
+    user = signup("pwcheck1", "pwcheck1@example.com")
+    me = client.get("/auth/me", headers=auth_headers(user["accessToken"]))
+    assert me.status_code == 200, me.text
+    assert me.json()["has_password"] is True
+
+
+def test_change_password_correct_current():
+    """User with password can change it with correct currentPassword."""
+    user = signup("pwchange1", "pwchange1@example.com")
+    token = user["accessToken"]
+
+    resp = client.post(
+        "/auth/change-password",
+        headers=auth_headers(token),
+        json={"currentPassword": "password123", "newPassword": "newpass456"},
+    )
+    assert resp.status_code == 204, resp.text
+
+    # Old password no longer works
+    old_login = client.post("/auth/login", json={"email": "pwchange1@example.com", "password": "password123"})
+    assert old_login.status_code == 401
+
+    # New password works
+    new_login = client.post("/auth/login", json={"email": "pwchange1@example.com", "password": "newpass456"})
+    assert new_login.status_code == 200, new_login.text
+
+
+def test_change_password_incorrect_current_returns_401():
+    """Wrong currentPassword is rejected."""
+    user = signup("pwchange2", "pwchange2@example.com")
+    resp = client.post(
+        "/auth/change-password",
+        headers=auth_headers(user["accessToken"]),
+        json={"currentPassword": "wrongpass!", "newPassword": "newpass456"},
+    )
+    assert resp.status_code == 401, resp.text
+
+
+def test_change_password_missing_current_for_password_user_returns_400():
+    """Password user must supply currentPassword."""
+    user = signup("pwchange3", "pwchange3@example.com")
+    resp = client.post(
+        "/auth/change-password",
+        headers=auth_headers(user["accessToken"]),
+        json={"newPassword": "newpass456"},
+    )
+    assert resp.status_code == 400, resp.text
+
+
+def test_set_password_on_passwordless_user(monkeypatch):
+    """Google/Apple user can set a password without currentPassword."""
+    import app.services as svc
+    # Create a Google user (no pbkdf2 hash)
+    monkeypatch.setattr(svc, "google_login", lambda db, data: svc._google_login_test(db, data))
+
+    # Simulate a "passwordless" user by creating one via signup then patching the hash
+    user = signup("pwless1", "pwless1@example.com")
+    token = user["accessToken"]
+
+    # Directly patch the password_hash to simulate a Google-only user
+    from app.database import SessionLocal
+    from app.models import User as _User
+    with SessionLocal() as db:
+        u = db.get(_User, user["user"]["id"])
+        u.password_hash = "google:fake_google_sub"
+        db.commit()
+
+    # Refresh token (old token still works, session is stateless JWT)
+    resp = client.post(
+        "/auth/change-password",
+        headers=auth_headers(token),
+        json={"newPassword": "brandnewpass"},
+    )
+    assert resp.status_code == 204, resp.text
+
+    # Now user has a real password
+    me = client.get("/auth/me", headers=auth_headers(token))
+    assert me.json()["has_password"] is True
+
+    # Can log in with new password
+    login_resp = client.post("/auth/login", json={"email": "pwless1@example.com", "password": "brandnewpass"})
+    assert login_resp.status_code == 200, login_resp.text
+
+
+def test_change_password_min_length():
+    """newPassword must be at least 8 characters."""
+    user = signup("pwshort1", "pwshort1@example.com")
+    resp = client.post(
+        "/auth/change-password",
+        headers=auth_headers(user["accessToken"]),
+        json={"currentPassword": "password123", "newPassword": "short"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+# =============================================================================
+# B) REPORT + BLOCK
+# =============================================================================
+
+def test_report_post_idempotent():
+    """Reporting the same post twice returns the existing report (200/201)."""
+    reporter = signup("rpt-reporter1", "rpt-reporter1@example.com")
+    author = signup("rpt-author1", "rpt-author1@example.com")
+    post = client.post(
+        "/posts",
+        headers=auth_headers(author["accessToken"]),
+        json={"caption": "Content", "vehicleIds": [], "media": [], "visibility": "public"},
+    ).json()
+
+    first = client.post(
+        "/reports",
+        headers=auth_headers(reporter["accessToken"]),
+        json={"targetType": "post", "targetId": post["id"], "reason": "spam"},
+    )
+    assert first.status_code == 201, first.text
+    first_id = first.json()["id"]
+
+    second = client.post(
+        "/reports",
+        headers=auth_headers(reporter["accessToken"]),
+        json={"targetType": "post", "targetId": post["id"], "reason": "spam"},
+    )
+    # Idempotent — returns existing
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] == first_id
+
+
+def test_report_missing_target_returns_404():
+    """Reporting a non-existent post returns 404."""
+    reporter = signup("rpt-reporter2", "rpt-reporter2@example.com")
+    resp = client.post(
+        "/reports",
+        headers=auth_headers(reporter["accessToken"]),
+        json={"targetType": "post", "targetId": "nonexistent-id", "reason": "spam"},
+    )
+    assert resp.status_code == 404, resp.text
+
+
+def test_block_hides_feed_posts():
+    """Posts by a blocked user are excluded from the feed."""
+    blocker = signup("blk-blocker1", "blk-blocker1@example.com")
+    blocked = signup("blk-blocked1", "blk-blocked1@example.com")
+
+    # blocked user creates a post
+    client.post(
+        "/posts",
+        headers=auth_headers(blocked["accessToken"]),
+        json={"caption": "I should be hidden", "vehicleIds": [], "media": [], "visibility": "public"},
+    )
+
+    # Before blocking: blocker sees the post
+    feed_before = client.get("/feed", headers=auth_headers(blocker["accessToken"])).json()
+    post_ids_before = [item["id"] for item in feed_before["items"]]
+    # (may or may not be there due to other tests, but blocking should change things)
+
+    # Block the user
+    resp = client.post(
+        f"/users/{blocked['user']['id']}/block",
+        headers=auth_headers(blocker["accessToken"]),
+    )
+    assert resp.status_code == 204, resp.text
+
+    # After blocking: posts by blocked user excluded
+    feed_after = client.get("/feed", headers=auth_headers(blocker["accessToken"])).json()
+    author_ids = [item["author"]["id"] for item in feed_after["items"]]
+    assert blocked["user"]["id"] not in author_ids
+
+
+def test_block_hides_comments_both_directions():
+    """Comments by blocked/blocking users are excluded from post comments."""
+    user_a = signup("blk-commentA", "blk-commentA@example.com")
+    user_b = signup("blk-commentB", "blk-commentB@example.com")
+    user_c = signup("blk-commentC", "blk-commentC@example.com")
+
+    # user_c creates a public post
+    post = client.post(
+        "/posts",
+        headers=auth_headers(user_c["accessToken"]),
+        json={"caption": "Open discussion", "vehicleIds": [], "media": [], "visibility": "public"},
+    ).json()
+
+    # Both A and B comment
+    client.post(
+        f"/posts/{post['id']}/comments",
+        headers=auth_headers(user_a["accessToken"]),
+        json={"body": "Comment from A"},
+    )
+    client.post(
+        f"/posts/{post['id']}/comments",
+        headers=auth_headers(user_b["accessToken"]),
+        json={"body": "Comment from B"},
+    )
+
+    # A blocks B
+    client.post(
+        f"/users/{user_b['user']['id']}/block",
+        headers=auth_headers(user_a["accessToken"]),
+    )
+
+    # A viewing: should not see B's comment
+    comments_as_a = client.get(
+        f"/posts/{post['id']}/comments",
+        headers=auth_headers(user_a["accessToken"]),
+    ).json()
+    comment_authors_a = [c["author"]["id"] for c in comments_as_a]
+    assert user_b["user"]["id"] not in comment_authors_a
+
+    # B viewing: should not see A's comment (blocked by A)
+    comments_as_b = client.get(
+        f"/posts/{post['id']}/comments",
+        headers=auth_headers(user_b["accessToken"]),
+    ).json()
+    comment_authors_b = [c["author"]["id"] for c in comments_as_b]
+    assert user_a["user"]["id"] not in comment_authors_b
+
+
+def test_comment_on_blocked_post_returns_403():
+    """Cannot comment on a post if author has blocked you (or you blocked them)."""
+    post_author = signup("blk-post-author", "blk-post-author@example.com")
+    commenter = signup("blk-commenter", "blk-commenter@example.com")
+
+    post = client.post(
+        "/posts",
+        headers=auth_headers(post_author["accessToken"]),
+        json={"caption": "My post", "vehicleIds": [], "media": [], "visibility": "public"},
+    ).json()
+
+    # post_author blocks commenter
+    client.post(
+        f"/users/{commenter['user']['id']}/block",
+        headers=auth_headers(post_author["accessToken"]),
+    )
+
+    resp = client.post(
+        f"/posts/{post['id']}/comments",
+        headers=auth_headers(commenter["accessToken"]),
+        json={"body": "Trying to comment"},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_unblock_restores_visibility():
+    """After unblocking, posts become visible again in the feed."""
+    blocker = signup("blk-unblock1", "blk-unblock1@example.com")
+    blocked = signup("blk-unblock2", "blk-unblock2@example.com")
+
+    client.post(
+        "/posts",
+        headers=auth_headers(blocked["accessToken"]),
+        json={"caption": "Visible after unblock", "vehicleIds": [], "media": [], "visibility": "public"},
+    )
+
+    # Block
+    client.post(
+        f"/users/{blocked['user']['id']}/block",
+        headers=auth_headers(blocker["accessToken"]),
+    )
+
+    # Unblock
+    resp = client.delete(
+        f"/users/{blocked['user']['id']}/block",
+        headers=auth_headers(blocker["accessToken"]),
+    )
+    assert resp.status_code == 204, resp.text
+
+    # Now the user's post should be visible
+    feed = client.get("/feed", headers=auth_headers(blocker["accessToken"])).json()
+    author_ids = [item["author"]["id"] for item in feed["items"]]
+    assert blocked["user"]["id"] in author_ids
+
+
+def test_block_self_returns_400():
+    """Cannot block yourself."""
+    user = signup("blk-self1", "blk-self1@example.com")
+    resp = client.post(
+        f"/users/{user['user']['id']}/block",
+        headers=auth_headers(user["accessToken"]),
+    )
+    assert resp.status_code == 400, resp.text
+
+
+def test_viewer_has_blocked_flag():
+    """GET /users/{id} includes viewerHasBlocked=true after blocking."""
+    blocker = signup("blk-flag1", "blk-flag1@example.com")
+    target = signup("blk-flag2", "blk-flag2@example.com")
+
+    # Block
+    client.post(
+        f"/users/{target['user']['id']}/block",
+        headers=auth_headers(blocker["accessToken"]),
+    )
+
+    # Check flag
+    resp = client.get(
+        f"/users/{target['user']['id']}",
+        headers=auth_headers(blocker["accessToken"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["viewerHasBlocked"] is True
+    assert body["blockedViewer"] is False
+
+
+# =============================================================================
+# C) OWNERSHIP TRANSFER
+# =============================================================================
+
+def _create_event(token: str, vehicle_id: str, event_date: str = "2025-01-01") -> dict:
+    resp = client.post(
+        f"/vehicles/{vehicle_id}/events",
+        headers=auth_headers(token),
+        json={
+            "eventType": "maintenance",
+            "title": "Oil change",
+            "eventDate": event_date,
+            "visibility": "public",
+            "media": [],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_transfer_create_preview_and_revoke():
+    """Create a transfer, preview it (giver can't accept), then revoke it."""
+    giver = signup("xfr-giver1", "xfr-giver1@example.com")
+    receiver = signup("xfr-receiver1", "xfr-receiver1@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+
+    # Create transfer
+    transfer_resp = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01", "showOwnerName": True},
+    )
+    assert transfer_resp.status_code == 201, transfer_resp.text
+    transfer = transfer_resp.json()
+    assert "code" in transfer
+    assert transfer["status"] == "pending"
+    assert len(transfer["code"]) == 10
+    assert "url" in transfer
+
+    # Giver cannot accept (canAccept=false)
+    preview_as_giver = client.get(
+        f"/transfers/by-code/{transfer['code']}",
+        headers=auth_headers(giver["accessToken"]),
+    )
+    assert preview_as_giver.status_code == 200, preview_as_giver.text
+    assert preview_as_giver.json()["canAccept"] is False
+
+    # Receiver can accept (canAccept=true)
+    preview_as_receiver = client.get(
+        f"/transfers/by-code/{transfer['code']}",
+        headers=auth_headers(receiver["accessToken"]),
+    )
+    assert preview_as_receiver.status_code == 200, preview_as_receiver.text
+    assert preview_as_receiver.json()["canAccept"] is True
+
+    # Counts included in preview
+    assert "counts" in preview_as_receiver.json()
+
+    # Revoke
+    revoke_resp = client.delete(
+        f"/transfers/{transfer['id']}",
+        headers=auth_headers(giver["accessToken"]),
+    )
+    assert revoke_resp.status_code == 204, revoke_resp.text
+
+    # Preview now shows revoked
+    preview_revoked = client.get(
+        f"/transfers/by-code/{transfer['code']}",
+        headers=auth_headers(receiver["accessToken"]),
+    )
+    assert preview_revoked.json()["status"] == "revoked"
+    assert preview_revoked.json()["canAccept"] is False
+
+
+def test_transfer_accept_switches_owner_and_locks_events():
+    """Accept transfer: owner switches, periods correct, old events locked for receiver."""
+    giver = signup("xfr-giver2", "xfr-giver2@example.com")
+    receiver = signup("xfr-receiver2", "xfr-receiver2@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+    # Add an event attributed to giver
+    event = _create_event(giver["accessToken"], vehicle["id"], "2025-06-01")
+    event_id = event["id"]
+
+    # Before transfer, giver can edit it
+    assert event["canEdit"] is True
+
+    # Create and accept transfer
+    transfer_resp = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01"},
+    )
+    assert transfer_resp.status_code == 201, transfer_resp.text
+    code = transfer_resp.json()["code"]
+
+    accept_resp = client.post(
+        f"/transfers/by-code/{code}/accept",
+        headers=auth_headers(receiver["accessToken"]),
+    )
+    assert accept_resp.status_code == 200, accept_resp.text
+    new_vehicle = accept_resp.json()
+    assert new_vehicle["owner_user_id"] == receiver["user"]["id"]
+    # Nickname cleared
+    assert new_vehicle["nickname"] is None
+
+    # Ownership periods: old closed, new current
+    ownerships = client.get(
+        f"/vehicles/{vehicle['id']}/ownerships",
+        headers=auth_headers(receiver["accessToken"]),
+    ).json()
+    # Should have at least 2 periods
+    assert len(ownerships) >= 2
+    current = next((p for p in ownerships if p["isCurrent"]), None)
+    assert current is not None
+    assert current["ownerUserId"] == receiver["user"]["id"]
+    closed = next((p for p in ownerships if not p["isCurrent"]), None)
+    assert closed is not None
+    assert closed["endDate"] == "2026-01-01"
+
+    # Giver's event: receiver cannot edit it (locked — not creator)
+    event_as_receiver = client.get(
+        f"/vehicle-events/{event_id}",
+        headers=auth_headers(receiver["accessToken"]),
+    ).json()
+    assert event_as_receiver["canEdit"] is False
+
+    # Giver also cannot edit (no longer owner)
+    edit_as_giver = client.patch(
+        f"/vehicle-events/{event_id}",
+        headers=auth_headers(giver["accessToken"]),
+        json={"title": "Changed"},
+    )
+    assert edit_as_giver.status_code == 403, edit_as_giver.text
+
+
+def test_transfer_receiver_can_hide_event_and_guests_dont_see_it():
+    """New owner can hide a prior-owner event from public view."""
+    giver = signup("xfr-hide-giver", "xfr-hide-giver@example.com")
+    receiver = signup("xfr-hide-recv", "xfr-hide-recv@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+    event = _create_event(giver["accessToken"], vehicle["id"], "2025-01-15")
+    event_id = event["id"]
+
+    # Transfer
+    tr = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01"},
+    ).json()
+    client.post(
+        f"/transfers/by-code/{tr['code']}/accept",
+        headers=auth_headers(receiver["accessToken"]),
+    )
+
+    # Receiver hides the event
+    hide_resp = client.patch(
+        f"/vehicle-events/{event_id}/hidden",
+        headers=auth_headers(receiver["accessToken"]),
+        json={"hidden": True},
+    )
+    assert hide_resp.status_code == 200, hide_resp.text
+    assert hide_resp.json()["hidden"] is True
+
+    # Guest doesn't see it
+    events_guest = client.get(f"/vehicles/{vehicle['id']}/events").json()
+    assert not any(e["id"] == event_id for e in events_guest)
+
+    # Receiver (owner) still sees it
+    events_owner = client.get(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(receiver["accessToken"]),
+    ).json()
+    hidden_event = next((e for e in events_owner if e["id"] == event_id), None)
+    assert hidden_event is not None
+    assert hidden_event["hidden"] is True
+
+
+def test_transfer_keep_posts_tagged_false_removes_vehicle_tag():
+    """keepPostsTagged=false removes vehicle tag from giver's posts."""
+    giver = signup("xfr-untag-giver", "xfr-untag-giver@example.com")
+    receiver = signup("xfr-untag-recv", "xfr-untag-recv@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+    # Giver creates a post tagged to the vehicle
+    post = client.post(
+        "/posts",
+        headers=auth_headers(giver["accessToken"]),
+        json={"caption": "My build", "vehicleIds": [vehicle["id"]], "media": [], "visibility": "public"},
+    ).json()
+
+    # Transfer with keepPostsTagged=false
+    tr = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01", "keepPostsTagged": False},
+    ).json()
+    client.post(
+        f"/transfers/by-code/{tr['code']}/accept",
+        headers=auth_headers(receiver["accessToken"]),
+    )
+
+    # Post should no longer be tagged to the vehicle
+    vehicle_posts = client.get(f"/vehicles/{vehicle['id']}/posts").json()
+    tagged_ids = [p["id"] for p in vehicle_posts]
+    assert post["id"] not in tagged_ids
+
+
+def test_transfer_show_owner_name_false_hides_giver_in_preview():
+    """showOwnerName=false hides the giver's info in the preview."""
+    giver = signup("xfr-anon-giver", "xfr-anon-giver@example.com")
+    receiver = signup("xfr-anon-recv", "xfr-anon-recv@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+
+    tr = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01", "showOwnerName": False},
+    ).json()
+
+    # Receiver preview: fromUser should be null
+    preview = client.get(
+        f"/transfers/by-code/{tr['code']}",
+        headers=auth_headers(receiver["accessToken"]),
+    ).json()
+    assert preview["fromUser"] is None
+
+
+def test_transfer_double_accept_returns_409():
+    """Accepting a transfer twice returns 409."""
+    giver = signup("xfr-dbl-giver", "xfr-dbl-giver@example.com")
+    receiver1 = signup("xfr-dbl-recv1", "xfr-dbl-recv1@example.com")
+    receiver2 = signup("xfr-dbl-recv2", "xfr-dbl-recv2@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+    tr = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01"},
+    ).json()
+    code = tr["code"]
+
+    # First accept succeeds
+    r1 = client.post(f"/transfers/by-code/{code}/accept", headers=auth_headers(receiver1["accessToken"]))
+    assert r1.status_code == 200, r1.text
+
+    # Second accept returns 409
+    r2 = client.post(f"/transfers/by-code/{code}/accept", headers=auth_headers(receiver2["accessToken"]))
+    assert r2.status_code == 409, r2.text
+
+
+def test_giver_cannot_accept_own_transfer():
+    """Transfer creator cannot accept their own transfer."""
+    giver = signup("xfr-self-giver", "xfr-self-giver@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+    tr = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01"},
+    ).json()
+
+    resp = client.post(
+        f"/transfers/by-code/{tr['code']}/accept",
+        headers=auth_headers(giver["accessToken"]),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_giver_previous_vehicles_after_transfer():
+    """After transferring, vehicle appears in giver's previously-owned list."""
+    giver = signup("xfr-prev-giver", "xfr-prev-giver@example.com")
+    receiver = signup("xfr-prev-recv", "xfr-prev-recv@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+
+    tr = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01"},
+    ).json()
+    client.post(
+        f"/transfers/by-code/{tr['code']}/accept",
+        headers=auth_headers(receiver["accessToken"]),
+    )
+
+    prev = client.get(
+        "/users/me/vehicles/previous",
+        headers=auth_headers(giver["accessToken"]),
+    ).json()
+    prev_ids = [p["vehicle"]["id"] for p in prev]
+    assert vehicle["id"] in prev_ids
+
+
+def test_vehicle_read_viewer_is_previous_owner():
+    """After transfer, viewerIsPreviousOwner is not checked here (field exists on schema)."""
+    # Just ensure the vehicle endpoint still works after transfer
+    giver = signup("xfr-prevown-giver", "xfr-prevown-giver@example.com")
+    receiver = signup("xfr-prevown-recv", "xfr-prevown-recv@example.com")
+
+    vehicle = create_vehicle(giver["accessToken"])
+    tr = client.post(
+        f"/vehicles/{vehicle['id']}/transfers",
+        headers=auth_headers(giver["accessToken"]),
+        json={"handoverDate": "2026-01-01"},
+    ).json()
+    client.post(
+        f"/transfers/by-code/{tr['code']}/accept",
+        headers=auth_headers(receiver["accessToken"]),
+    )
+
+    # Vehicle is still accessible publicly
+    v_resp = client.get(f"/vehicles/{vehicle['id']}")
+    assert v_resp.status_code == 200, v_resp.text
+    assert v_resp.json()["owner_user_id"] == receiver["user"]["id"]

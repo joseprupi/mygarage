@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,8 +15,9 @@ import {
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { postApi, userApi, type Comment, type Post } from "@/lib/api";
+import { blockApi, postApi, userApi, type Comment, type Post } from "@/lib/api";
 import { Avatar, PostCard, timeAgo } from "@/components/post-card";
+import { ReportSheet } from "@/components/report-sheet";
 
 export default function PostDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -26,6 +28,12 @@ export default function PostDetailScreen() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Report / block state
+  const [postMenuVisible, setPostMenuVisible] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ type: "post" | "comment"; id: string } | null>(null);
+  const [commentMenuTarget, setCommentMenuTarget] = useState<Comment | null>(null);
+  const [blockBusy, setBlockBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -81,6 +89,22 @@ export default function PostDetailScreen() {
     }
   }
 
+  async function blockAuthor() {
+    if (!post) return;
+    const authorId = post.author.id;
+    setPostMenuVisible(false);
+    setBlockBusy(true);
+    try {
+      await blockApi.block(authorId);
+      Alert.alert(`Blocked @${post.author.username}`, "They won't appear in your feed.");
+      router.back();
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : "Couldn't block user");
+    } finally {
+      setBlockBusy(false);
+    }
+  }
+
   async function sendComment() {
     if (!post || !draft.trim() || sending) return;
     setSending(true);
@@ -119,6 +143,12 @@ export default function PostDetailScreen() {
                     <Ionicons name="trash-outline" size={20} color="#dc2626" />
                   </Pressable>
                 )
+              : meId && meId !== post.author.id
+              ? () => (
+                  <Pressable onPress={() => setPostMenuVisible(true)} hitSlop={8}>
+                    <Ionicons name="ellipsis-horizontal" size={22} color="#0b1120" />
+                  </Pressable>
+                )
               : undefined,
         }}
       />
@@ -135,8 +165,17 @@ export default function PostDetailScreen() {
           </>
         }
         renderItem={({ item }) => (
-          <View style={styles.comment}>
-            <Avatar name={item.author?.display_name ?? item.author?.username ?? "?"} size={30} />
+          <Pressable
+            style={styles.comment}
+            onLongPress={
+              meId && item.author && meId !== item.author.id
+                ? () => setCommentMenuTarget(item)
+                : undefined
+            }
+          >
+            <Pressable onPress={item.author ? () => router.push(`/u/${item.author!.id}`) : undefined}>
+              <Avatar name={item.author?.display_name ?? item.author?.username ?? "?"} size={30} />
+            </Pressable>
             <View style={{ flex: 1 }}>
               <Text style={styles.commentAuthor}>
                 {item.author?.display_name ?? item.author?.username ?? "Unknown"}{" "}
@@ -144,7 +183,7 @@ export default function PostDetailScreen() {
               </Text>
               <Text style={styles.commentBody}>{item.body}</Text>
             </View>
-          </View>
+          </Pressable>
         )}
       />
       <View style={styles.composer}>
@@ -164,6 +203,75 @@ export default function PostDetailScreen() {
           )}
         </Pressable>
       </View>
+
+      {/* Post overflow menu (non-own) */}
+      {postMenuVisible && post && (
+        <Modal transparent animationType="fade" onRequestClose={() => setPostMenuVisible(false)}>
+          <Pressable style={styles.menuOverlay} onPress={() => setPostMenuVisible(false)}>
+            <View style={styles.menuSheet}>
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setPostMenuVisible(false);
+                  setReportTarget({ type: "post", id: post.id });
+                }}
+              >
+                <Ionicons name="flag-outline" size={18} color="#0b1120" />
+                <Text style={styles.menuItemText}>Report post</Text>
+              </Pressable>
+              <View style={styles.menuDivider} />
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  void router.push(`/u/${post.author.id}`);
+                  setPostMenuVisible(false);
+                }}
+              >
+                <Ionicons name="person-outline" size={18} color="#0b1120" />
+                <Text style={styles.menuItemText}>View @{post.author.username}</Text>
+              </Pressable>
+              <View style={styles.menuDivider} />
+              <Pressable style={styles.menuItem} onPress={blockAuthor} disabled={blockBusy}>
+                <Ionicons name="eye-off-outline" size={18} color="#dc2626" />
+                <Text style={[styles.menuItemText, { color: "#dc2626" }]}>
+                  {blockBusy ? "…" : `Block @${post.author.username}`}
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
+
+      {/* Comment overflow menu */}
+      {commentMenuTarget && (
+        <Modal transparent animationType="fade" onRequestClose={() => setCommentMenuTarget(null)}>
+          <Pressable style={styles.menuOverlay} onPress={() => setCommentMenuTarget(null)}>
+            <View style={styles.menuSheet}>
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  const t = commentMenuTarget;
+                  setCommentMenuTarget(null);
+                  setReportTarget({ type: "comment", id: t.id });
+                }}
+              >
+                <Ionicons name="flag-outline" size={18} color="#0b1120" />
+                <Text style={styles.menuItemText}>Report comment</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
+
+      {/* Report sheet */}
+      {reportTarget && (
+        <ReportSheet
+          visible={true}
+          onClose={() => setReportTarget(null)}
+          targetType={reportTarget.type}
+          targetId={reportTarget.id}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -201,4 +309,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
   },
   error: { color: "#dc2626", fontSize: 16 },
+  menuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+  },
+  menuSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 32,
+    paddingTop: 8,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  menuItemText: { fontSize: 16, color: "#0b1120", fontWeight: "500" },
+  menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#e2e8f0", marginHorizontal: 20 },
 });

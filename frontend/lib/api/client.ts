@@ -1,4 +1,4 @@
-import type { Comment, FeedPage, Post, PublicUser, UserSettings, Vehicle, VehicleEvent, VehicleMod, VehicleOwnership } from "@/lib/types";
+import type { Comment, FeedPage, Post, PreviousVehicle, PublicUser, UserSettings, Vehicle, VehicleEvent, VehicleMod, VehicleOwnership, VehicleTransfer, VehicleTransferDetail } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -84,7 +84,9 @@ export const authApi = {
     avatar_url?: string;
     location?: string;
     settings?: Partial<UserSettings>;
-  }) => api<unknown>("/users/me", { method: "PATCH", body: JSON.stringify(body) })
+  }) => api<unknown>("/users/me", { method: "PATCH", body: JSON.stringify(body) }),
+  changePassword: (body: { currentPassword?: string; newPassword: string }) =>
+    api<void>("/auth/change-password", { method: "POST", body: JSON.stringify(body) })
 };
 
 export const vehicleApi = {
@@ -261,7 +263,45 @@ export const eventApi = {
       method: "PATCH",
       body: JSON.stringify(body)
     }),
-  delete: (eventId: string) => api<void>(`/vehicle-events/${eventId}`, { method: "DELETE" })
+  delete: (eventId: string) => api<void>(`/vehicle-events/${eventId}`, { method: "DELETE" }),
+  setHidden: (eventId: string, hidden: boolean) =>
+    api<void>(`/vehicle-events/${eventId}/hidden`, {
+      method: "PATCH",
+      body: JSON.stringify({ hidden })
+    })
+};
+
+export const reportApi = {
+  create: (body: {
+    targetType: "post" | "comment" | "user" | "vehicle" | "event";
+    targetId: string;
+    reason: "spam" | "harassment" | "inappropriate" | "privacy" | "other";
+    details?: string;
+  }) => api<void>("/reports", { method: "POST", body: JSON.stringify(body) })
+};
+
+export const blockApi = {
+  block: (userId: string) => api<void>(`/users/${userId}/block`, { method: "POST" }),
+  unblock: (userId: string) => api<void>(`/users/${userId}/block`, { method: "DELETE" }),
+  list: () => api<PublicUser[]>("/users/me/blocks")
+};
+
+export const transferApi = {
+  create: (
+    vehicleId: string,
+    body: {
+      handoverDate?: string | null;
+      handoverMileage?: number | null;
+      showOwnerName?: boolean;
+      keepDocuments?: boolean;
+      keepPostsTagged?: boolean;
+    }
+  ) => api<VehicleTransfer>(`/vehicles/${vehicleId}/transfers`, { method: "POST", body: JSON.stringify(body) }),
+  pending: (vehicleId: string) => api<VehicleTransfer>(`/vehicles/${vehicleId}/transfers/pending`),
+  revoke: (transferId: string) => api<void>(`/transfers/${transferId}`, { method: "DELETE" }),
+  byCode: (code: string) => api<VehicleTransferDetail>(`/transfers/by-code/${code}`),
+  accept: (code: string) => api<Vehicle>(`/transfers/by-code/${code}/accept`, { method: "POST" }),
+  previousVehicles: () => api<PreviousVehicle[]>("/users/me/vehicles/previous")
 };
 
 export const modApi = {
