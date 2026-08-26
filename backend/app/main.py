@@ -3,6 +3,7 @@ from time import monotonic
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Query, Request, Response, UploadFile
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -454,8 +455,14 @@ def export_vehicle_history(
         str(part) for part in [vehicle.year, vehicle.make, vehicle.model] if part
     )
     filename = f"{services.slugify(name)}-history.zip"
-    return Response(
-        content=data,
+    # Streamed (chunked) so Cloud Run's 32 MB buffered-response cap doesn't apply:
+    # exports with full-resolution receipt photos easily exceed it.
+    def _chunks(buf: bytes, size: int = 1024 * 1024):
+        for i in range(0, len(buf), size):
+            yield buf[i : i + size]
+
+    return StreamingResponse(
+        _chunks(data),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
