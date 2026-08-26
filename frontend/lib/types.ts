@@ -115,28 +115,30 @@ export type RedactionBox = {
 
 export type EventMedia = {
   id: string;
-  /** null for non-owners when the item is private. */
+  /** Owner: presigned original. Visitor: public original only when visibility === 'original', else null. */
   url: string | null;
   /** Blurred placeholder image URL (always public). */
   blurUrl: string | null;
+  /** Legacy — ignore for images; use visibility instead. */
   isPublic: boolean;
   piiStatus: "unknown" | "none" | "detected";
   piiKinds: string[];
-  /** Whether the current viewer can see the full item. */
+  /** Whether the current viewer can see the full item (canView=true for owner always; visitor only when visibility='original'). */
   canView: boolean;
+  /** Whether the current viewer can see the redacted copy (visitor only when visibility='redacted'). */
+  canViewRedacted: boolean;
   mediaType: "image" | "video";
   thumbnailUrl: string | null;
   sortOrder: number;
   createdAt: string;
-  // Redaction fields (owner-only except redactedUrl/canViewRedacted when published).
-  redactionStatus: "none" | "proposed" | "published" | null;
-  redactionBoxes: RedactionBox[] | null;
-  /** Owner: always present when status != 'none'. Visitor: present only when published. */
+  /** Owner controls what public sees: 'private' (blur placeholder), 'redacted' (AI-redacted copy), 'original' (full image). */
+  visibility: "private" | "redacted" | "original";
+  /** True once the server has finished rendering the redacted copy (enables the Redacted option). */
+  redactionReady: boolean;
+  /** Owner: always present when a redacted copy exists. Visitor: present only when visibility === 'redacted'. */
   redactedUrl: string | null;
-  /** Owner preview of what visitors would see. */
-  redactionPreviewUrl: string | null;
-  /** True for visitors when status == 'published'. */
-  canViewRedacted: boolean;
+  /** PII bounding boxes — owner only. */
+  redactionBoxes: RedactionBox[] | null;
 };
 
 // Simple form-state type used in VehicleEventForm + DocumentUploader (upload flow).

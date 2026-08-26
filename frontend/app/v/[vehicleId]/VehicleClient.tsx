@@ -29,10 +29,10 @@ import type { EventMedia, Media, VehicleMod, VehicleOwnership, VehicleTransfer }
 const toLightboxItems = (media: Media[]): LightboxItem[] =>
   media.map((m) => ({ url: m.url, type: m.media_type }));
 
-// Map EventMedia[] to lightbox items — includes viewable originals and published redacted copies.
+// Map EventMedia[] to lightbox items — includes viewable originals and accessible redacted copies.
 const eventMediaToLightboxItems = (media: EventMedia[]): LightboxItem[] =>
   media
-    .filter((m) => (m.canView && m.url !== null) || (!m.canView && m.canViewRedacted && m.redactedUrl !== null))
+    .filter((m) => (m.canView && m.url !== null) || (m.canViewRedacted && m.redactedUrl !== null))
     .map((m) => ({ url: (m.canView && m.url ? m.url : m.redactedUrl)!, type: m.mediaType }));
 
 // Human-readable labels for provenance editedFields values.
@@ -1251,7 +1251,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                           <div className="flex gap-2 overflow-x-auto pb-1">
                             {event.media.map((m) => {
                               if (!m.canView) {
-                                // Visitor + redacted copy published → show the redacted image.
+                                // Visitor: visibility='redacted' → show the redacted image.
                                 if (m.canViewRedacted && m.redactedUrl) {
                                   const lbIndex = lbItems.findIndex((x) => x.url === m.redactedUrl);
                                   return (
@@ -1269,15 +1269,15 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                                         className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
                                       />
                                       <span
-                                        className="absolute bottom-0.5 right-0.5 rounded-full bg-black/60 px-1 text-[9px] leading-4 text-white"
-                                        title="Redacted copy — personal info removed"
+                                        className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-1 text-[9px] leading-4 text-white"
+                                        title="Personal info removed"
                                       >
-                                        ✂
+                                        Redacted
                                       </span>
                                     </button>
                                   );
                                 }
-                                // Non-viewable: show blurred placeholder + lock.
+                                // Visitor: visibility='private' → blur placeholder.
                                 return (
                                   <div
                                     key={m.id}
@@ -1320,138 +1320,81 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                                     loading="lazy"
                                     className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
                                   />
-                                  {/* Lock overlay when private but viewable (owner sees own private items) */}
-                                  {!m.isPublic && (
-                                    <span
-                                      className="absolute bottom-0.5 right-0.5 rounded-full bg-black/50 px-1 text-[10px] leading-4 text-white"
-                                      title="Private"
-                                    >
-                                      🔒
-                                    </span>
-                                  )}
                                   {m.mediaType === "video" && <PlayBadge size="sm" />}
                                 </button>
                               );
                             })}
                           </div>
-                          {/* Owner-only: PII status + visibility controls per media item. */}
-                          {isOwner && event.media.some((m) => m.piiStatus !== "none" || !m.isPublic) && (
+                          {/* Owner-only: 3-way visibility segmented control per image. */}
+                          {isOwner && event.media.some((m) => m.mediaType === "image") && (
                             <div className="space-y-1.5">
                               {mediaPublicError && (
                                 <p className="text-xs text-red-600">{mediaPublicError}</p>
                               )}
-                              {event.media.map((m, idx) => (
-                                <div
-                                  key={m.id}
-                                  className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5 text-xs"
-                                >
-                                  <span className="shrink-0 font-medium text-slate-500">
-                                    Photo {idx + 1}
-                                  </span>
-                                  {m.piiStatus === "detected" && (
-                                    <span className="text-amber-700">
-                                      Contains personal info:{" "}
-                                      {m.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")}
-                                    </span>
-                                  )}
-                                  {m.piiStatus === "unknown" && (
-                                    <span className="text-slate-400">Checking for personal info…</span>
-                                  )}
-                                  <label className="ml-auto flex cursor-pointer items-center gap-1.5">
-                                    <input
-                                      type="checkbox"
-                                      className="h-3.5 w-3.5 accent-petrol disabled:cursor-not-allowed"
-                                      checked={m.isPublic}
-                                      disabled={m.piiStatus !== "none"}
-                                      onChange={async (e) => {
-                                        setMediaPublicError(null);
-                                        try {
-                                          await eventMediaApi.setPublic(m.id, e.target.checked);
-                                          await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
-                                        } catch (err) {
-                                          setMediaPublicError(err instanceof Error ? err.message : "Failed to update visibility");
-                                        }
-                                      }}
-                                    />
-                                    <span className={m.piiStatus !== "none" ? "text-slate-400" : ""}>
-                                      {m.piiStatus === "none"
-                                        ? "Visible to everyone"
-                                        : m.piiStatus === "detected"
-                                          ? "Locked private — contains personal info"
-                                          : "Locked until checked"}
-                                    </span>
-                                  </label>
-                                  {/* Redacted-copy controls — images only when PII detected */}
-                                  {m.piiStatus === "detected" && m.mediaType === "image" && (
-                                    <div className="w-full flex flex-wrap items-center gap-1.5 pt-0.5">
-                                      {(!m.redactionStatus || m.redactionStatus === "none") && (
-                                        <button
-                                          type="button"
-                                          className="btn btn-secondary text-xs py-0.5 px-2"
-                                          disabled={redactSaving}
-                                          onClick={async () => {
-                                            setRedactError(null);
-                                            setRedactSaving(true);
-                                            try {
-                                              const updated = await redactionApi.propose(m.id);
-                                              await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
-                                              setRedactModalMedia(updated);
-                                            } catch (err) {
-                                              setRedactError(err instanceof Error ? err.message : "Failed to start redaction");
-                                            } finally {
-                                              setRedactSaving(false);
-                                            }
-                                          }}
-                                        >
-                                          {redactSaving ? "Finding personal info…" : "Redact with AI"}
-                                        </button>
-                                      )}
-                                      {m.redactionStatus === "proposed" && (
-                                        <>
-                                          <span className="chip bg-amber-100 text-amber-700">Redaction ready — not published</span>
+                              {event.media.filter((m) => m.mediaType === "image").map((m, idx) => (
+                                <div key={m.id} className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-2 text-xs">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="shrink-0 font-medium text-slate-500">Photo {idx + 1}</span>
+                                    {/* 3-way segmented control */}
+                                    <div className="flex overflow-hidden rounded-md border border-slate-200">
+                                      {(["private", "redacted", "original"] as const).map((v) => {
+                                        const isSelected = m.visibility === v;
+                                        const isDisabled =
+                                          (v === "original" && m.piiStatus !== "none") ||
+                                          (v === "redacted" && !m.redactionReady);
+                                        const tip =
+                                          v === "original" && m.piiStatus !== "none"
+                                            ? "Contains personal info — share the redacted copy instead"
+                                            : v === "redacted" && !m.redactionReady
+                                              ? "Preparing redacted copy…"
+                                              : undefined;
+                                        return (
                                           <button
+                                            key={v}
                                             type="button"
-                                            className="btn btn-secondary text-xs py-0.5 px-2"
-                                            onClick={() => setRedactModalMedia(m)}
-                                          >
-                                            Review redaction
-                                          </button>
-                                        </>
-                                      )}
-                                      {m.redactionStatus === "published" && (
-                                        <>
-                                          <span className="chip bg-green-100 text-green-700">Redacted copy is public</span>
-                                          <button
-                                            type="button"
-                                            className="btn btn-secondary text-xs py-0.5 px-2"
-                                            onClick={() => setRedactModalMedia(m)}
-                                          >
-                                            Review
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="btn btn-secondary text-xs py-0.5 px-2"
-                                            disabled={redactSaving}
+                                            disabled={isDisabled}
+                                            title={tip}
+                                            className={[
+                                              "px-2.5 py-1 text-xs font-medium transition-colors",
+                                              "disabled:cursor-not-allowed disabled:opacity-40",
+                                              v !== "private" ? "border-l border-slate-200" : "",
+                                              isSelected
+                                                ? "bg-asphalt text-white"
+                                                : "bg-white text-slate-600 hover:bg-slate-100",
+                                            ].join(" ")}
                                             onClick={async () => {
-                                              setRedactError(null);
-                                              setRedactSaving(true);
+                                              if (isSelected) return;
+                                              setMediaPublicError(null);
                                               try {
-                                                await redactionApi.unpublish(m.id);
+                                                await eventMediaApi.setVisibility(m.id, v);
                                                 await queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
                                               } catch (err) {
-                                                setRedactError(err instanceof Error ? err.message : "Failed to unpublish");
-                                              } finally {
-                                                setRedactSaving(false);
+                                                setMediaPublicError(err instanceof Error ? err.message : "Failed to update visibility");
                                               }
                                             }}
                                           >
-                                            Unpublish
+                                            {v === "private" ? "Private" : v === "redacted" ? "Redacted" : "Original"}
                                           </button>
-                                        </>
-                                      )}
-                                      {redactError && <p className="w-full text-red-600">{redactError}</p>}
+                                        );
+                                      })}
                                     </div>
-                                  )}
+                                    {m.redactionReady && (
+                                      <button
+                                        type="button"
+                                        className="text-petrol underline"
+                                        onClick={() => setRedactModalMedia(m)}
+                                      >
+                                        Adjust redaction
+                                      </button>
+                                    )}
+                                  </div>
+                                  <p className="mt-1 text-slate-400">
+                                    {m.piiStatus === "detected"
+                                      ? `Contains: ${m.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")}`
+                                      : m.piiStatus === "none"
+                                        ? "No personal info found"
+                                        : "Checking for personal info…"}
+                                  </p>
                                 </div>
                               ))}
                             </div>
@@ -2246,14 +2189,16 @@ function RedactionModal({
   const dialogRef = useDialogFocus<HTMLDivElement>();
   const [showPreview, setShowPreview] = React.useState(false);
   const [boxes, setBoxes] = React.useState<RedactionBox[]>(media.redactionBoxes ?? []);
+  // Cache-bust key incremented after each boxes patch so the preview img reloads.
+  const [previewCacheKey, setPreviewCacheKey] = React.useState(0);
   // Drawing state
   const imgRef = React.useRef<HTMLImageElement | null>(null);
   const [drawing, setDrawing] = React.useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [pendingBox, setPendingBox] = React.useState<{ ymin: number; xmin: number; ymax: number; xmax: number } | null>(null);
   const [pendingKind, setPendingKind] = React.useState<string>("other");
-  const [publishing, setPublishing] = React.useState(false);
+  const [regenerating, setRegenerating] = React.useState(false);
 
-  // Keep boxes in sync if parent re-opens with different media (e.g., after propose refresh)
+  // Keep boxes in sync if parent re-opens with different media.
   React.useEffect(() => {
     setBoxes(media.redactionBoxes ?? []);
   }, [media.id, media.redactionBoxes]);
@@ -2276,6 +2221,7 @@ function RedactionModal({
       const updated = await redactionApi.setBoxes(media.id, next);
       await onMutated(updated);
       setBoxes(updated.redactionBoxes ?? next);
+      setPreviewCacheKey((k) => k + 1);
     } catch (err) {
       onError(err instanceof Error ? err.message : "Failed to update boxes");
     } finally {
@@ -2367,7 +2313,6 @@ function RedactionModal({
       }
     : null;
 
-  const isPublished = media.redactionStatus === "published";
   const titleId = React.useId();
 
   return (
@@ -2399,8 +2344,8 @@ function RedactionModal({
 
         {/* Helper text */}
         <p className="mb-3 text-xs text-slate-500">
-          Only the redacted copy is shared. The original never leaves your private storage.
-          Check the preview — the AI can miss things. Click and drag on the original to add a box; click × to remove one.
+          The redacted copy is what others see when visibility is set to &ldquo;Redacted&rdquo;. The original never leaves your private storage.
+          Click and drag on the original to add a box; click × to remove one.
         </p>
 
         {/* Preview toggle */}
@@ -2410,11 +2355,13 @@ function RedactionModal({
               type="checkbox"
               className="h-3.5 w-3.5 accent-petrol"
               checked={showPreview}
+              disabled={!media.redactedUrl}
               onChange={(e) => setShowPreview(e.target.checked)}
             />
-            Show preview (visitor view)
+            Show redacted copy
           </label>
           {saving && <span className="text-xs text-slate-400">Saving…</span>}
+          {!media.redactedUrl && <span className="text-xs text-slate-400">Preparing…</span>}
         </div>
 
         {/* Image with overlaid boxes */}
@@ -2425,10 +2372,10 @@ function RedactionModal({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
         >
-          {showPreview && media.redactionPreviewUrl ? (
+          {showPreview && media.redactedUrl ? (
             <img
-              src={media.redactionPreviewUrl}
-              alt="Redaction preview"
+              src={`${media.redactedUrl}${previewCacheKey > 0 ? `?v=${previewCacheKey}` : ""}`}
+              alt="Redacted copy"
               className="w-full rounded-xl object-contain"
               style={{ maxHeight: "55vh" }}
               draggable={false}
@@ -2522,53 +2469,30 @@ function RedactionModal({
 
         {/* Footer actions */}
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-          {!isPublished ? (
-            <button
-              type="button"
-              className="btn btn-primary disabled:opacity-60"
-              disabled={saving || publishing}
-              onClick={async () => {
-                setPublishing(true);
-                onError(null);
-                try {
-                  const updated = await redactionApi.publish(media.id);
-                  await onMutated(updated);
-                } catch (err) {
-                  onError(err instanceof Error ? err.message : "Failed to publish");
-                } finally {
-                  setPublishing(false);
-                }
-              }}
-            >
-              {publishing ? "Publishing…" : "Publish redacted copy"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-secondary disabled:opacity-60"
-              disabled={saving || publishing}
-              onClick={async () => {
-                setPublishing(true);
-                onError(null);
-                try {
-                  const updated = await redactionApi.unpublish(media.id);
-                  await onMutated(updated);
-                } catch (err) {
-                  onError(err instanceof Error ? err.message : "Failed to unpublish");
-                } finally {
-                  setPublishing(false);
-                }
-              }}
-            >
-              {publishing ? "Unpublishing…" : "Unpublish"}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn-secondary disabled:opacity-60"
+            disabled={saving || regenerating}
+            onClick={async () => {
+              setRegenerating(true);
+              onError(null);
+              try {
+                const updated = await redactionApi.regenerate(media.id);
+                await onMutated(updated);
+                setBoxes(updated.redactionBoxes ?? []);
+                setPreviewCacheKey((k) => k + 1);
+              } catch (err) {
+                onError(err instanceof Error ? err.message : "Failed to redo redaction");
+              } finally {
+                setRegenerating(false);
+              }
+            }}
+          >
+            {regenerating ? "Redoing…" : "Redo with AI"}
+          </button>
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Close
           </button>
-          {isPublished && (
-            <span className="chip bg-green-100 text-green-700 ml-auto">Redacted copy is public</span>
-          )}
         </div>
       </div>
     </div>

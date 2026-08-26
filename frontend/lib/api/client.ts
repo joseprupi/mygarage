@@ -334,13 +334,13 @@ export const modApi = {
   delete: (modId: string) => api<void>(`/mods/${modId}`, { method: "DELETE" })
 };
 
-// PATCH /vehicle-event-media/{id} — toggle public/private visibility.
-// Returns 409 {detail} when piiStatus is detected/unknown; ApiError carries the message.
+// PATCH /vehicle-event-media/{id} — set visibility ('private'|'redacted'|'original').
+// Returns 409 {detail} when the transition is not allowed; ApiError carries the message.
 export const eventMediaApi = {
-  setPublic: (id: string, isPublic: boolean) =>
-    api<void>(`/vehicle-event-media/${id}`, {
+  setVisibility: (id: string, visibility: "private" | "redacted" | "original") =>
+    api<EventMedia>(`/vehicle-event-media/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ isPublic })
+      body: JSON.stringify({ visibility })
     })
 };
 
@@ -387,19 +387,14 @@ export const ownershipApi = {
 };
 
 // ─── Redaction API ───────────────────────────────────────────────────────────
-// Owner-only. POST propose runs AI box detection; PATCH boxes replaces boxes +
-// re-renders preview; POST publish makes the redacted copy public; POST unpublish
-// reverts to proposed. 503/502 on AI errors from propose.
+// Owner-only. PATCH boxes replaces boxes + re-renders the redacted copy in place.
+// POST regenerate re-runs AI box detection and re-renders. 503/502 on AI errors.
 export const redactionApi = {
-  propose: (mediaId: string) =>
-    api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/propose`, { method: "POST" }),
   setBoxes: (mediaId: string, boxes: RedactionBox[]) =>
     api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/boxes`, {
       method: "PATCH",
       body: JSON.stringify({ boxes })
     }),
-  publish: (mediaId: string) =>
-    api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/publish`, { method: "POST" }),
-  unpublish: (mediaId: string) =>
-    api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/unpublish`, { method: "POST" })
+  regenerate: (mediaId: string) =>
+    api<EventMedia>(`/vehicle-event-media/${mediaId}/redaction/regenerate`, { method: "POST" })
 };
