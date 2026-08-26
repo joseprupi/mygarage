@@ -13,6 +13,7 @@ import * as SecureStore from "expo-secure-store";
 // (EXPO_PUBLIC_* vars are inlined by Expo at bundle time).
 const PROD_API = "https://mygarage-backend-147573336932.us-central1.run.app";
 export const API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? PROD_API;
+export const IS_PROD_API = API_BASE === PROD_API;
 // Dev stack stores relative "/media/..." URLs that map to the local MinIO bucket;
 // production stores absolute GCS URLs, which pass straight through.
 const MEDIA_BASE = process.env.EXPO_PUBLIC_MEDIA_BASE ?? "";

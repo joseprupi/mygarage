@@ -1,9 +1,13 @@
-import { Pressable } from "react-native";
+import { Pressable, View } from "react-native";
+
+import { EnvBanner } from "@/components/env-banner";
 import { Stack, router } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 export default function RootLayout() {
   return (
+    <View style={{ flex: 1 }}>
+    <EnvBanner />
     <Stack
       screenOptions={{
         headerTitleStyle: { fontWeight: "700" },
@@ -32,5 +36,6 @@ export default function RootLayout() {
       <Stack.Screen name="vehicle-form" options={{ title: "Vehicle", presentation: "modal" }} />
       <Stack.Screen name="settings" options={{ title: "Settings" }} />
     </Stack>
+    </View>
   );
 }
