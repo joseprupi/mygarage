@@ -234,15 +234,13 @@ class VehicleEventMedia(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    # PII redaction — opt-in owner workflow to publish a blurred copy
-    redaction_status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="none", server_default="none"
+    # Simplified visibility model: 'private' | 'redacted' | 'original'
+    visibility: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="private", server_default="private"
     )
+    # PII redaction fields — redacted copy auto-generated at upload
     redaction_boxes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     redacted_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    redaction_reviewed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
 
     event: Mapped[VehicleEvent] = relationship(back_populates="media")
 

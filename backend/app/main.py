@@ -25,6 +25,7 @@ from app.schemas import (
     GoogleLoginRequest,
     LoginRequest,
     MediaPrivacyToggle,
+    MediaVisibilityUpdate,
     PostCreate,
     PostRead,
     PostUpdate,
@@ -532,23 +533,14 @@ def update_vehicle_event(
 
 
 @app.patch("/vehicle-event-media/{media_id}", response_model=EventMediaRead)
-def toggle_event_media_public(
+def set_media_visibility(
     media_id: str,
-    body: MediaPrivacyToggle,
+    body: MediaVisibilityUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> EventMediaRead:
-    return services.toggle_event_media_public(db, media_id, body.is_public, user)
-
-
-@app.post("/vehicle-event-media/{media_id}/redaction/propose", response_model=EventMediaRead)
-def propose_redaction(
-    media_id: str,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> EventMediaRead:
-    """Run Gemini PII box detection, render blurred preview to public bucket, set status 'proposed'."""
-    return services.propose_redaction(db, media_id, user)
+    """Set visibility ('private'|'redacted'|'original') on an event media item. Owner only."""
+    return services.set_media_visibility(db, media_id, body.visibility, user)
 
 
 @app.patch("/vehicle-event-media/{media_id}/redaction/boxes", response_model=EventMediaRead)
@@ -558,29 +550,19 @@ def update_redaction_boxes(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> EventMediaRead:
-    """Replace the full box list (owner-drawn corrections), re-render preview."""
+    """Replace the full box list (owner-drawn corrections), re-render the redacted copy in place."""
     raw_boxes = [{"kind": b.kind, "box": b.box} for b in body.boxes]
     return services.update_redaction_boxes(db, media_id, raw_boxes, user)
 
 
-@app.post("/vehicle-event-media/{media_id}/redaction/publish", response_model=EventMediaRead)
-def publish_redaction(
+@app.post("/vehicle-event-media/{media_id}/redaction/regenerate", response_model=EventMediaRead)
+def regenerate_redaction(
     media_id: str,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> EventMediaRead:
-    """Render final redacted image, mark as published. Requires status 'proposed'."""
-    return services.publish_redaction(db, media_id, user)
-
-
-@app.post("/vehicle-event-media/{media_id}/redaction/unpublish", response_model=EventMediaRead)
-def unpublish_redaction(
-    media_id: str,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> EventMediaRead:
-    """Delete published final redacted image, revert status to 'proposed' (keeps boxes)."""
-    return services.unpublish_redaction(db, media_id, user)
+    """Re-run AI PII box detection + render. 'Redo with AI' and backfill use this."""
+    return services.regenerate_redaction(db, media_id, user)
 
 
 @app.patch("/vehicle-event-documents/{doc_id}", response_model=EventDocumentRead)

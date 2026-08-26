@@ -1037,56 +1037,82 @@ def test_event_media_defaults_private_and_non_owner_gets_no_url():
     assert other_media["canView"] is False
 
 
-def test_toggle_event_media_public_works_when_pii_none():
-    """Owner can toggle media public when pii_status='none'."""
-    owner = signup("togglemedia-owner", "togglemedia-owner@example.com")
+def _set_media_visibility(media_id: str, visibility: str) -> None:
+    """Directly update visibility in the test DB."""
+    from sqlalchemy import update as _upd
+    with _SL() as db:
+        db.execute(_upd(_VEM).where(_VEM.id == media_id).values(visibility=visibility))
+        db.commit()
+
+
+def _set_media_redacted_url(media_id: str, redacted_url: str | None) -> None:
+    """Directly update redacted_url in the test DB."""
+    from sqlalchemy import update as _upd
+    with _SL() as db:
+        db.execute(_upd(_VEM).where(_VEM.id == media_id).values(redacted_url=redacted_url))
+        db.commit()
+
+
+def test_set_media_visibility_to_original_works_when_pii_none():
+    """Owner can set visibility='original' when pii_status='none'; visitor sees url."""
+    owner = signup("visib-orig-owner", "visib-orig-owner@example.com")
     vehicle = create_vehicle(owner["accessToken"])
     event_resp = client.post(
         f"/vehicles/{vehicle['id']}/events",
         headers=auth_headers(owner["accessToken"]),
         json={
             "eventType": "maintenance",
-            "title": "Toggle test",
+            "title": "Visibility test",
             "eventDate": "2026-02-01",
             "media": [{"url": "/media/vehicle_event_media/toggle.jpg", "media_type": "image"}],
         },
     )
     assert event_resp.status_code == 200, event_resp.text
     media_id = event_resp.json()["media"][0]["id"]
+    event_id = event_resp.json()["id"]
 
-    # Manually set pii_status to 'none' (simulating completed classification)
+    # Manually set pii_status to 'none'
     _set_media_pii_status(media_id, "none")
 
-    # Toggle to public
+    # Set to 'original'
     toggle_resp = client.patch(
         f"/vehicle-event-media/{media_id}",
         headers=auth_headers(owner["accessToken"]),
-        json={"isPublic": True},
+        json={"visibility": "original"},
     )
     assert toggle_resp.status_code == 200, toggle_resp.text
     body = toggle_resp.json()
+    assert body["visibility"] == "original"
     assert body["isPublic"] is True
     assert body["canView"] is True
 
-    # Now non-owner also sees it as viewable
-    anon_event = client.get(f"/vehicle-events/{event_resp.json()['id']}").json()
+    # Non-owner sees url (public copy path) and canView=True
+    anon_event = client.get(f"/vehicle-events/{event_id}").json()
     anon_m = anon_event["media"][0]
-    assert anon_m["isPublic"] is True
     assert anon_m["canView"] is True
+    assert anon_m["visibility"] == "original"
+    assert anon_m["url"] is not None
+    assert "event_media_public" in anon_m["url"]
 
-    # Toggle back to private
+    # Switch back to private
     toggle_back = client.patch(
         f"/vehicle-event-media/{media_id}",
         headers=auth_headers(owner["accessToken"]),
-        json={"isPublic": False},
+        json={"visibility": "private"},
     )
     assert toggle_back.status_code == 200, toggle_back.text
+    assert toggle_back.json()["visibility"] == "private"
     assert toggle_back.json()["isPublic"] is False
 
+    # Visitor no longer sees url
+    anon2 = client.get(f"/vehicle-events/{event_id}").json()
+    assert anon2["media"][0]["url"] is None
+    assert anon2["media"][0]["canView"] is False
 
-def test_toggle_event_media_public_rejected_409_when_pii_detected():
-    """Toggling to public is rejected (409) when pii_status='detected'."""
-    owner = signup("piimedia-owner", "piimedia-owner@example.com")
+
+def test_set_media_visibility_to_original_rejected_409_when_pii_detected():
+    """Setting visibility='original' is rejected (409) when pii_status='detected'."""
+    owner = signup("visib-pii-owner", "visib-pii-owner@example.com")
     vehicle = create_vehicle(owner["accessToken"])
     event_resp = client.post(
         f"/vehicles/{vehicle['id']}/events",
@@ -1101,16 +1127,84 @@ def test_toggle_event_media_public_rejected_409_when_pii_detected():
     assert event_resp.status_code == 200, event_resp.text
     media_id = event_resp.json()["media"][0]["id"]
 
-    # Simulate PII detected
-    _set_media_pii_status(media_id, "detected", ["name", "address", "vin"])
+    _set_media_pii_status(media_id, "detected", ["name", "address"])
 
     resp = client.patch(
         f"/vehicle-event-media/{media_id}",
         headers=auth_headers(owner["accessToken"]),
-        json={"isPublic": True},
+        json={"visibility": "original"},
     )
     assert resp.status_code == 409, resp.text
-    assert "Locked private" in resp.json()["detail"]
+    assert "personal info" in resp.json()["detail"]
+
+
+def test_set_media_visibility_to_redacted_rejected_409_when_not_ready():
+    """Setting visibility='redacted' is rejected (409) when redacted_url is None."""
+    owner = signup("visib-redact-nrdy", "visib-redact-nrdy@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Redact not ready",
+            "eventDate": "2026-03-15",
+            "media": [{"url": "/media/vehicle_event_media/notready.jpg", "media_type": "image"}],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    media_id = event_resp.json()["media"][0]["id"]
+    # redacted_url is None by default
+
+    resp = client.patch(
+        f"/vehicle-event-media/{media_id}",
+        headers=auth_headers(owner["accessToken"]),
+        json={"visibility": "redacted"},
+    )
+    assert resp.status_code == 409, resp.text
+    assert "not ready" in resp.json()["detail"]
+
+
+def test_set_media_visibility_to_redacted_works_when_ready():
+    """Owner can set visibility='redacted'; visitor sees redactedUrl, url=None."""
+    owner = signup("visib-redact-rdy", "visib-redact-rdy@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Redact ready",
+            "eventDate": "2026-04-01",
+            "media": [{"url": "/media/vehicle_event_media/ready.jpg", "media_type": "image"}],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event_id = event_resp.json()["id"]
+    media_id = event_resp.json()["media"][0]["id"]
+
+    # Inject a fake redacted_url
+    fake_redacted = "http://fake-public/event_media_redacted/test.jpg"
+    _set_media_redacted_url(media_id, fake_redacted)
+
+    resp = client.patch(
+        f"/vehicle-event-media/{media_id}",
+        headers=auth_headers(owner["accessToken"]),
+        json={"visibility": "redacted"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["visibility"] == "redacted"
+    assert body["redactionReady"] is True
+
+    # Visitor sees redactedUrl, not original url
+    anon_event = client.get(f"/vehicle-events/{event_id}").json()
+    anon_m = anon_event["media"][0]
+    assert anon_m["url"] is None
+    assert anon_m["redactedUrl"] == fake_redacted
+    assert anon_m["canViewRedacted"] is True
+    assert anon_m["canView"] is False
+    assert anon_m["redactionBoxes"] is None  # owner only
 
 
 def test_blur_placeholder_produces_small_jpeg():
@@ -2165,7 +2259,7 @@ def test_specs_round_trip_via_patch():
 
 
 # ---------------------------------------------------------------------------
-# Redaction tests
+# Redaction tests — simplified visibility model
 # ---------------------------------------------------------------------------
 
 import io as _redact_io
@@ -2239,7 +2333,7 @@ class _FakeS3:
 
 def _setup_redaction_test(monkeypatch):
     """Returns (owner_token, vehicle_id, event_id, media_id, fake_s3).
-    Pre-loads the test image into the fake S3 private bucket so propose can fetch it."""
+    Pre-loads the test image into the fake S3 private bucket."""
     import app.services as _svc
 
     img_bytes = _make_test_image_bytes()
@@ -2265,10 +2359,6 @@ def _setup_redaction_test(monkeypatch):
     ).json()
     media_id = event["media"][0]["id"]
 
-    # When the event is created with url="/media/vehicle_event_media/receipt.jpg",
-    # the service sets storage_key = _object_key_from_url(url) = "vehicle_event_media/receipt.jpg"
-    # (because the URL starts with /media/).  _fetch_media_bytes therefore reads from the
-    # PRIVATE bucket (storage_key != None).
     storage_key = "vehicle_event_media/receipt.jpg"
     fake_s3 = _FakeS3(
         preloaded={
@@ -2287,64 +2377,81 @@ def _setup_redaction_test(monkeypatch):
 
     monkeypatch.setattr(_svc, "_detect_pii_boxes", _fake_detect)
 
-    # Note: ai_scan_enabled is derived from gemini_api_key in the real Settings,
-    # which is already set in the .env file for this dev environment.
-    # The real _gemini_generate is NOT called because we monkeypatched _detect_pii_boxes.
-    # If somehow ai_scan_enabled were False, propose_redaction returns 503 — that's tested
-    # separately (test_redaction_pdf_document_returns_400 sidesteps propose entirely).
-
     return token, vehicle["id"], event["id"], media_id, fake_s3
 
 
 import uuid as uuid
 
 
-def test_redaction_propose_stores_boxes_and_preview(monkeypatch):
-    """propose: boxes stored, preview object uploaded, status = 'proposed'."""
+def test_process_event_media_bg_produces_blur_pii_and_redacted(monkeypatch):
+    """Upload pipeline (mocked Gemini): blur + pii + redacted copy all generated."""
     import app.services as _svc
+    from app.database import SessionLocal
+    from app.models import VehicleEventMedia as _VEM2
+    from sqlalchemy import update as _upd3
 
-    token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
+    img_bytes = _make_test_image_bytes()
 
-    resp = client.post(
-        f"/vehicle-event-media/{media_id}/redaction/propose",
-        headers=auth_headers(token),
-    )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
+    # Create a real DB row to update
+    owner2 = signup(f"bgmedia-{uuid.uuid4().hex[:6]}", f"bgmedia-{uuid.uuid4().hex[:6]}@example.com")
+    vehicle2 = client.post("/vehicles", headers=auth_headers(owner2["accessToken"]),
+                           json={"make": "Ford", "model": "F-150", "year": 2021}).json()
+    event2 = client.post(
+        f"/vehicles/{vehicle2['id']}/events",
+        headers=auth_headers(owner2["accessToken"]),
+        json={
+            "eventType": "repair", "title": "BG Test",
+            "eventDate": "2026-05-01",
+            "media": [{"url": "/media/vehicle_event_media/bgtest.jpg", "media_type": "image"}],
+        },
+    ).json()
+    real_media_id = event2["media"][0]["id"]
+    storage_key = "vehicle_event_media/bgtest.jpg"
 
-    # Status and boxes
-    assert data["redactionStatus"] == "proposed"
-    assert isinstance(data["redactionBoxes"], list)
-    assert len(data["redactionBoxes"]) == 2
-    kinds = {b["kind"] for b in data["redactionBoxes"]}
-    assert kinds == {"name", "address"}
-
-    # Preview URL present (owner view)
-    assert data["redactionPreviewUrl"] is not None
-    assert "preview" in data["redactionPreviewUrl"]
-
-    # Preview object actually stored in public bucket
+    # Pre-load the image into fake S3 private bucket
     settings = _svc.get_settings()
-    preview_key = f"event_media_redacted/{media_id}-preview.jpg"
-    assert fake_s3.has(settings.storage_bucket, preview_key), "Preview object missing from bucket"
+    fake_s3 = _FakeS3(preloaded={
+        f"{settings.storage_private_bucket}/{storage_key}": img_bytes,
+    })
 
-    # The stored preview must be a valid JPEG
-    preview_bytes = fake_s3.get_bytes(settings.storage_bucket, preview_key)
-    pimg = _PilImage.open(_redact_io.BytesIO(preview_bytes))
-    assert pimg.format == "JPEG"
+    monkeypatch.setattr(_svc, "_s3_client", lambda: fake_s3)
+    monkeypatch.setattr(_svc, "classify_media_pii",
+                        lambda content, mime: {"is_document": False, "pii_kinds": ["name"]})
+    monkeypatch.setattr(_svc, "_detect_pii_boxes",
+                        lambda img: [{"kind": "name", "box": [50, 100, 150, 400], "source": "ai"}])
+
+    # Update storage key to our known key
+    with SessionLocal() as db:
+        db.execute(_upd3(_VEM2).where(_VEM2.id == real_media_id).values(storage_key=storage_key))
+        db.commit()
+
+    # Run the background task inline (ai_scan_enabled=True because GEMINI_API_KEY is set)
+    _svc._process_event_media_bg(real_media_id, f"/media/{storage_key}", storage_key, "image/jpeg")
+
+    # blur was uploaded
+    blur_key = f"event_media_blur/{real_media_id}-blur.jpg"
+    assert fake_s3.has(settings.storage_bucket, blur_key), "Blur not generated"
+    # redacted copy was uploaded
+    redacted_key = f"event_media_redacted/{real_media_id}.jpg"
+    assert fake_s3.has(settings.storage_bucket, redacted_key), "Redacted copy not generated"
+
+    # Verify the DB row was updated
+    with SessionLocal() as db:
+        row = db.get(_VEM2, real_media_id)
+        assert row.blur_url is not None
+        assert row.redacted_url is not None
+        assert row.pii_status == "detected"
+        assert row.redaction_boxes is not None and len(row.redaction_boxes) == 1
 
 
 def test_redaction_boxes_patch_replaces_and_rerenders(monkeypatch):
-    """PATCH /redaction/boxes replaces box list and re-renders preview."""
+    """PATCH /redaction/boxes replaces box list and re-renders the single redacted copy."""
     import app.services as _svc
 
     token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
 
-    # First propose
-    client.post(
-        f"/vehicle-event-media/{media_id}/redaction/propose",
-        headers=auth_headers(token),
-    )
+    # Inject a fake redacted_url so boxes PATCH can operate
+    _set_media_redacted_url(media_id, "http://fake/old.jpg")
 
     new_boxes = [{"kind": "phone", "box": [100, 200, 200, 500]}]
     resp = client.patch(
@@ -2356,125 +2463,93 @@ def test_redaction_boxes_patch_replaces_and_rerenders(monkeypatch):
     data = resp.json()
     assert len(data["redactionBoxes"]) == 1
     assert data["redactionBoxes"][0]["kind"] == "phone"
+    assert data["redactionReady"] is True
 
-    # Preview object still exists (re-rendered)
+    # Redacted object stored in public bucket (overwrites same key)
     settings = _svc.get_settings()
-    assert fake_s3.has(settings.storage_bucket, f"event_media_redacted/{media_id}-preview.jpg")
+    assert fake_s3.has(settings.storage_bucket, f"event_media_redacted/{media_id}.jpg")
 
 
-def test_redaction_publish_creates_final_visitor_sees_redacted_url(monkeypatch):
-    """publish: final object created; visitor sees redactedUrl (not original url)."""
+def test_redaction_regenerate_replaces_boxes_and_redacted(monkeypatch):
+    """POST /redaction/regenerate re-runs AI boxes + re-renders."""
     import app.services as _svc
 
+    # ai_scan_enabled=True because GEMINI_API_KEY is set in dev .env
     token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
 
-    client.post(
-        f"/vehicle-event-media/{media_id}/redaction/propose",
+    resp = client.post(
+        f"/vehicle-event-media/{media_id}/redaction/regenerate",
         headers=auth_headers(token),
     )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data["redactionBoxes"]) == 2
+    kinds = {b["kind"] for b in data["redactionBoxes"]}
+    assert kinds == {"name", "address"}
+    assert data["redactionReady"] is True
 
-    pub_resp = client.post(
-        f"/vehicle-event-media/{media_id}/redaction/publish",
-        headers=auth_headers(token),
-    )
-    assert pub_resp.status_code == 200, pub_resp.text
-    owner_data = pub_resp.json()
-    assert owner_data["redactionStatus"] == "published"
-    assert owner_data["redactedUrl"] is not None
-
-    # Final object in public bucket
     settings = _svc.get_settings()
-    final_key = f"event_media_redacted/{media_id}.jpg"
-    assert fake_s3.has(settings.storage_bucket, final_key)
-    final_bytes = fake_s3.get_bytes(settings.storage_bucket, final_key)
-    assert _PilImage.open(_redact_io.BytesIO(final_bytes)).format == "JPEG"
-
-    # Visitor (anonymous) reads the event — should see redactedUrl, NOT the original url
-    anon_resp = client.get(f"/vehicle-events/{eid}")
-    assert anon_resp.status_code == 200, anon_resp.text
-    visitor_media = anon_resp.json()["media"][0]
-    assert visitor_media["url"] is None, "Original URL must not leak to visitor"
-    assert visitor_media["redactedUrl"] is not None
-    assert visitor_media["canViewRedacted"] is True
-    assert visitor_media["redactionBoxes"] is None  # owner-only
-
-
-def test_redaction_unpublish_removes_final(monkeypatch):
-    """unpublish: final object deleted, status back to 'proposed'."""
-    import app.services as _svc
-
-    token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
-
-    client.post(
-        f"/vehicle-event-media/{media_id}/redaction/propose",
-        headers=auth_headers(token),
-    )
-    client.post(
-        f"/vehicle-event-media/{media_id}/redaction/publish",
-        headers=auth_headers(token),
-    )
-
-    up_resp = client.post(
-        f"/vehicle-event-media/{media_id}/redaction/unpublish",
-        headers=auth_headers(token),
-    )
-    assert up_resp.status_code == 200, up_resp.text
-    data = up_resp.json()
-    assert data["redactionStatus"] == "proposed"
-    assert data["redactedUrl"] is None
-
-    # Final object removed
-    settings = _svc.get_settings()
-    assert not fake_s3.has(settings.storage_bucket, f"event_media_redacted/{media_id}.jpg")
+    assert fake_s3.has(settings.storage_bucket, f"event_media_redacted/{media_id}.jpg")
 
 
 def test_redaction_non_owner_gets_403(monkeypatch):
-    """Non-owner cannot call propose."""
+    """Non-owner cannot call regenerate."""
     import app.services as _svc
 
     token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
 
     other = signup(f"redact-other-{uuid.uuid4().hex[:6]}", f"redact-other-{uuid.uuid4().hex[:6]}@example.com")
     resp = client.post(
-        f"/vehicle-event-media/{media_id}/redaction/propose",
+        f"/vehicle-event-media/{media_id}/redaction/regenerate",
         headers=auth_headers(other["accessToken"]),
     )
     assert resp.status_code == 403, resp.text
 
 
-def test_redaction_pdf_document_returns_400():
-    """Propose on a non-image media_type returns 400."""
-    owner = signup(f"redact-pdf-{uuid.uuid4().hex[:6]}", f"redact-pdf-{uuid.uuid4().hex[:6]}@example.com")
-    token = owner["accessToken"]
-    vehicle = client.post(
-        "/vehicles",
-        headers=auth_headers(token),
-        json={"make": "Chevy", "model": "Silverado", "year": 2021},
-    ).json()
-    event = client.post(
-        f"/vehicles/{vehicle['id']}/events",
-        headers=auth_headers(token),
-        json={
-            "eventType": "repair",
-            "title": "Receipt test",
-            "eventDate": "2026-02-01",
-            "media": [{"url": "/media/vehicle_event_media/doc.jpg", "media_type": "image"}],
-        },
-    ).json()
-    media_id = event["media"][0]["id"]
+def test_redaction_pdf_media_type_returns_400(monkeypatch):
+    """boxes PATCH on a non-image media_type returns 400."""
+    import app.services as _svc
 
-    # Patch the media_type to 'video' (simulating a non-image)
+    token, vid, eid, media_id, fake_s3 = _setup_redaction_test(monkeypatch)
+
     from sqlalchemy import update as _upd2
     with _SL() as db:
         db.execute(_upd2(_VEM).where(_VEM.id == media_id).values(media_type="video"))
         db.commit()
 
-    resp = client.post(
-        f"/vehicle-event-media/{media_id}/redaction/propose",
+    resp = client.patch(
+        f"/vehicle-event-media/{media_id}/redaction/boxes",
         headers=auth_headers(token),
+        json={"boxes": [{"kind": "name", "box": [50, 100, 150, 400]}]},
     )
     assert resp.status_code == 400, resp.text
     assert "Redaction is only supported" in resp.json()["detail"]
+
+
+def test_visitor_read_private_shows_no_url_or_redacted():
+    """Visitor sees neither url nor redactedUrl when visibility='private'."""
+    owner = signup(f"vis-priv-{uuid.uuid4().hex[:6]}", f"vis-priv-{uuid.uuid4().hex[:6]}@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance", "title": "Private media",
+            "eventDate": "2026-06-01",
+            "media": [{"url": "/media/vehicle_event_media/priv.jpg", "media_type": "image"}],
+        },
+    ).json()
+    event_id = event_resp["id"]
+    media_id = event_resp["media"][0]["id"]
+    # Inject a fake redacted_url to make sure it's still hidden
+    _set_media_redacted_url(media_id, "http://fake/redacted.jpg")
+
+    anon = client.get(f"/vehicle-events/{event_id}").json()
+    m = anon["media"][0]
+    assert m["url"] is None
+    assert m["redactedUrl"] is None
+    assert m["canView"] is False
+    assert m["canViewRedacted"] is False
 
 
 def test_render_redacted_image_produces_valid_jpeg():

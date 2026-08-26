@@ -657,24 +657,24 @@ def delete_vehicle_ownership(db: Session, period: VehicleOwnership, user: User) 
 
 
 def _resolve_event_media_url(m: VehicleEventMedia, is_owner: bool) -> str | None:
-    """Return the appropriate URL for an event media item based on viewer permissions."""
-    can_view = is_owner or m.is_public
-    if not can_view:
-        return None
-    if m.storage_key:
-        if m.is_public:
-            # Object has been copied to the public bucket; serve the public URL.
-            settings = get_settings()
-            return f"{settings.public_media_base_url}/{m.storage_key}"
-        elif is_owner:
+    """Return the appropriate URL for an event media item based on viewer permissions.
+    Uses the `visibility` field ('private'|'redacted'|'original') for media items.
+    Owner always gets a presigned URL for the private original.
+    Visitor gets the public-copy URL only when visibility=='original'."""
+    visibility: str = getattr(m, "visibility", None) or "private"
+    if is_owner:
+        # Owner always sees presigned original
+        if m.storage_key:
             try:
                 return generate_private_read_url(m.storage_key)
             except Exception:
-                return m.url  # Fallback to stored URL (e.g., in tests / MinIO down)
-        else:
-            return None
-    # Legacy row without storage_key: use the stored URL directly.
-    return m.url
+                return m.url  # Fallback (e.g., tests / MinIO down)
+        return m.url
+    # Visitor: only expose URL when visibility == 'original'
+    if visibility == "original":
+        settings = get_settings()
+        return f"{settings.public_media_base_url}/event_media_public/{m.id}.jpg"
+    return None
 
 
 def _resolve_event_doc_url(d: VehicleEventDocument, is_owner: bool) -> str | None:
@@ -697,31 +697,32 @@ def _resolve_event_doc_url(d: VehicleEventDocument, is_owner: bool) -> str | Non
 
 
 def _event_media_read(m: VehicleEventMedia, is_owner: bool) -> EventMediaRead:
-    """Build a visibility-aware EventMediaRead. Non-owners only see private items' blur."""
-    can_view = is_owner or m.is_public
-    settings = get_settings()
-
-    # Redaction status — default 'none' for rows that predate migration
-    redaction_status: str = getattr(m, "redaction_status", None) or "none"
+    """Build a visibility-aware EventMediaRead.
+    Visibility model: 'private' | 'redacted' | 'original'
+    - Owner: always sees presigned original URL + redactedUrl (if exists) + boxes.
+    - Visitor: url only when visibility=='original'; redactedUrl only when visibility=='redacted'.
+    """
+    visibility: str = getattr(m, "visibility", None) or "private"
     raw_redacted_url: str | None = getattr(m, "redacted_url", None)
 
-    # Owner sees all redaction details; visitor only sees published redacted URL
+    # can_view: owner always; visitor only when visibility=='original'
+    can_view = is_owner or visibility == "original"
+    # can_view_redacted: visitor only when visibility=='redacted'
+    can_view_redacted = (not is_owner) and visibility == "redacted"
+
+    # redacted URL exposure
     if is_owner:
-        out_redaction_status: str | None = redaction_status
-        out_redaction_boxes: list | None = getattr(m, "redaction_boxes", None)
-        out_redacted_url: str | None = raw_redacted_url
-        out_redaction_preview_url: str | None = (
-            f"{settings.public_media_base_url}/event_media_redacted/{m.id}-preview.jpg"
-            if redaction_status in ("proposed", "published")
-            else None
-        )
-        out_can_view_redacted = False
+        out_redacted_url = raw_redacted_url
+    elif visibility == "redacted":
+        out_redacted_url = raw_redacted_url
     else:
-        out_redaction_status = None
-        out_redaction_boxes = None
-        out_redacted_url = raw_redacted_url if redaction_status == "published" else None
-        out_redaction_preview_url = None
-        out_can_view_redacted = redaction_status == "published"
+        out_redacted_url = None
+
+    # redaction boxes: owner only
+    out_redaction_boxes = getattr(m, "redaction_boxes", None) if is_owner else None
+
+    # redaction_ready: whether the redacted copy exists
+    redaction_ready = raw_redacted_url is not None
 
     return EventMediaRead(
         id=m.id,
@@ -731,17 +732,17 @@ def _event_media_read(m: VehicleEventMedia, is_owner: bool) -> EventMediaRead:
         width=m.width,
         height=m.height,
         sort_order=m.sort_order,
-        is_public=m.is_public,
+        is_public=(visibility == "original"),  # derived for backward compat
         pii_status=m.pii_status if m.pii_status is not None else "unknown",
         pii_kinds=m.pii_kinds or [],
         blur_url=m.blur_url,
         can_view=can_view,
         created_at=m.created_at,
-        redaction_status=out_redaction_status,
+        visibility=visibility,
+        redaction_ready=redaction_ready,
         redaction_boxes=out_redaction_boxes,
         redacted_url=out_redacted_url,
-        redaction_preview_url=out_redaction_preview_url,
-        can_view_redacted=out_can_view_redacted,
+        can_view_redacted=can_view_redacted,
     )
 
 
@@ -1184,7 +1185,7 @@ def classify_media_pii(image_or_pdf_bytes: bytes, mime: str) -> dict:
 
 
 def _process_event_media_bg(media_id: str, url: str, storage_key: str | None, mime: str) -> None:
-    """Background task: generate blur placeholder + PII classify for a VehicleEventMedia row."""
+    """Background task: blur placeholder → PII classify → PII boxes → render+upload redacted copy."""
     from app.database import SessionLocal
     settings = get_settings()
     key = storage_key or _object_key_from_url(url)
@@ -1200,7 +1201,7 @@ def _process_event_media_bg(media_id: str, url: str, storage_key: str | None, mi
     except Exception:
         return
 
-    # Generate blur placeholder (images only)
+    # Step 1: Generate blur placeholder (images only)
     blur_url = None
     if mime.startswith("image/"):
         try:
@@ -1216,7 +1217,7 @@ def _process_event_media_bg(media_id: str, url: str, storage_key: str | None, mi
         except Exception:
             pass
 
-    # PII classification
+    # Step 2: PII classification
     pii_kinds: list[str] = []
     pii_status = "unknown"
     if settings.ai_scan_enabled:
@@ -1225,7 +1226,19 @@ def _process_event_media_bg(media_id: str, url: str, storage_key: str | None, mi
             pii_kinds = result["pii_kinds"]
             pii_status = "detected" if pii_kinds else "none"
         except Exception:
-            pass
+            pass  # pii_status stays 'unknown'
+
+    # Step 3+4: PII box detection + render + upload redacted copy (images only, if classify succeeded)
+    redacted_url: str | None = None
+    redaction_boxes: list | None = None
+    if settings.ai_scan_enabled and mime.startswith("image/") and pii_status != "unknown":
+        try:
+            ai_boxes = _detect_pii_boxes(content)
+            redacted_bytes = _render_redacted_image(content, ai_boxes)
+            redacted_url = _upload_redacted_object(media_id, redacted_bytes)
+            redaction_boxes = ai_boxes
+        except Exception:
+            pass  # leave redacted_url null
 
     with SessionLocal() as db:
         row = db.get(VehicleEventMedia, media_id)
@@ -1233,6 +1246,9 @@ def _process_event_media_bg(media_id: str, url: str, storage_key: str | None, mi
             row.blur_url = blur_url
             row.pii_status = pii_status
             row.pii_kinds = pii_kinds
+            if redacted_url is not None:
+                row.redacted_url = redacted_url
+                row.redaction_boxes = redaction_boxes
             db.commit()
 
 
@@ -1525,11 +1541,15 @@ def delete_vehicle_event(db: Session, event: VehicleEvent, user: User) -> None:
     db.commit()
 
 
-def toggle_event_media_public(
-    db: Session, media_id: str, is_public: bool, user: User
+def set_media_visibility(
+    db: Session, media_id: str, visibility: str, user: User
 ) -> "EventMediaRead":
-    """Toggle is_public on a VehicleEventMedia row. Owner only.
-    Raises 409 if pii_status != 'none' when attempting to make public."""
+    """Set visibility ('private'|'redacted'|'original') on a VehicleEventMedia row. Owner only.
+    Raises 409:
+      - 'original' while pii_status != 'none' (PII detected or unknown)
+      - 'redacted' while redacted_url is None (copy not ready yet)
+    On switching to 'original': copy original to public bucket as event_media_public/{id}.jpg.
+    On switching away from 'original': delete that public copy."""
     from sqlalchemy.orm import selectinload as _sil
     row = db.scalar(
         select(VehicleEventMedia)
@@ -1544,22 +1564,57 @@ def toggle_event_media_public(
         raise HTTPException(status_code=404, detail="Event media not found")
     if row.event.vehicle.owner_user_id != user.id:
         raise HTTPException(status_code=403, detail="You do not own this vehicle")
-    if is_public and row.pii_status != "none":
-        raise HTTPException(status_code=409, detail="Locked private: contains personal info")
-    if is_public and not row.is_public:
-        # Copy to public bucket so the public URL is accessible
+
+    # Validate transition rules
+    if visibility == "original":
+        if row.pii_status != "none":
+            kinds = ", ".join(row.pii_kinds or [])
+            detail = (
+                f"Contains personal info ({kinds}) — share the redacted copy instead"
+                if kinds
+                else "Contains personal info — share the redacted copy instead"
+            )
+            raise HTTPException(status_code=409, detail=detail)
+    if visibility == "redacted":
+        if row.redacted_url is None:
+            raise HTTPException(status_code=409, detail="Redacted copy not ready yet")
+
+    old_visibility: str = getattr(row, "visibility", None) or "private"
+
+    # Manage public-original copy
+    if visibility == "original" and old_visibility != "original":
+        # Copy original to public bucket as event_media_public/{id}.jpg
         if row.storage_key:
             try:
-                _copy_to_public_bucket(row.storage_key)
+                _copy_to_public_media(row.id, row.storage_key)
             except Exception:
                 pass
-    elif not is_public and row.is_public:
-        # Remove the public copy
-        if row.storage_key:
-            _delete_from_public_bucket(row.storage_key)
-    row.is_public = is_public
+    elif visibility != "original" and old_visibility == "original":
+        # Delete the public-original copy
+        settings = get_settings()
+        try:
+            _s3_client().delete_object(
+                Bucket=settings.storage_bucket,
+                Key=f"event_media_public/{row.id}.jpg",
+            )
+        except Exception:
+            pass
+
+    row.visibility = visibility
+    # Keep is_public in sync for backward compat
+    row.is_public = (visibility == "original")
     db.commit()
     return _event_media_read(row, is_owner=True)
+
+
+def _copy_to_public_media(media_id: str, storage_key: str) -> None:
+    """Copy original media from private bucket to public bucket as event_media_public/{id}.jpg."""
+    settings = get_settings()
+    _s3_client().copy_object(
+        CopySource={"Bucket": settings.storage_private_bucket, "Key": storage_key},
+        Bucket=settings.storage_bucket,
+        Key=f"event_media_public/{media_id}.jpg",
+    )
 
 
 def toggle_event_document_public(
@@ -1956,8 +2011,6 @@ def _delete_event_media_storage(m: "VehicleEventMedia") -> None:
     """Best-effort delete of all storage objects for an event media row."""
     if m.storage_key:
         _delete_from_private_bucket(m.storage_key)
-        if m.is_public:
-            _delete_from_public_bucket(m.storage_key)
     if m.blur_url:
         blur_key = _object_key_from_url(m.blur_url)
         if blur_key:
@@ -1965,8 +2018,17 @@ def _delete_event_media_storage(m: "VehicleEventMedia") -> None:
                 _s3_client().delete_object(Bucket=get_settings().storage_bucket, Key=blur_key)
             except Exception:
                 pass
-    # Delete redacted preview and published final objects (best-effort)
-    _delete_redaction_objects(m.id, getattr(m, "redacted_url", None))
+    # Delete redacted copy and public-original copy (best-effort)
+    settings = get_settings()
+    client = _s3_client()
+    for key in [
+        f"event_media_redacted/{m.id}.jpg",
+        f"event_media_public/{m.id}.jpg",
+    ]:
+        try:
+            client.delete_object(Bucket=settings.storage_bucket, Key=key)
+        except Exception:
+            pass
 
 
 def _delete_event_doc_storage(d: "VehicleEventDocument") -> None:
@@ -3156,18 +3218,17 @@ def _render_redacted_image(image_bytes: bytes, boxes: list[dict]) -> bytes:
     return out.getvalue()
 
 
-def _delete_redaction_objects(media_id: str, redacted_url: str | None) -> None:
-    """Best-effort delete of preview and final redacted objects from the public bucket."""
+def _delete_redaction_objects(media_id: str) -> None:
+    """Best-effort delete of the redacted object from the public bucket."""
     settings = get_settings()
     client = _s3_client()
-    for key in [
-        f"event_media_redacted/{media_id}-preview.jpg",
-        f"event_media_redacted/{media_id}.jpg",
-    ]:
-        try:
-            client.delete_object(Bucket=settings.storage_bucket, Key=key)
-        except Exception:
-            pass
+    try:
+        client.delete_object(
+            Bucket=settings.storage_bucket,
+            Key=f"event_media_redacted/{media_id}.jpg",
+        )
+    except Exception:
+        pass
 
 
 def _load_event_media_for_redaction(
@@ -3212,11 +3273,10 @@ def _fetch_media_bytes(row: "VehicleEventMedia") -> bytes:
         ) from exc
 
 
-def _upload_redacted_object(media_id: str, image_bytes: bytes, *, final: bool) -> str:
-    """Upload a redacted image to the public bucket. Returns the public URL."""
+def _upload_redacted_object(media_id: str, image_bytes: bytes) -> str:
+    """Upload a redacted image to the public bucket (always overwrites same key). Returns the public URL."""
     settings = get_settings()
-    suffix = "" if final else "-preview"
-    key = f"event_media_redacted/{media_id}{suffix}.jpg"
+    key = f"event_media_redacted/{media_id}.jpg"
     _s3_client().put_object(
         Bucket=settings.storage_bucket,
         Key=key,
@@ -3226,9 +3286,43 @@ def _upload_redacted_object(media_id: str, image_bytes: bytes, *, final: bool) -
     return f"{settings.public_media_base_url}/{key}"
 
 
-def propose_redaction(db: Session, media_id: str, user: User) -> "EventMediaRead":
-    """Run Gemini PII box detection on the private original, render a blurred preview to the
-    public bucket, set status 'proposed'.  Idempotent: re-run replaces AI boxes, keeps user boxes.
+def update_redaction_boxes(
+    db: Session, media_id: str, boxes: list[dict], user: User
+) -> "EventMediaRead":
+    """Replace the full box list, re-render the single redacted copy (overwrites same key).
+    Each box is marked source='user' unless it is identical (kind + coords) to an existing AI box."""
+    row = _load_event_media_for_redaction(db, media_id, user)
+    image_bytes = _fetch_media_bytes(row)
+
+    existing_ai: set[tuple] = {
+        (b["kind"], tuple(b["box"]))
+        for b in (row.redaction_boxes or [])
+        if b.get("source") == "ai"
+    }
+    new_boxes = []
+    for b in boxes:
+        kind = b["kind"]
+        box = b["box"]
+        source = "ai" if (kind, tuple(box)) in existing_ai else "user"
+        new_boxes.append({"kind": kind, "box": box, "source": source})
+
+    redacted_bytes = _render_redacted_image(image_bytes, new_boxes)
+    try:
+        redacted_url = _upload_redacted_object(media_id, redacted_bytes)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to upload redacted copy: {exc}") from exc
+
+    row.redaction_boxes = new_boxes
+    row.redacted_url = redacted_url
+    db.commit()
+    db.expire(row)
+    db.refresh(row)
+    return _event_media_read(row, is_owner=True)
+
+
+def regenerate_redaction(db: Session, media_id: str, user: User) -> "EventMediaRead":
+    """Re-run AI PII box detection + render + upload. Used by 'Redo with AI' and backfill.
+    Keeps user-drawn boxes; replaces AI boxes.
     Raises 503 if AI disabled, 502 on Gemini/storage error."""
     settings = get_settings()
     if not settings.ai_scan_enabled:
@@ -3247,96 +3341,14 @@ def propose_redaction(db: Session, media_id: str, user: User) -> "EventMediaRead
     user_boxes = [b for b in existing if b.get("source") == "user"]
     new_boxes = user_boxes + ai_boxes
 
-    preview_bytes = _render_redacted_image(image_bytes, new_boxes)
+    redacted_bytes = _render_redacted_image(image_bytes, new_boxes)
     try:
-        _upload_redacted_object(media_id, preview_bytes, final=False)
+        redacted_url = _upload_redacted_object(media_id, redacted_bytes)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to upload preview: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Failed to upload redacted copy: {exc}") from exc
 
     row.redaction_boxes = new_boxes
-    row.redaction_status = "proposed"
-    db.commit()
-    db.expire(row)
-    db.refresh(row)
-    return _event_media_read(row, is_owner=True)
-
-
-def update_redaction_boxes(
-    db: Session, media_id: str, boxes: list[dict], user: User
-) -> "EventMediaRead":
-    """Replace the full box list, re-render the preview. Each box is marked source='user'
-    unless it is identical (kind + coords) to an existing AI box."""
-    row = _load_event_media_for_redaction(db, media_id, user)
-    image_bytes = _fetch_media_bytes(row)
-
-    existing_ai: set[tuple] = {
-        (b["kind"], tuple(b["box"]))
-        for b in (row.redaction_boxes or [])
-        if b.get("source") == "ai"
-    }
-    new_boxes = []
-    for b in boxes:
-        kind = b["kind"]
-        box = b["box"]
-        source = "ai" if (kind, tuple(box)) in existing_ai else "user"
-        new_boxes.append({"kind": kind, "box": box, "source": source})
-
-    preview_bytes = _render_redacted_image(image_bytes, new_boxes)
-    try:
-        _upload_redacted_object(media_id, preview_bytes, final=False)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to upload preview: {exc}") from exc
-
-    row.redaction_boxes = new_boxes
-    db.commit()
-    db.expire(row)
-    db.refresh(row)
-    return _event_media_read(row, is_owner=True)
-
-
-def publish_redaction(db: Session, media_id: str, user: User) -> "EventMediaRead":
-    """Render the final redacted image to the public bucket, set status 'published'.
-    Requires status == 'proposed'."""
-    row = _load_event_media_for_redaction(db, media_id, user)
-    if row.redaction_status != "proposed":
-        raise HTTPException(
-            status_code=409,
-            detail="Redaction must be in 'proposed' state before publishing",
-        )
-
-    image_bytes = _fetch_media_bytes(row)
-    boxes = row.redaction_boxes or []
-    final_bytes = _render_redacted_image(image_bytes, boxes)
-    try:
-        redacted_url = _upload_redacted_object(media_id, final_bytes, final=True)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to upload final: {exc}") from exc
-
     row.redacted_url = redacted_url
-    row.redaction_status = "published"
-    row.redaction_reviewed_at = datetime.now(UTC)
-    db.commit()
-    db.expire(row)
-    db.refresh(row)
-    return _event_media_read(row, is_owner=True)
-
-
-def unpublish_redaction(db: Session, media_id: str, user: User) -> "EventMediaRead":
-    """Delete the published final redacted image; revert to 'proposed' (keeps boxes)."""
-    row = _load_event_media_for_redaction(db, media_id, user)
-
-    # Delete final object (best-effort)
-    settings = get_settings()
-    try:
-        _s3_client().delete_object(
-            Bucket=settings.storage_bucket,
-            Key=f"event_media_redacted/{media_id}.jpg",
-        )
-    except Exception:
-        pass
-
-    row.redacted_url = None
-    row.redaction_status = "proposed"
     db.commit()
     db.expire(row)
     db.refresh(row)

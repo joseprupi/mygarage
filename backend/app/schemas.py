@@ -297,12 +297,11 @@ class EventMediaRead(BaseModel):
     blur_url: str | None = Field(default=None, alias="blurUrl")
     can_view: bool = Field(default=False, alias="canView")
     created_at: datetime | None = Field(default=None, alias="createdAt")
-    # Redaction fields (owner-only for most; redactedUrl + canViewRedacted exposed to visitors
-    # when status == 'published')
-    redaction_status: str | None = Field(default=None, alias="redactionStatus")
-    redaction_boxes: list | None = Field(default=None, alias="redactionBoxes")
+    # Simplified visibility model
+    visibility: str = Field(default="private")  # 'private' | 'redacted' | 'original'
+    redaction_ready: bool = Field(default=False, alias="redactionReady")
+    redaction_boxes: list | None = Field(default=None, alias="redactionBoxes")  # owner only
     redacted_url: str | None = Field(default=None, alias="redactedUrl")
-    redaction_preview_url: str | None = Field(default=None, alias="redactionPreviewUrl")
     can_view_redacted: bool = Field(default=False, alias="canViewRedacted")
 
     model_config = ConfigDict(populate_by_name=True)
@@ -339,6 +338,13 @@ class EventDocumentRead(BaseModel):
 
 class MediaPrivacyToggle(BaseModel):
     is_public: bool = Field(alias="isPublic")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class MediaVisibilityUpdate(BaseModel):
+    """Body for PATCH /vehicle-event-media/{id}: set visibility for image media."""
+    visibility: str = Field(...)  # 'private' | 'redacted' | 'original'
 
     model_config = ConfigDict(populate_by_name=True)
 

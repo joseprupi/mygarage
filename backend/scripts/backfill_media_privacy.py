@@ -1,4 +1,4 @@
-"""Backfill media privacy: blur placeholders + PII classification for vehicle event media/docs.
+"""Backfill media privacy: blur placeholders + PII classification + redacted copies.
 
 Also migrates existing event media/documents from the public bucket to the private bucket,
 and sets storage_key on each row.
@@ -16,14 +16,15 @@ Usage (prod — pass env vars as you would for migrate.sh):
     STORAGE_SECRET_ACCESS_KEY='...' \
     PUBLIC_MEDIA_BASE_URL='https://storage.googleapis.com/mygarage-app-9feafd-media' \
     GEMINI_API_KEY='...' \
-      .venv/bin/python scripts/backfill_media_privacy.py [--limit N] [--dry-run]
+      .venv/bin/python scripts/backfill_media_privacy.py [--limit N] [--dry-run] [--regenerate]
 
 Options:
-    --limit N     Process at most N rows (default: unlimited)
-    --dry-run     Print what would be done without making any changes
-    --skip-move   Skip moving objects to the private bucket (blur + classify only)
+    --limit N       Process at most N rows (default: unlimited)
+    --dry-run       Print what would be done without making any changes
+    --skip-move     Skip moving objects to the private bucket (blur + classify only)
+    --regenerate    Force re-render redacted copies even if redacted_url already set
 
-Rate-limit: ~1 row/second (Gemini API). Each row: fetch → blur → classify → update.
+Rate-limit: ~1 row/second (Gemini API). Each row: fetch → blur → classify → boxes → redact.
 
 Exit codes: 0 = success, 1 = partial failure (some rows errored).
 """
@@ -39,7 +40,6 @@ import sys
 import time
 
 # Must set env vars before any app imports
-import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
@@ -48,6 +48,7 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="Max rows to process (0=unlimited)")
     parser.add_argument("--dry-run", action="store_true", help="Print plan without making changes")
     parser.add_argument("--skip-move", action="store_true", help="Skip private-bucket migration")
+    parser.add_argument("--regenerate", action="store_true", help="Force re-render redacted copies even if already set")
     args = parser.parse_args()
 
     from app.config import get_settings
@@ -58,6 +59,9 @@ def main():
         _object_key_from_url,
         make_blur_placeholder,
         classify_media_pii,
+        _detect_pii_boxes,
+        _render_redacted_image,
+        _upload_redacted_object,
         _ensure_private_bucket,
     )
     from sqlalchemy import select
@@ -69,10 +73,12 @@ def main():
         _ensure_private_bucket()
 
     errors = 0
+    skips = 0
+    processed = 0
 
     def process_media_row(db, row: VehicleEventMedia) -> bool:
         """Process one media row. Returns True on success."""
-        nonlocal errors
+        nonlocal errors, skips
         storage_key = row.storage_key or _object_key_from_url(row.url)
         if not storage_key:
             print(f"  [ERROR] media {row.id}: cannot derive key from url={row.url!r}")
@@ -81,7 +87,6 @@ def main():
 
         # Determine which bucket the object currently lives in
         if row.storage_key:
-            # Already in private bucket
             src_bucket = settings.storage_private_bucket
         else:
             src_bucket = settings.storage_bucket
@@ -108,7 +113,6 @@ def main():
                         Body=content,
                         ContentType=mime,
                     )
-                    # Delete from public bucket after successful copy
                     try:
                         client.delete_object(Bucket=settings.storage_bucket, Key=storage_key)
                     except Exception as e:
@@ -128,7 +132,7 @@ def main():
                     blur_bytes = make_blur_placeholder(content)
                     blur_key = f"event_media_blur/{row.id}-blur.jpg"
                     client.put_object(
-                        Bucket=settings.storage_bucket,  # blur goes to PUBLIC bucket
+                        Bucket=settings.storage_bucket,
                         Key=blur_key,
                         Body=blur_bytes,
                         ContentType="image/jpeg",
@@ -153,18 +157,49 @@ def main():
                 except Exception as exc:
                     print(f"  [WARN] media {row.id}: PII classify failed: {exc}")
 
+        # Redacted copy: generate if missing or --regenerate forced
+        redacted_url = row.redacted_url
+        redaction_boxes = row.redaction_boxes
+        needs_redact = (
+            mime.startswith("image/")
+            and settings.ai_scan_enabled
+            and pii_status != "unknown"
+            and (redacted_url is None or args.regenerate)
+        )
+        if needs_redact:
+            if args.dry_run:
+                print(f"  [DRY] media {row.id}: would run PII boxes + render redacted copy")
+            else:
+                try:
+                    ai_boxes = _detect_pii_boxes(content)
+                    # Keep user-drawn boxes when regenerating
+                    if args.regenerate and redaction_boxes:
+                        user_boxes = [b for b in redaction_boxes if b.get("source") == "user"]
+                        new_boxes = user_boxes + ai_boxes
+                    else:
+                        new_boxes = ai_boxes
+                    redacted_bytes = _render_redacted_image(content, new_boxes)
+                    redacted_url = _upload_redacted_object(row.id, redacted_bytes)
+                    redaction_boxes = new_boxes
+                    print(f"  [OK] media {row.id}: redacted copy uploaded ({len(redacted_bytes)} bytes, {len(new_boxes)} boxes)")
+                except Exception as exc:
+                    print(f"  [WARN] media {row.id}: redacted copy failed: {exc}")
+
         if not args.dry_run:
             row.storage_key = row.storage_key or storage_key
             row.blur_url = blur_url
             row.pii_status = pii_status
             row.pii_kinds = pii_kinds
+            if redacted_url is not None:
+                row.redacted_url = redacted_url
+                row.redaction_boxes = redaction_boxes
             db.commit()
 
         return True
 
     def process_doc_row(db, row: VehicleEventDocument) -> bool:
         """Process one document row. Returns True on success."""
-        nonlocal errors
+        nonlocal errors, skips
         storage_key = row.storage_key or _object_key_from_url(row.url)
         if not storage_key:
             print(f"  [WARN] doc {row.id}: cannot derive key from url={row.url!r}")
@@ -224,15 +259,20 @@ def main():
         return True
 
     with SessionLocal() as db:
-        # Fetch rows needing work: missing storage_key OR pii_status='unknown' OR blur_url=None
         from sqlalchemy import or_, null
         media_query = select(VehicleEventMedia).where(
             or_(
                 VehicleEventMedia.storage_key.is_(None),
                 VehicleEventMedia.pii_status == "unknown",
                 VehicleEventMedia.blur_url.is_(None),
+                VehicleEventMedia.redacted_url.is_(None),
             )
         )
+        if args.regenerate:
+            # Include all image rows regardless of redacted_url
+            media_query = select(VehicleEventMedia).where(
+                VehicleEventMedia.media_type == "image"
+            )
         doc_query = select(VehicleEventDocument).where(
             or_(
                 VehicleEventDocument.storage_key.is_(None),
@@ -251,19 +291,20 @@ def main():
         print(f"Backfill: {len(media_rows)} media rows + {len(doc_rows)} doc rows to process")
         if args.dry_run:
             print("[DRY RUN mode — no changes will be made]")
+        if args.regenerate:
+            print("[--regenerate: forcing re-render of all redacted copies]")
 
-        processed = 0
         for row in media_rows:
-            print(f"[{processed + 1}/{total}] media {row.id} pii={row.pii_status} key={row.storage_key}")
-            process_media_row(db, row)
             processed += 1
+            print(f"[{processed}/{total}] media {row.id} pii={row.pii_status} redacted={row.redacted_url is not None} key={row.storage_key}")
+            process_media_row(db, row)
             if not args.dry_run and settings.ai_scan_enabled:
-                time.sleep(1)  # Rate-limit Gemini calls
+                time.sleep(1)
 
         for row in doc_rows:
-            print(f"[{processed + 1}/{total}] doc {row.id} pii={row.pii_status} key={row.storage_key}")
-            process_doc_row(db, row)
             processed += 1
+            print(f"[{processed}/{total}] doc {row.id} pii={row.pii_status} key={row.storage_key}")
+            process_doc_row(db, row)
             if not args.dry_run and settings.ai_scan_enabled:
                 time.sleep(1)
 
