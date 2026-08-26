@@ -41,6 +41,9 @@ from app.schemas import (
     VehicleModCreate,
     VehicleModRead,
     VehicleModUpdate,
+    VehicleOwnershipCreate,
+    VehicleOwnershipRead,
+    VehicleOwnershipUpdate,
     VehicleRead,
     VehicleUpdate,
 )
@@ -381,7 +384,7 @@ def vehicle_events(
     viewer: User | None = Depends(get_optional_user),
 ):
     vehicle = services.get_vehicle_or_404(db, vehicle_id, viewer)
-    return services.list_vehicle_events(db, vehicle, viewer)
+    return services.list_vehicle_events_read(db, vehicle, viewer)
 
 
 @app.get("/vehicle-events/{event_id}", response_model=VehicleEventRead)
@@ -390,7 +393,7 @@ def vehicle_event(
     db: Session = Depends(get_db),
     viewer: User | None = Depends(get_optional_user),
 ):
-    return services.get_vehicle_event_or_404(db, event_id, viewer)
+    return services.get_vehicle_event_read(db, event_id, viewer)
 
 
 @app.patch("/vehicle-events/{event_id}", response_model=VehicleEventRead)
@@ -450,6 +453,48 @@ def delete_vehicle_mod(
 ) -> None:
     mod = services.get_vehicle_mod_or_404(db, mod_id, user)
     services.delete_vehicle_mod(db, mod, user)
+
+
+@app.get("/vehicles/{vehicle_id}/ownerships", response_model=list[VehicleOwnershipRead])
+def list_vehicle_ownerships(
+    vehicle_id: str,
+    db: Session = Depends(get_db),
+    viewer: User | None = Depends(get_optional_user),
+):
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, viewer)
+    return services.list_vehicle_ownerships(db, vehicle, viewer)
+
+
+@app.post("/vehicles/{vehicle_id}/ownerships", response_model=VehicleOwnershipRead)
+def create_vehicle_ownership(
+    vehicle_id: str,
+    data: VehicleOwnershipCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, user)
+    return services.create_vehicle_ownership(db, vehicle, user, data)
+
+
+@app.patch("/ownerships/{ownership_id}", response_model=VehicleOwnershipRead)
+def update_vehicle_ownership(
+    ownership_id: str,
+    data: VehicleOwnershipUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    period = services.get_ownership_or_404(db, ownership_id, user)
+    return services.update_vehicle_ownership(db, period, user, data)
+
+
+@app.delete("/ownerships/{ownership_id}", status_code=204)
+def delete_vehicle_ownership(
+    ownership_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    period = services.get_ownership_or_404(db, ownership_id, user)
+    services.delete_vehicle_ownership(db, period, user)
 
 
 @app.post("/posts/{post_id}/like", status_code=204)

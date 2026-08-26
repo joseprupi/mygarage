@@ -691,3 +691,272 @@ def test_sitemap_entries_returns_public_content_only():
         assert "updatedAt" in p
     for u in body["users"]:
         assert "updatedAt" in u
+
+
+# ---------------------------------------------------------------------------
+# Ownership period tests (Slice 1)
+# ---------------------------------------------------------------------------
+
+def test_vehicle_create_yields_one_ownership_period():
+    """Creating a vehicle automatically creates one current ownership period."""
+    owner = signup("ownerships-create", "ownerships-create@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+
+    resp = client.get(
+        f"/vehicles/{vehicle['id']}/ownerships",
+        headers=auth_headers(owner["accessToken"]),
+    )
+    assert resp.status_code == 200, resp.text
+    periods = resp.json()
+    assert len(periods) == 1
+    period = periods[0]
+    assert period["ordinal"] == 1
+    assert period["ownerUserId"] == owner["user"]["id"]
+    assert period["isCurrent"] is True
+    assert period["endDate"] is None
+
+
+def test_event_attribution_current_period():
+    """Events dated after purchase_date fall into the current ownership period."""
+    owner = signup("attr-current", "attr-current@example.com")
+    # Create vehicle with a purchase_date
+    resp = client.post(
+        "/vehicles",
+        headers=auth_headers(owner["accessToken"]),
+        json={"make": "Toyota", "model": "Camry", "year": 2010, "purchase_date": "2019-03-15"},
+    )
+    assert resp.status_code == 200, resp.text
+    vehicle = resp.json()
+
+    # Create an event after purchase_date
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Oil change",
+            "eventDate": "2021-06-01",
+            "media": [],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event = event_resp.json()
+    assert event["isPreviousOwner"] is False
+    assert event["ownershipId"] is not None
+    assert event["canEdit"] is True
+
+    # Verify via list
+    events_resp = client.get(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+    )
+    assert events_resp.status_code == 200, events_resp.text
+    listed = events_resp.json()
+    assert len(listed) == 1
+    assert listed[0]["isPreviousOwner"] is False
+
+
+def test_event_attribution_before_purchase_date_is_previous_owner():
+    """Events dated before purchase_date are attributed to 'previous owner'."""
+    owner = signup("attr-prev", "attr-prev@example.com")
+    resp = client.post(
+        "/vehicles",
+        headers=auth_headers(owner["accessToken"]),
+        json={"make": "Honda", "model": "Civic", "year": 2005, "purchase_date": "2015-01-01"},
+    )
+    assert resp.status_code == 200, resp.text
+    vehicle = resp.json()
+
+    # Event before purchase_date
+    old_event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "repair",
+            "title": "Old repair",
+            "eventDate": "2012-06-01",
+            "media": [],
+        },
+    )
+    assert old_event_resp.status_code == 200, old_event_resp.text
+    old_event = old_event_resp.json()
+    assert old_event["isPreviousOwner"] is True
+    assert old_event["ownershipId"] is None
+
+
+def test_create_previous_ownership_period_and_attribution():
+    """Creating a previous (non-user) period causes events in that date range to be attributed to it."""
+    owner = signup("attr-prevperiod", "attr-prevperiod@example.com")
+    resp = client.post(
+        "/vehicles",
+        headers=auth_headers(owner["accessToken"]),
+        json={"make": "Ford", "model": "F-150", "year": 2003, "purchase_date": "2019-05-01"},
+    )
+    assert resp.status_code == 200, resp.text
+    vehicle = resp.json()
+
+    # Create a previous period
+    prev_resp = client.post(
+        f"/vehicles/{vehicle['id']}/ownerships",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "label": "First owner",
+            "startDate": "2003-06-01",
+            "endDate": "2019-05-01",
+            "startMileage": 0,
+        },
+    )
+    assert prev_resp.status_code == 200, prev_resp.text
+    prev_period = prev_resp.json()
+    assert prev_period["label"] == "First owner"
+    assert prev_period["ownerUserId"] is None
+    assert prev_period["isCurrent"] is False
+
+    # Now get ownerships — should be 2 periods
+    ownerships_resp = client.get(
+        f"/vehicles/{vehicle['id']}/ownerships",
+        headers=auth_headers(owner["accessToken"]),
+    )
+    assert ownerships_resp.status_code == 200, ownerships_resp.text
+    periods = ownerships_resp.json()
+    assert len(periods) == 2
+
+    # Create an event in the previous period's date range
+    old_event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Factory service",
+            "eventDate": "2010-03-01",
+            "media": [],
+        },
+    )
+    assert old_event_resp.status_code == 200, old_event_resp.text
+    old_event = old_event_resp.json()
+    # Should now be attributed to the previous period, not "none"
+    assert old_event["ownershipId"] == prev_period["id"]
+    assert old_event["isPreviousOwner"] is True
+
+
+def test_lock_rule_owner_but_not_creator_cannot_edit():
+    """Vehicle owner cannot edit an event they did not create (lock rule)."""
+    from app.database import get_db as _get_db
+    from app.models import VehicleEvent as _VE
+    from sqlalchemy.orm import Session as _Session
+
+    owner = signup("lock-owner", "lock-owner@example.com")
+    other = signup("lock-other", "lock-other@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+
+    # Owner creates an event
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Owner's oil change",
+            "eventDate": "2024-01-01",
+            "media": [],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event_id = event_resp.json()["id"]
+    other_user_id = other["user"]["id"]
+
+    # Directly change author_user_id to other user (simulating event created by other)
+    db_gen = _get_db()
+    db: _Session = next(db_gen)
+    try:
+        ev = db.get(_VE, event_id)
+        ev.author_user_id = other_user_id
+        db.commit()
+    finally:
+        db.close()
+
+    # Owner can no longer edit (not the creator)
+    denied = client.patch(
+        f"/vehicle-events/{event_id}",
+        headers=auth_headers(owner["accessToken"]),
+        json={"title": "Changed"},
+    )
+    assert denied.status_code == 403, denied.text
+
+    # Other user also cannot edit (not the vehicle owner)
+    denied2 = client.patch(
+        f"/vehicle-events/{event_id}",
+        headers=auth_headers(other["accessToken"]),
+        json={"title": "Changed"},
+    )
+    assert denied2.status_code == 403, denied2.text
+
+
+def test_event_can_edit_true_for_owner_creator():
+    """canEdit is True when the viewer is both the vehicle owner and the event creator."""
+    owner = signup("canedit-owner", "canedit-owner@example.com")
+    vehicle = create_vehicle(owner["accessToken"])
+
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "note",
+            "title": "My note",
+            "eventDate": "2024-05-01",
+            "media": [],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event = event_resp.json()
+    assert event["canEdit"] is True
+
+    # Anonymous viewer: canEdit should be False
+    anon_resp = client.get(f"/vehicle-events/{event['id']}")
+    assert anon_resp.status_code == 200, anon_resp.text
+    assert anon_resp.json()["canEdit"] is False
+
+
+def test_export_csv_has_owner_column():
+    """History export CSV includes an 'owner' column."""
+    import zipfile as _zf
+    import io as _io
+    import csv as _csv
+
+    owner = signup("export-owner", "export-owner@example.com")
+    resp = client.post(
+        "/vehicles",
+        headers=auth_headers(owner["accessToken"]),
+        json={"make": "Subaru", "model": "Outback", "year": 2015, "purchase_date": "2020-01-01"},
+    )
+    assert resp.status_code == 200, resp.text
+    vehicle = resp.json()
+
+    # Event after purchase_date (current owner period)
+    client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(owner["accessToken"]),
+        json={
+            "eventType": "maintenance",
+            "title": "Tire rotation",
+            "eventDate": "2021-06-01",
+            "media": [],
+        },
+    )
+
+    export_resp = client.get(
+        f"/vehicles/{vehicle['id']}/history/export",
+        headers=auth_headers(owner["accessToken"]),
+    )
+    assert export_resp.status_code == 200, export_resp.text
+
+    with _zf.ZipFile(_io.BytesIO(export_resp.content)) as z:
+        assert "history.csv" in z.namelist()
+        assert "ownerships.json" in z.namelist()
+        csv_text = z.read("history.csv").decode()
+
+    reader = _csv.DictReader(_io.StringIO(csv_text))
+    assert "owner" in reader.fieldnames, f"Missing 'owner' column; fields: {reader.fieldnames}"
+    rows = list(reader)
+    assert len(rows) == 1
+    # The event is in the current owner's period — should show @username
+    assert rows[0]["owner"].startswith("@"), f"Expected @username, got: {rows[0]['owner']}"

@@ -1,4 +1,4 @@
-import type { Comment, FeedPage, Post, PublicUser, UserSettings, Vehicle, VehicleEvent, VehicleMod } from "@/lib/types";
+import type { Comment, FeedPage, Post, PublicUser, UserSettings, Vehicle, VehicleEvent, VehicleMod, VehicleOwnership } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -276,4 +276,37 @@ export const modApi = {
       body: JSON.stringify(body)
     }),
   delete: (modId: string) => api<void>(`/mods/${modId}`, { method: "DELETE" })
+};
+
+export const ownershipApi = {
+  list: (vehicleId: string) => api<VehicleOwnership[]>(`/vehicles/${vehicleId}/ownerships`),
+  create: (
+    vehicleId: string,
+    body: {
+      label?: string | null;
+      startDate: string;
+      startMileage?: number | null;
+      endDate?: string | null;
+      endMileage?: number | null;
+    }
+  ) =>
+    api<VehicleOwnership>(`/vehicles/${vehicleId}/ownerships`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  update: (
+    id: string,
+    body: {
+      label?: string | null;
+      startDate?: string;
+      startMileage?: number | null;
+      endDate?: string | null;
+      endMileage?: number | null;
+    }
+  ) =>
+    api<VehicleOwnership>(`/ownerships/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body)
+    }),
+  remove: (id: string) => api<void>(`/ownerships/${id}`, { method: "DELETE" })
 };

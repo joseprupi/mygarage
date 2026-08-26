@@ -85,6 +85,11 @@ class Vehicle(TimestampMixin, Base):
     tags: Mapped[list["PostVehicleTag"]] = relationship(back_populates="vehicle")
     events: Mapped[list["VehicleEvent"]] = relationship(back_populates="vehicle")
     mods: Mapped[list["VehicleMod"]] = relationship(back_populates="vehicle")
+    ownerships: Mapped[list["VehicleOwnership"]] = relationship(
+        back_populates="vehicle",
+        cascade="all, delete-orphan",
+        foreign_keys="VehicleOwnership.vehicle_id",
+    )
 
 
 class Post(TimestampMixin, Base):
@@ -301,6 +306,29 @@ class CommentLike(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class VehicleOwnership(TimestampMixin, Base):
+    __tablename__ = "vehicle_ownerships"
+    __table_args__ = (
+        UniqueConstraint("vehicle_id", "ordinal", name="uq_vehicle_ownership_ordinal"),
+        Index("idx_vehicle_ownerships_vehicle_id", "vehicle_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    vehicle_id: Mapped[str] = mapped_column(ForeignKey("vehicles.id", ondelete="CASCADE"), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    start_mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    show_owner_name: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    vehicle: Mapped["Vehicle"] = relationship(back_populates="ownerships", foreign_keys=[vehicle_id])
+    owner_user: Mapped["User | None"] = relationship(foreign_keys=[owner_user_id])
 
 
 class Follow(Base):

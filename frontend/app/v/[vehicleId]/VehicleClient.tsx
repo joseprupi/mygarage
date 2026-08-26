@@ -3,10 +3,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, use, useState } from "react";
-import { Download, ExternalLink, Pencil, Plus } from "lucide-react";
+import React, { Suspense, use, useState } from "react";
+import { ChevronDown, ChevronUp, Download, ExternalLink, Pencil, Plus } from "lucide-react";
 
-import { eventApi, getToken, modApi, vehicleApi } from "@/lib/api/client";
+import { eventApi, getToken, modApi, ownershipApi, vehicleApi } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
@@ -20,7 +20,7 @@ import { computeVehicleStats, type GapInfo } from "@/lib/stats";
 import { ShareButton } from "@/components/ShareButton";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { VehicleModForm } from "@/components/VehicleModForm";
-import type { Media, VehicleMod } from "@/lib/types";
+import type { Media, VehicleMod, VehicleOwnership } from "@/lib/types";
 
 // Map a media list to lightbox items (video → iframe url, image → full url).
 const toLightboxItems = (media: Media[]): LightboxItem[] =>
@@ -62,6 +62,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   // The active tab lives in the URL so /v/<id>?tab=history is shareable.
   const tabParam = searchParams.get("tab");
   const tab: Tab = (tabs as readonly string[]).includes(tabParam ?? "") ? (tabParam as Tab) : "posts";
+  const ownerFilterParam = searchParams.get("owner") ?? "all";
   const [eventFilter, setEventFilter] = useState<string>("all");
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -71,6 +72,18 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const [modForm, setModForm] = useState<"new" | string | null>(null);
   const [modError, setModError] = useState<string | null>(null);
   const [dismissedGapIds, setDismissedGapIds] = useState<Set<string>>(new Set());
+  const [statsScope, setStatsScope] = useState<"current" | "lifetime">("current");
+  const [ownershipForm, setOwnershipForm] = useState<null | "new" | string>(null);
+  const [ownershipError, setOwnershipError] = useState<string | null>(null);
+  const [ownershipFormData, setOwnershipFormData] = useState({
+    label: "Previous owner",
+    startDate: "",
+    startMileage: "",
+    endDate: "",
+    endMileage: ""
+  });
+  const [ownershipSubmitting, setOwnershipSubmitting] = useState(false);
+  const [ownershipSectionOpen, setOwnershipSectionOpen] = useState(false);
   const queryClient = useQueryClient();
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useMe();
@@ -82,6 +95,13 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const events = useQuery({ queryKey: ["vehicleEvents", vehicleId], queryFn: () => vehicleApi.events(vehicleId), enabled: tab === "history" || tab === "specs" });
   // Mods feed both the Specs tab (full CRUD list) and the History timeline/chart.
   const mods = useQuery({ queryKey: ["vehicleMods", vehicleId], queryFn: () => vehicleApi.mods(vehicleId), enabled: tab === "specs" || tab === "history" });
+  // Ownership periods (History tab only — non-critical, page degrades gracefully if absent).
+  const ownerships = useQuery({
+    queryKey: ["vehicleOwnerships", vehicleId],
+    queryFn: () => ownershipApi.list(vehicleId),
+    enabled: tab === "history",
+    retry: false
+  });
 
   async function deleteMod(modId: string) {
     if (!window.confirm("Delete this mod? This cannot be undone.")) return;
@@ -98,12 +118,30 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     router.replace(next === "posts" ? `/v/${vehicleId}` : `/v/${vehicleId}?tab=${next}`, { scroll: false });
   }
 
+  function setOwnerFilter(value: string) {
+    const params = new URLSearchParams();
+    params.set("tab", "history");
+    if (value !== "all") params.set("owner", value);
+    router.replace(`/v/${vehicleId}?${params.toString()}`, { scroll: false });
+  }
+
   if (vehicle.isLoading) return <div>Loading vehicle...</div>;
   if (vehicle.error) return <LoadErrorCard error={vehicle.error} noun="vehicle" />;
   if (!vehicle.data) return <div>Vehicle not found.</div>;
 
   const isOwner = Boolean(currentUser && currentUser.id === vehicle.data.owner_user_id);
   const v = vehicle.data;
+
+  // Ownership periods
+  const allOwnerships = ownerships.data ?? [];
+  const currentPeriod = allOwnerships.find((o) => o.isCurrent) ?? null;
+  const ownershipLabel = (period: VehicleOwnership): string => {
+    if (period.ownerUserId && period.ownerUsername && period.showOwnerName) {
+      return `@${period.ownerUsername}`;
+    }
+    return period.label ?? "Previous owner";
+  };
+
   const latestReading = (events.data ?? [])
     .filter((e) => e.mileage != null && e.event_date)
     .sort((a, b) => b.event_date!.localeCompare(a.event_date!))[0];
@@ -131,8 +169,20 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   // see rows with real values — a wall of "Not set" reads as a thin history.
   const visibleSpecs = isOwner ? specs : specs.filter(([, value]) => value);
   const galleryMedia = gallery.data?.flatMap((post) => post.media) ?? [];
-  const presentEventTypes = Array.from(new Set(events.data?.map((e) => e.event_type) ?? []));
-  const filteredEvents = (events.data ?? []).filter(
+
+  // All events (unfiltered) — used for chart, cost totals, type chips.
+  const allEvents = events.data ?? [];
+
+  // Ownership filter: narrow events by period before applying the type filter.
+  const ownerFilteredEvents = allEvents.filter((e) => {
+    if (ownerFilterParam === "all") return true;
+    if (ownerFilterParam === "current")
+      return currentPeriod ? e.ownershipId === currentPeriod.id : !e.isPreviousOwner;
+    if (ownerFilterParam === "unknown") return e.ownershipId === null && e.isPreviousOwner;
+    return e.ownershipId === ownerFilterParam;
+  });
+  const presentEventTypes = Array.from(new Set(ownerFilteredEvents.map((e) => e.event_type)));
+  const filteredEvents = ownerFilteredEvents.filter(
     (e) => eventFilter === "all" || e.event_type === eventFilter
   );
 
@@ -165,10 +215,15 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
       : [])
   ].sort((a, b) => b.date.localeCompare(a.date));
 
-  // Cost summary over ALL events (ignores the active type filter).
-  const allEvents = events.data ?? [];
-  const totalCostCents = allEvents.reduce((sum, e) => sum + (e.cost_cents ?? 0), 0);
-  const costByType = allEvents.reduce<Record<string, number>>((acc, e) => {
+  // Stats scope toggle: "Your ownership" (default) shows only the current period's events.
+  // "Lifetime" uses all events. Stat tiles + breakdown + export are all driven by statsEvents.
+  const statsEvents = statsScope === "current" && currentPeriod
+    ? allEvents.filter((e) => e.ownershipId === currentPeriod.id)
+    : allEvents;
+
+  // Cost summary — respects the stats scope toggle.
+  const totalCostCents = statsEvents.reduce((sum, e) => sum + (e.cost_cents ?? 0), 0);
+  const costByType = statsEvents.reduce<Record<string, number>>((acc, e) => {
     if (e.cost_cents) acc[e.event_type] = (acc[e.event_type] ?? 0) + e.cost_cents;
     return acc;
   }, {});
@@ -189,7 +244,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   if (v.purchase_date && v.mileage != null) {
     mileageByDate[v.purchase_date] = Math.max(mileageByDate[v.purchase_date] ?? v.mileage, v.mileage);
   }
-  const stats = computeVehicleStats(v, allEvents, {
+  const stats = computeVehicleStats(v, statsEvents, {
     detectMissedFillups: currentUser?.settings?.detectMissedFillups ?? true,
     includeEstimatedFuel: currentUser?.settings?.includeEstimatedFuel ?? true,
   });
@@ -198,6 +253,84 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const mileagePoints = Object.entries(mileageByDate)
     .map(([date, miles]) => ({ date, miles }))
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Chart boundary lines at period transitions (every period after the first).
+  const chartBoundaries = allOwnerships
+    .slice()
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .slice(1)
+    .map((o) => ({ date: o.startDate, label: ownershipLabel(o) }))
+    .filter((b) => mileagePoints.some((p) => p.date >= b.date));
+
+  // Ownership filter UI: show chips when there are multiple attribution buckets.
+  const hasUnknownPeriodEvents = allEvents.some((e) => e.ownershipId === null && e.isPreviousOwner);
+  const nonCurrentPeriods = allOwnerships.filter((o) => !o.isCurrent);
+  const showOwnershipFilter =
+    allOwnerships.length > 1 || (allOwnerships.length >= 1 && hasUnknownPeriodEvents);
+
+  // Ownership period CRUD helpers (owner only).
+  async function addOwnershipPeriod() {
+    if (ownershipSubmitting) return;
+    setOwnershipError(null);
+    if (!ownershipFormData.startDate) {
+      setOwnershipError("Start date is required.");
+      return;
+    }
+    setOwnershipSubmitting(true);
+    try {
+      await ownershipApi.create(vehicleId, {
+        label: ownershipFormData.label.trim() || null,
+        startDate: ownershipFormData.startDate,
+        startMileage: ownershipFormData.startMileage ? Number(ownershipFormData.startMileage) : null,
+        endDate: ownershipFormData.endDate || null,
+        endMileage: ownershipFormData.endMileage ? Number(ownershipFormData.endMileage) : null
+      });
+      await queryClient.invalidateQueries({ queryKey: ["vehicleOwnerships", vehicleId] });
+      setOwnershipForm(null);
+      setOwnershipFormData({ label: "Previous owner", startDate: "", startMileage: "", endDate: "", endMileage: "" });
+    } catch (err) {
+      setOwnershipError(err instanceof Error ? err.message : "Unable to save period");
+    } finally {
+      setOwnershipSubmitting(false);
+    }
+  }
+
+  async function saveOwnershipPeriod(id: string) {
+    if (ownershipSubmitting) return;
+    setOwnershipError(null);
+    setOwnershipSubmitting(true);
+    const period = allOwnerships.find((o) => o.id === id);
+    try {
+      await ownershipApi.update(id, {
+        label: ownershipFormData.label.trim() || null,
+        startDate: ownershipFormData.startDate || undefined,
+        startMileage: ownershipFormData.startMileage ? Number(ownershipFormData.startMileage) : null,
+        endDate: ownershipFormData.endDate || null,
+        endMileage: ownershipFormData.endMileage ? Number(ownershipFormData.endMileage) : null
+      });
+      await queryClient.invalidateQueries({ queryKey: ["vehicleOwnerships", vehicleId] });
+      // The current period's start_date/mileage sync back to vehicle.purchase_date/mileage.
+      if (period?.isCurrent) {
+        await queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
+      }
+      setOwnershipForm(null);
+    } catch (err) {
+      setOwnershipError(err instanceof Error ? err.message : "Unable to update period");
+    } finally {
+      setOwnershipSubmitting(false);
+    }
+  }
+
+  async function deleteOwnershipPeriod(id: string) {
+    if (!window.confirm("Delete this ownership period? This cannot be undone.")) return;
+    setOwnershipError(null);
+    try {
+      await ownershipApi.remove(id);
+      await queryClient.invalidateQueries({ queryKey: ["vehicleOwnerships", vehicleId] });
+    } catch (err) {
+      setOwnershipError(err instanceof Error ? err.message : "Unable to delete period");
+    }
+  }
 
   async function exportHistory() {
     if (exporting) return;
@@ -335,9 +468,31 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
         <div className="space-y-4">
           {(allEvents.length > 0 || stats.summary.length > 0) && (
             <div className="surface rounded-2xl p-4">
+              {currentPeriod && (
+                <div className="mb-3 flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setStatsScope("current")}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      statsScope === "current" ? "bg-asphalt text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {isOwner ? "Your ownership" : "Current owner"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatsScope("lifetime")}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      statsScope === "lifetime" ? "bg-asphalt text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Lifetime
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
                 <div className="rounded-xl border border-slate-200 px-3 py-2 text-center">
-                  <p className="text-lg font-extrabold">{allEvents.length}</p>
+                  <p className="text-lg font-extrabold">{statsEvents.length}</p>
                   <p className="text-xs font-semibold text-slate-500">Events</p>
                 </div>
                 {stats.summary.map((row) => (
@@ -394,54 +549,123 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
               )}
             </div>
           )}
-          {mileagePoints.length >= 2 && <MileageChart points={mileagePoints} />}
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
-              {presentEventTypes.length + (hasDatedMods ? 1 : 0) > 1 && (
-                <>
+          {mileagePoints.length >= 2 && <MileageChart points={mileagePoints} boundaries={chartBoundaries} />}
+          {/* Type filter chips */}
+          <div className="flex flex-wrap gap-2">
+            {presentEventTypes.length + (hasDatedMods ? 1 : 0) > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setEventFilter("all")}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    eventFilter === "all"
+                      ? "bg-asphalt text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  All
+                </button>
+                {presentEventTypes.map((type) => (
                   <button
                     type="button"
-                    onClick={() => setEventFilter("all")}
-                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                      eventFilter === "all"
-                        ? "bg-asphalt text-white"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    key={type}
+                    onClick={() => setEventFilter(type)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition ${eventTypeBadge(type)} ${
+                      eventFilter === type ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
                     }`}
                   >
-                    All
+                    {eventTypeLabel(type)}
                   </button>
-                  {presentEventTypes.map((type) => (
-                    <button
-                      type="button"
-                      key={type}
-                      onClick={() => setEventFilter(type)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition ${eventTypeBadge(type)} ${
-                        eventFilter === type ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
-                      }`}
-                    >
-                      {eventTypeLabel(type)}
-                    </button>
-                  ))}
-                  {hasDatedMods && (
-                    <button
-                      type="button"
-                      onClick={() => setEventFilter(MODS_FILTER)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition ${MOD_BADGE} ${
-                        eventFilter === MODS_FILTER ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
-                      }`}
-                    >
-                      Mods
-                    </button>
-                  )}
-                </>
+                ))}
+                {hasDatedMods && (
+                  <button
+                    type="button"
+                    onClick={() => setEventFilter(MODS_FILTER)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition ${MOD_BADGE} ${
+                      eventFilter === MODS_FILTER ? "ring-2 ring-asphalt ring-offset-1" : "opacity-70 hover:opacity-100"
+                    }`}
+                  >
+                    Mods
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+          {/* Ownership filter chips */}
+          {showOwnershipFilter && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">Owner</span>
+              <button
+                type="button"
+                onClick={() => setOwnerFilter("all")}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  ownerFilterParam === "all"
+                    ? "bg-asphalt text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                All
+              </button>
+              {currentPeriod && (
+                <button
+                  type="button"
+                  onClick={() => setOwnerFilter("current")}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    ownerFilterParam === "current"
+                      ? "bg-asphalt text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {isOwner ? "Your ownership" : "Current owner"}
+                </button>
+              )}
+              {nonCurrentPeriods.map((period) => (
+                <button
+                  key={period.id}
+                  type="button"
+                  onClick={() => setOwnerFilter(period.id)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    ownerFilterParam === period.id
+                      ? "bg-asphalt text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {ownershipLabel(period)}
+                </button>
+              ))}
+              {hasUnknownPeriodEvents && (
+                <button
+                  type="button"
+                  onClick={() => setOwnerFilter("unknown")}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                    ownerFilterParam === "unknown"
+                      ? "bg-asphalt text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Previous owner
+                </button>
               )}
             </div>
+          )}
+          {/* Export + ownership period editing row */}
+          <div className="flex items-center justify-between gap-3">
+            {isOwner && allOwnerships.length > 0 && (
+              <button
+                type="button"
+                className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"
+                onClick={() => setOwnershipSectionOpen((o) => !o)}
+              >
+                Ownership periods
+                {ownershipSectionOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              </button>
+            )}
             {(events.data?.length ?? 0) > 0 && (
               <button
                 type="button"
                 onClick={exportHistory}
                 disabled={exporting}
-                className="btn btn-secondary shrink-0 disabled:opacity-60"
+                className="btn btn-secondary ml-auto shrink-0 disabled:opacity-60"
               >
                 <Download size={15} />
                 {exporting ? "Exporting…" : "Export CSV + photos"}
@@ -449,12 +673,334 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
             )}
           </div>
           {exportError && <p className="text-right text-sm text-red-600">{exportError}</p>}
-          {timeline.map((entry) =>
-            entry.kind === "event" ? (
-              (() => {
+          {/* Ownership periods management (owner only) */}
+          {isOwner && ownershipSectionOpen && (
+            <div className="surface space-y-3 rounded-2xl p-4">
+              <h3 className="text-sm font-bold">Ownership periods</h3>
+              {ownershipError && <p className="text-sm text-red-600">{ownershipError}</p>}
+              {allOwnerships
+                .slice()
+                .sort((a, b) => a.ordinal - b.ordinal)
+                .map((period) => (
+                  <div key={period.id}>
+                    {ownershipForm === period.id ? (
+                      <form
+                        className="space-y-2 rounded-xl border border-slate-200 p-3"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void saveOwnershipPeriod(period.id);
+                        }}
+                      >
+                        <p className="text-xs font-semibold text-slate-500">
+                          {period.isCurrent ? "Edit your ownership start" : "Edit period"}
+                        </p>
+                        {!period.ownerUserId && (
+                          <label className="block space-y-1 text-xs">
+                            <span>Label</span>
+                            <input
+                              className="input text-sm"
+                              placeholder="e.g. Previous owner, First owner"
+                              value={ownershipFormData.label}
+                              onChange={(e) => setOwnershipFormData((d) => ({ ...d, label: e.target.value }))}
+                            />
+                          </label>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block space-y-1 text-xs">
+                            <span>{period.isCurrent ? "You took over (date)" : "Start date"}</span>
+                            <input
+                              className="input text-sm"
+                              type="date"
+                              value={ownershipFormData.startDate}
+                              onChange={(e) => setOwnershipFormData((d) => ({ ...d, startDate: e.target.value }))}
+                            />
+                          </label>
+                          <label className="block space-y-1 text-xs">
+                            <span>{period.isCurrent ? "Mileage at purchase" : "Start mileage"}</span>
+                            <input
+                              className="input text-sm"
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="e.g. 145000"
+                              value={ownershipFormData.startMileage}
+                              onChange={(e) =>
+                                setOwnershipFormData((d) => ({
+                                  ...d,
+                                  startMileage: e.target.value.replace(/[^\d]/g, "")
+                                }))
+                              }
+                            />
+                          </label>
+                          {!period.isCurrent && (
+                            <>
+                              <label className="block space-y-1 text-xs">
+                                <span>End date</span>
+                                <input
+                                  className="input text-sm"
+                                  type="date"
+                                  value={ownershipFormData.endDate}
+                                  onChange={(e) => setOwnershipFormData((d) => ({ ...d, endDate: e.target.value }))}
+                                />
+                              </label>
+                              <label className="block space-y-1 text-xs">
+                                <span>End mileage</span>
+                                <input
+                                  className="input text-sm"
+                                  type="text"
+                                  inputMode="numeric"
+                                  placeholder="e.g. 239000"
+                                  value={ownershipFormData.endMileage}
+                                  onChange={(e) =>
+                                    setOwnershipFormData((d) => ({
+                                      ...d,
+                                      endMileage: e.target.value.replace(/[^\d]/g, "")
+                                    }))
+                                  }
+                                />
+                              </label>
+                            </>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 pt-1">
+                          <button
+                            className="btn btn-primary px-4 py-1.5 text-xs disabled:opacity-60"
+                            type="submit"
+                            disabled={ownershipSubmitting}
+                          >
+                            {ownershipSubmitting ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs text-slate-500 hover:text-slate-800"
+                            onClick={() => setOwnershipForm(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 px-3 py-2 text-sm">
+                        <div>
+                          <span className="font-medium">{ownershipLabel(period)}</span>
+                          <span className="ml-2 text-slate-400 text-xs">
+                            {formatDate(period.startDate)}
+                            {period.startMileage != null
+                              ? ` · ${period.startMileage.toLocaleString()} mi`
+                              : ""}
+                            {period.endDate ? ` – ${formatDate(period.endDate)}` : " – present"}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 gap-3">
+                          <button
+                            type="button"
+                            className="text-xs text-slate-500 hover:text-petrol"
+                            onClick={() => {
+                              setOwnershipFormData({
+                                label: period.label ?? "Previous owner",
+                                startDate: period.startDate,
+                                startMileage: period.startMileage != null ? String(period.startMileage) : "",
+                                endDate: period.endDate ?? "",
+                                endMileage: period.endMileage != null ? String(period.endMileage) : ""
+                              });
+                              setOwnershipForm(period.id);
+                            }}
+                          >
+                            Edit
+                          </button>
+                          {!period.ownerUserId && (
+                            <button
+                              type="button"
+                              className="text-xs text-slate-500 hover:text-red-600"
+                              onClick={() => void deleteOwnershipPeriod(period.id)}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              {/* Add previous owner form */}
+              {ownershipForm === "new" ? (
+                <form
+                  className="space-y-2 rounded-xl border border-slate-200 p-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void addOwnershipPeriod();
+                  }}
+                >
+                  <p className="text-xs font-semibold text-slate-500">Add previous owner</p>
+                  <p className="text-xs text-slate-400">Avoid real names of people who aren&apos;t on CarFable.</p>
+                  <label className="block space-y-1 text-xs">
+                    <span>Label</span>
+                    <input
+                      className="input text-sm"
+                      placeholder="e.g. Previous owner"
+                      value={ownershipFormData.label}
+                      onChange={(e) => setOwnershipFormData((d) => ({ ...d, label: e.target.value }))}
+                    />
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block space-y-1 text-xs">
+                      <span>Start date *</span>
+                      <input
+                        className="input text-sm"
+                        type="date"
+                        required
+                        value={ownershipFormData.startDate}
+                        onChange={(e) => setOwnershipFormData((d) => ({ ...d, startDate: e.target.value }))}
+                      />
+                    </label>
+                    <label className="block space-y-1 text-xs">
+                      <span>Start mileage</span>
+                      <input
+                        className="input text-sm"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="e.g. 0"
+                        value={ownershipFormData.startMileage}
+                        onChange={(e) =>
+                          setOwnershipFormData((d) => ({
+                            ...d,
+                            startMileage: e.target.value.replace(/[^\d]/g, "")
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="block space-y-1 text-xs">
+                      <span>End date</span>
+                      <input
+                        className="input text-sm"
+                        type="date"
+                        value={ownershipFormData.endDate}
+                        onChange={(e) => setOwnershipFormData((d) => ({ ...d, endDate: e.target.value }))}
+                      />
+                    </label>
+                    <label className="block space-y-1 text-xs">
+                      <span>End mileage</span>
+                      <input
+                        className="input text-sm"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="e.g. 239000"
+                        value={ownershipFormData.endMileage}
+                        onChange={(e) =>
+                          setOwnershipFormData((d) => ({
+                            ...d,
+                            endMileage: e.target.value.replace(/[^\d]/g, "")
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      className="btn btn-primary px-4 py-1.5 text-xs disabled:opacity-60"
+                      type="submit"
+                      disabled={ownershipSubmitting}
+                    >
+                      {ownershipSubmitting ? "Saving…" : "Add period"}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-slate-500 hover:text-slate-800"
+                      onClick={() => setOwnershipForm(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-petrol hover:underline"
+                  onClick={() => {
+                    setOwnershipFormData({
+                      label: "Previous owner",
+                      startDate: "",
+                      startMileage: "",
+                      endDate: currentPeriod?.startDate ?? "",
+                      endMileage: currentPeriod?.startMileage != null ? String(currentPeriod.startMileage) : ""
+                    });
+                    setOwnershipForm("new");
+                  }}
+                >
+                  + Add previous owner
+                </button>
+              )}
+            </div>
+          )}
+          {(() => {
+            // Build timeline elements with ownership dividers (only when filter is "all").
+            const showDividers = ownerFilterParam === "all" && allOwnerships.length > 0;
+            const elements: React.ReactNode[] = [];
+            let lastOwnerKey: string | null = null;
+
+            // Helper: get the ownership key for a timeline entry.
+            const getOwnerKey = (entry: (typeof timeline)[0]): string => {
+              if (entry.kind === "event") {
+                return entry.event.ownershipId ?? (entry.event.isPreviousOwner ? "unknown" : "current");
+              }
+              // Mod: attribute by date range.
+              const p = allOwnerships.find(
+                (o) => o.startDate <= entry.date && (o.endDate == null || o.endDate >= entry.date)
+              );
+              return p?.id ?? "unknown";
+            };
+
+            // Top divider: always show the current period header first.
+            if (showDividers && currentPeriod) {
+              lastOwnerKey = currentPeriod.id;
+              const topMi = currentPeriod.startMileage != null ? ` · ${currentPeriod.startMileage.toLocaleString()} mi` : "";
+              elements.push(
+                <div key="div-top" className="flex items-center gap-2 border-t border-dashed border-slate-200 py-2 text-xs text-slate-400">
+                  <span className="text-slate-300">▸</span>
+                  <span>
+                    <span className="font-medium text-slate-500">{ownershipLabel(currentPeriod)}</span>
+                    {" · "}{formatDate(currentPeriod.startDate)}{topMi}
+                  </span>
+                </div>
+              );
+            }
+
+            for (const entry of timeline) {
+              const key = showDividers ? getOwnerKey(entry) : null;
+
+              if (showDividers && key !== lastOwnerKey) {
+                const period = allOwnerships.find((o) => o.id === key);
+                let divText: React.ReactNode;
+                if (key === "unknown" || !period) {
+                  // Implicit "before known owners" bucket.
+                  const untilDate = currentPeriod ? formatDate(currentPeriod.startDate) : "";
+                  divText = (
+                    <>
+                      <span className="font-medium text-slate-500">Previous owner</span>
+                      {untilDate ? ` · until ${untilDate}` : ""}
+                    </>
+                  );
+                } else {
+                  const mi = period.startMileage != null ? ` · ${period.startMileage.toLocaleString()} mi` : "";
+                  divText = (
+                    <>
+                      <span className="font-medium text-slate-500">{ownershipLabel(period)}</span>
+                      {" · "}{formatDate(period.startDate)}{mi}
+                    </>
+                  );
+                }
+                elements.push(
+                  <div key={`div-${key}-${entry.date}`} className="flex items-center gap-2 border-t border-dashed border-slate-200 py-2 text-xs text-slate-400">
+                    <span className="text-slate-300">▸</span>
+                    <span>{divText}</span>
+                  </div>
+                );
+                lastOwnerKey = key;
+              }
+
+              if (entry.kind === "event") {
                 const event = entry.event;
                 const gap = isOwner ? gapMap.get(event.id) : undefined;
-                return (
+                elements.push(
                   <div key={entry.key}>
                   <article className="surface rounded-2xl p-4">
                     <div className="flex items-center justify-between gap-2">
@@ -463,14 +1009,19 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                       >
                         {eventTypeLabel(event.event_type)}
                       </span>
-                      {isOwner && (
-                        <Link
-                          className="text-xs font-medium text-slate-500 hover:text-petrol"
-                          href={`/vehicles/${vehicleId}/events/${event.id}/edit`}
-                        >
-                          Edit
-                        </Link>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {event.isPreviousOwner && (
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-400">prev. owner</span>
+                        )}
+                        {event.canEdit && (
+                          <Link
+                            className="text-xs font-medium text-slate-500 hover:text-petrol"
+                            href={`/vehicles/${vehicleId}/events/${event.id}/edit`}
+                          >
+                            Edit
+                          </Link>
+                        )}
+                      </div>
                     </div>
                     <h2 className="mt-2 font-bold">{event.title}</h2>
                     {(event.tags?.length ?? 0) > 0 && (
@@ -562,12 +1113,10 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                     </div>
                   )}
                   </div>
-                );
-              })()
-            ) : (
-              (() => {
+                ); // close elements.push for event card
+              } else {
                 const mod = entry.mod;
-                return (
+                elements.push(
                   <article className="surface rounded-2xl p-4" key={entry.key}>
                     <div className="flex items-center justify-between gap-2">
                       <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${MOD_BADGE}`}>Mod</span>
@@ -607,9 +1156,10 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                     )}
                   </article>
                 );
-              })()
-            )
-          )}
+              }
+            }
+            return elements;
+          })()}
         </div>
       )}
       {tab === "specs" && (

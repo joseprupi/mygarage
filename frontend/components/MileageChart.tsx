@@ -3,13 +3,14 @@
 import { formatShortDate } from "@/lib/format";
 
 type Point = { date: string; miles: number };
+type Boundary = { date: string; label: string };
 
 // Parse YYYY-MM-DD to a sortable timestamp (UTC midnight).
 function toTime(d: string): number {
   return Date.parse(`${d}T00:00:00Z`);
 }
 
-export function MileageChart({ points }: { points: Point[] }) {
+export function MileageChart({ points, boundaries }: { points: Point[]; boundaries?: Boundary[] }) {
   const sorted = [...points].sort((a, b) => toTime(a.date) - toTime(b.date));
   if (sorted.length < 2) return null;
 
@@ -79,6 +80,18 @@ export function MileageChart({ points }: { points: Point[] }) {
         {coords.map((c, i) => (
           <circle key={i} cx={c.px} cy={c.py} r={3} fill="#2563eb" stroke="#fff" strokeWidth={1.5} />
         ))}
+        {/* ownership period boundaries */}
+        {(boundaries ?? []).map((b, i) => {
+          const bt = toTime(b.date);
+          if (bt <= tMin || bt >= tMax) return null;
+          const bx = x(bt);
+          return (
+            <g key={`boundary-${i}`}>
+              <line x1={bx} y1={padTop} x2={bx} y2={baseY} stroke="#64748b" strokeWidth={1} strokeDasharray="4 3" />
+              <text x={bx + 3} y={padTop + 11} fontSize={9} fill="#64748b">{b.label}</text>
+            </g>
+          );
+        })}
         {/* x ticks + date labels */}
         {xTickIdx.map((idx, i) => {
           const cx = coords[idx].px;

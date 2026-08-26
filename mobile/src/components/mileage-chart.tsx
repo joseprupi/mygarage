@@ -19,14 +19,24 @@ const LINE = "#2563eb";
 const AREA = "rgba(37, 99, 235, 0.08)";
 const GRID = "#e2e8f0";
 const INK_MUTED = "#64748b";
+const BOUNDARY_COLOR = "#94a3b8";
 
 function shortDate(t: number): string {
   return new Date(t).toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }
 
 export type MileageOrigin = { date: string; miles: number };
+export type ChartBoundary = { date: string; label: string };
 
-export function MileageChart({ events, origin }: { events: VehicleEvent[]; origin?: MileageOrigin }) {
+export function MileageChart({
+  events,
+  origin,
+  boundaries,
+}: {
+  events: VehicleEvent[];
+  origin?: MileageOrigin;
+  boundaries?: ChartBoundary[];
+}) {
   const raw: Point[] = events
     .filter((e) => e.mileage != null && e.event_date)
     .map((e) => ({ t: Date.parse(`${e.event_date}T00:00:00Z`), miles: e.mileage as number }));
@@ -43,11 +53,11 @@ export function MileageChart({ events, origin }: { events: VehicleEvent[]; origi
   const tSpan = tMax - tMin || 1;
   const mSpan = mMax - mMin || 1;
 
-  const x = (t: number) => PAD_LEFT + ((t - tMin) / tSpan) * plotW;
+  const xOf = (t: number) => PAD_LEFT + ((t - tMin) / tSpan) * plotW;
   const y = (m: number) =>
     mMax === mMin ? PAD_TOP + plotH / 2 : PAD_TOP + plotH - ((m - mMin) / mSpan) * plotH;
 
-  const coords = points.map((p) => ({ px: x(p.t), py: y(p.miles) }));
+  const coords = points.map((p) => ({ px: xOf(p.t), py: y(p.miles) }));
   const linePts = coords.map((c) => `${c.px},${c.py}`).join(" ");
   const baseY = H - PAD_BOTTOM;
   const areaPts = `${coords[0].px},${baseY} ${linePts} ${coords[coords.length - 1].px},${baseY}`;
@@ -55,6 +65,11 @@ export function MileageChart({ events, origin }: { events: VehicleEvent[]; origi
   const yTicks = mMax === mMin ? [mMin] : [mMin, Math.round((mMin + mMax) / 2), mMax];
   const xTickIdx =
     points.length >= 3 ? [0, Math.floor((points.length - 1) / 2), points.length - 1] : [0, points.length - 1];
+
+  // Compute boundary lines that fall within the x-range
+  const visibleBoundaries = (boundaries ?? [])
+    .map((b) => ({ ...b, t: Date.parse(`${b.date}T00:00:00Z`) }))
+    .filter((b) => b.t > tMin && b.t < tMax);
 
   return (
     <View style={{ borderWidth: 1, borderColor: GRID, borderRadius: 14, padding: 8 }}>
@@ -82,6 +97,22 @@ export function MileageChart({ events, origin }: { events: VehicleEvent[]; origi
             {`${m.toLocaleString()} mi`}
           </SvgText>
         ))}
+        {/* Ownership boundary dashed vertical lines */}
+        {visibleBoundaries.map((b) => {
+          const bx = xOf(b.t);
+          return (
+            <Line
+              key={`bnd-${b.date}`}
+              x1={bx}
+              y1={PAD_TOP}
+              x2={bx}
+              y2={H - PAD_BOTTOM}
+              stroke={BOUNDARY_COLOR}
+              strokeWidth={1}
+              strokeDasharray="4 3"
+            />
+          );
+        })}
         <Polygon points={areaPts} fill={AREA} />
         <Polyline points={linePts} fill="none" stroke={LINE} strokeWidth={2} strokeLinejoin="round" />
         {coords.map((c, i) => (
@@ -99,6 +130,22 @@ export function MileageChart({ events, origin }: { events: VehicleEvent[]; origi
             {shortDate(points[i].t)}
           </SvgText>
         ))}
+        {/* Boundary labels at the top */}
+        {visibleBoundaries.map((b) => {
+          const bx = xOf(b.t);
+          return (
+            <SvgText
+              key={`blbl-${b.date}`}
+              x={bx + 4}
+              y={PAD_TOP + 12}
+              fontSize={11}
+              fill={BOUNDARY_COLOR}
+              textAnchor="start"
+            >
+              {b.label}
+            </SvgText>
+          );
+        })}
       </Svg>
     </View>
   );

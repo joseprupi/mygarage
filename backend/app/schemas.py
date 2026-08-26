@@ -308,8 +308,52 @@ class VehicleEventRead(BaseModel):
     documents: list[DocumentRead] = []
     created_at: datetime
     updated_at: datetime
+    # Ownership attribution (derived, not stored)
+    ownership_id: str | None = Field(default=None, alias="ownershipId")
+    is_previous_owner: bool = Field(default=False, alias="isPreviousOwner")
+    can_edit: bool = Field(default=False, alias="canEdit")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+# ---------------------------------------------------------------------------
+# Ownership periods
+# ---------------------------------------------------------------------------
+
+class VehicleOwnershipCreate(BaseModel):
+    label: str | None = Field(default=None, max_length=160)
+    start_date: date = Field(alias="startDate")
+    start_mileage: int | None = Field(default=None, ge=0, alias="startMileage")
+    end_date: date | None = Field(default=None, alias="endDate")
+    end_mileage: int | None = Field(default=None, ge=0, alias="endMileage")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class VehicleOwnershipUpdate(BaseModel):
+    label: str | None = Field(default=None, max_length=160)
+    start_date: date | None = Field(default=None, alias="startDate")
+    start_mileage: int | None = Field(default=None, ge=0, alias="startMileage")
+    end_date: date | None = Field(default=None, alias="endDate")
+    end_mileage: int | None = Field(default=None, ge=0, alias="endMileage")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class VehicleOwnershipRead(BaseModel):
+    id: str
+    ordinal: int
+    owner_user_id: str | None = Field(default=None, alias="ownerUserId")
+    owner_username: str | None = Field(default=None, alias="ownerUsername")
+    label: str | None = None
+    start_date: date = Field(alias="startDate")
+    start_mileage: int | None = Field(default=None, alias="startMileage")
+    end_date: date | None = Field(default=None, alias="endDate")
+    end_mileage: int | None = Field(default=None, alias="endMileage")
+    is_current: bool = Field(alias="isCurrent")
+    show_owner_name: bool = Field(alias="showOwnerName")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class VehicleModCreate(BaseModel):

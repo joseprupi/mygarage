@@ -10,7 +10,7 @@ import zipfile
 import httpx
 from pathlib import Path
 from urllib.parse import urlencode
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -37,6 +37,7 @@ from app.models import (
     VehicleEventMedia,
     VehicleMod,
     VehicleModMedia,
+    VehicleOwnership,
 )
 from app.schemas import (
     AppleLoginRequest,
@@ -59,11 +60,17 @@ from app.schemas import (
     UserUpdate,
     VehicleCreate,
     VehicleEventCreate,
+    VehicleEventRead,
     VehicleEventUpdate,
     VehicleModCreate,
     VehicleModUpdate,
+    VehicleOwnershipCreate,
+    VehicleOwnershipRead,
+    VehicleOwnershipUpdate,
     VehicleSummary,
     VehicleUpdate,
+    MediaRead,
+    DocumentRead,
 )
 from app.security import create_access_token, hash_password, verify_password
 
@@ -326,6 +333,19 @@ def create_vehicle(db: Session, user: User, data: VehicleCreate) -> Vehicle:
     vehicle = Vehicle(owner_user_id=user.id, **data.model_dump())
     vehicle.slug = slugify(f"{vehicle.year or ''} {vehicle.make} {vehicle.model} {vehicle.nickname or ''}")
     db.add(vehicle)
+    db.flush()
+    # Create the initial current-owner period
+    from datetime import date as _date
+    today = _date.today()
+    period_start = data.purchase_date or today
+    db.add(VehicleOwnership(
+        vehicle_id=vehicle.id,
+        ordinal=1,
+        owner_user_id=user.id,
+        start_date=period_start,
+        start_mileage=data.mileage,
+        created_by=user.id,
+    ))
     db.commit()
     db.refresh(vehicle)
     return vehicle
@@ -352,6 +372,22 @@ def update_vehicle(db: Session, vehicle: Vehicle, user: User, data: VehicleUpdat
         setattr(vehicle, key, value)
     if any(k in values for k in ("make", "model", "year", "nickname")):
         vehicle.slug = slugify(f"{vehicle.year or ''} {vehicle.make} {vehicle.model} {vehicle.nickname or ''}")
+    # Sync purchase_date/mileage changes into the current ownership period
+    if "purchase_date" in values or "mileage" in values:
+        current_period = db.scalar(
+            select(VehicleOwnership)
+            .where(
+                VehicleOwnership.vehicle_id == vehicle.id,
+                VehicleOwnership.owner_user_id == user.id,
+                VehicleOwnership.end_date.is_(None),
+            )
+        )
+        if current_period:
+            if "purchase_date" in values and values["purchase_date"] is not None:
+                current_period.start_date = values["purchase_date"]
+                _renumber_ownerships(db, vehicle.id)
+            if "mileage" in values:
+                current_period.start_mileage = values["mileage"]
     db.commit()
     db.refresh(vehicle)
     return vehicle
@@ -373,6 +409,7 @@ def delete_vehicle(db: Session, vehicle: Vehicle, user: User) -> None:
         db.execute(delete(VehicleModMedia).where(VehicleModMedia.vehicle_mod_id.in_(mod_ids)))
         db.execute(delete(VehicleMod).where(VehicleMod.vehicle_id == vehicle.id))
     db.execute(delete(PostVehicleTag).where(PostVehicleTag.vehicle_id == vehicle.id))
+    db.execute(delete(VehicleOwnership).where(VehicleOwnership.vehicle_id == vehicle.id))
     db.delete(vehicle)
     db.commit()
 
@@ -382,6 +419,231 @@ def list_user_vehicles(db: Session, user_id: str, viewer: User | None) -> list[V
     if viewer is None or viewer.id != user_id:
         stmt = stmt.where(Vehicle.visibility == "public")
     return list(db.scalars(stmt))
+
+
+# ---------------------------------------------------------------------------
+# Ownership periods
+# ---------------------------------------------------------------------------
+
+def ownership_for_event(
+    periods: list[VehicleOwnership], event_date: date | None
+) -> VehicleOwnership | None:
+    """Return the period whose [start, end) contains event_date, or None if before all periods."""
+    if not event_date or not periods:
+        return None
+    sorted_periods = sorted(periods, key=lambda p: p.start_date)
+    for period in sorted_periods:
+        if event_date < period.start_date:
+            # event predates this period and (since sorted) all later ones
+            return None
+        # event_date >= period.start_date
+        if period.end_date is None or event_date < period.end_date:
+            return period
+        # event_date >= period.end_date → event is after this period; check next
+    return None
+
+
+def _load_ownerships(db: Session, vehicle_id: str) -> list[VehicleOwnership]:
+    return list(db.scalars(
+        select(VehicleOwnership)
+        .options(selectinload(VehicleOwnership.owner_user))
+        .where(VehicleOwnership.vehicle_id == vehicle_id)
+        .order_by(VehicleOwnership.start_date)
+    ))
+
+
+def _renumber_ownerships(db: Session, vehicle_id: str) -> None:
+    """Re-assign ordinals 1, 2, 3, … by ascending start_date for a vehicle."""
+    periods = list(db.scalars(
+        select(VehicleOwnership)
+        .where(VehicleOwnership.vehicle_id == vehicle_id)
+        .order_by(VehicleOwnership.start_date)
+    ))
+    # Two-pass to avoid unique constraint violations on (vehicle_id, ordinal)
+    for i, p in enumerate(periods):
+        p.ordinal = 10000 + i
+    db.flush()
+    for i, p in enumerate(periods):
+        p.ordinal = i + 1
+    db.flush()
+
+
+def _ownership_to_read(period: VehicleOwnership) -> VehicleOwnershipRead:
+    owner_username: str | None = None
+    if period.owner_user_id and period.show_owner_name and period.owner_user:
+        owner_username = period.owner_user.username
+    return VehicleOwnershipRead(
+        id=period.id,
+        ordinal=period.ordinal,
+        owner_user_id=period.owner_user_id,
+        owner_username=owner_username,
+        label=period.label,
+        start_date=period.start_date,
+        start_mileage=period.start_mileage,
+        end_date=period.end_date,
+        end_mileage=period.end_mileage,
+        is_current=period.end_date is None,
+        show_owner_name=period.show_owner_name,
+    )
+
+
+def list_vehicle_ownerships(
+    db: Session, vehicle: Vehicle, viewer: User | None
+) -> list[VehicleOwnershipRead]:
+    periods = _load_ownerships(db, vehicle.id)
+    return [_ownership_to_read(p) for p in periods]
+
+
+def create_vehicle_ownership(
+    db: Session, vehicle: Vehicle, user: User, data: VehicleOwnershipCreate
+) -> VehicleOwnershipRead:
+    assert_vehicle_owner(vehicle, user)
+    if data.end_date and data.start_date >= data.end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before end_date")
+    # Validate end_date <= current period start_date
+    current_period = db.scalar(
+        select(VehicleOwnership)
+        .where(
+            VehicleOwnership.vehicle_id == vehicle.id,
+            VehicleOwnership.end_date.is_(None),
+        )
+    )
+    if current_period and data.end_date and data.end_date > current_period.start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="end_date must not exceed the current ownership period's start date",
+        )
+    period = VehicleOwnership(
+        vehicle_id=vehicle.id,
+        ordinal=0,  # will be assigned by renumber
+        owner_user_id=None,
+        label=data.label,
+        start_date=data.start_date,
+        start_mileage=data.start_mileage,
+        end_date=data.end_date,
+        end_mileage=data.end_mileage,
+        show_owner_name=True,
+        created_by=user.id,
+    )
+    db.add(period)
+    db.flush()
+    _renumber_ownerships(db, vehicle.id)
+    db.commit()
+    db.refresh(period)
+    return _ownership_to_read(period)
+
+
+def get_ownership_or_404(db: Session, ownership_id: str, viewer: User | None) -> VehicleOwnership:
+    period = db.scalar(
+        select(VehicleOwnership)
+        .options(
+            selectinload(VehicleOwnership.vehicle),
+            selectinload(VehicleOwnership.owner_user),
+        )
+        .where(VehicleOwnership.id == ownership_id)
+    )
+    if not period:
+        raise HTTPException(status_code=404, detail="Ownership period not found")
+    # Check vehicle visibility
+    if not can_view_vehicle(period.vehicle, viewer):
+        raise HTTPException(status_code=404, detail="Ownership period not found")
+    return period
+
+
+def update_vehicle_ownership(
+    db: Session, period: VehicleOwnership, user: User, data: VehicleOwnershipUpdate
+) -> VehicleOwnershipRead:
+    vehicle = period.vehicle
+    if vehicle.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    values = data.model_dump(exclude_unset=True, by_alias=False)
+    is_current_user_period = period.owner_user_id == user.id
+    is_non_user_period = period.owner_user_id is None
+    if not is_non_user_period and not is_current_user_period:
+        raise HTTPException(status_code=403, detail="Cannot edit another user's ownership period")
+    if is_current_user_period:
+        # Only startDate/startMileage allowed for the current owner's period
+        allowed = {"start_date", "start_mileage"}
+        disallowed = set(values.keys()) - allowed
+        if disallowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Fields {disallowed} cannot be changed on the current owner's period",
+            )
+        if "start_date" in values and values["start_date"] is not None:
+            period.start_date = values["start_date"]
+            # Sync to vehicle
+            vehicle.purchase_date = values["start_date"]
+            _renumber_ownerships(db, vehicle.id)
+        if "start_mileage" in values:
+            period.start_mileage = values["start_mileage"]
+            vehicle.mileage = values["start_mileage"]
+    else:
+        # Non-user period: all fields editable
+        for key, value in values.items():
+            setattr(period, key, value)
+        if "start_date" in values:
+            _renumber_ownerships(db, vehicle.id)
+    db.commit()
+    db.refresh(period)
+    if period.owner_user and period.owner_user_id:
+        db.refresh(period.owner_user)
+    return _ownership_to_read(period)
+
+
+def delete_vehicle_ownership(db: Session, period: VehicleOwnership, user: User) -> None:
+    vehicle = period.vehicle
+    if vehicle.owner_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    if period.owner_user_id is not None:
+        raise HTTPException(status_code=400, detail="Cannot delete a user-linked ownership period")
+    db.delete(period)
+    db.flush()
+    _renumber_ownerships(db, vehicle.id)
+    db.commit()
+
+
+def _enrich_event(
+    event: VehicleEvent,
+    periods: list[VehicleOwnership],
+    vehicle_owner_id: str,
+    viewer: User | None,
+) -> VehicleEventRead:
+    """Build a VehicleEventRead from an ORM event, adding derived ownership fields."""
+    period = ownership_for_event(periods, event.event_date)
+    is_prev = period is None or period.owner_user_id != vehicle_owner_id
+    can_edit = (
+        viewer is not None
+        and viewer.id == vehicle_owner_id
+        and viewer.id == event.author_user_id
+    )
+    return VehicleEventRead(
+        id=event.id,
+        vehicle_id=event.vehicle_id,
+        author_user_id=event.author_user_id,
+        event_type=event.event_type,
+        title=event.title,
+        description=event.description,
+        event_date=event.event_date,
+        mileage=event.mileage,
+        cost_cents=event.cost_cents,
+        fuel_gallons=event.fuel_gallons,
+        fuel_price_cents=event.fuel_price_cents,
+        fuel_full_tank=event.fuel_full_tank,
+        fuel_missed_previous=event.fuel_missed_previous,
+        tags=event.tags or [],
+        currency=event.currency,
+        shop_name=event.shop_name,
+        location=event.location,
+        visibility=event.visibility,
+        media=[MediaRead.model_validate(m) for m in (event.media or [])],
+        documents=[DocumentRead.model_validate(d) for d in (event.documents or [])],
+        created_at=event.created_at,
+        updated_at=event.updated_at,
+        ownership_id=period.id if period else None,
+        is_previous_owner=is_prev,
+        can_edit=can_edit,
+    )
 
 
 def _add_post_media(db: Session, post: Post, media: list[MediaCreate]) -> None:
@@ -578,7 +840,7 @@ class NewestFeedService:
 
 def create_vehicle_event(
     db: Session, vehicle: Vehicle, user: User, data: VehicleEventCreate
-) -> VehicleEvent:
+) -> VehicleEventRead:
     assert_vehicle_owner(vehicle, user)
     values = data.model_dump(exclude={"media"}, by_alias=False)
     values.pop("documents", None)
@@ -608,7 +870,9 @@ def create_vehicle_event(
             )
         )
     db.commit()
-    return get_vehicle_event_or_404(db, event.id, user)
+    event_orm = get_vehicle_event_or_404(db, event.id, user)
+    periods = _load_ownerships(db, vehicle.id)
+    return _enrich_event(event_orm, periods, vehicle.owner_user_id, user)
 
 
 def get_vehicle_event_or_404(db: Session, event_id: str, viewer: User | None) -> VehicleEvent:
@@ -630,6 +894,7 @@ def get_vehicle_event_or_404(db: Session, event_id: str, viewer: User | None) ->
 
 
 def list_vehicle_events(db: Session, vehicle: Vehicle, viewer: User | None) -> list[VehicleEvent]:
+    """Return raw ORM VehicleEvent objects (used by export and internal callers)."""
     stmt = (
         select(VehicleEvent)
         .options(selectinload(VehicleEvent.media), selectinload(VehicleEvent.documents))
@@ -641,11 +906,31 @@ def list_vehicle_events(db: Session, vehicle: Vehicle, viewer: User | None) -> l
     return list(db.scalars(stmt))
 
 
+def list_vehicle_events_read(
+    db: Session, vehicle: Vehicle, viewer: User | None
+) -> list[VehicleEventRead]:
+    """Return VehicleEventRead objects with ownership attribution (used by API routes)."""
+    events = list_vehicle_events(db, vehicle, viewer)
+    periods = _load_ownerships(db, vehicle.id)
+    return [_enrich_event(e, periods, vehicle.owner_user_id, viewer) for e in events]
+
+
+def get_vehicle_event_read(
+    db: Session, event_id: str, viewer: User | None
+) -> VehicleEventRead:
+    """Return a single VehicleEventRead with ownership attribution."""
+    event = get_vehicle_event_or_404(db, event_id, viewer)
+    periods = _load_ownerships(db, event.vehicle_id)
+    return _enrich_event(event, periods, event.vehicle.owner_user_id, viewer)
+
+
 def update_vehicle_event(
     db: Session, event: VehicleEvent, user: User, data: VehicleEventUpdate
-) -> VehicleEvent:
+) -> VehicleEventRead:
     if event.vehicle.owner_user_id != user.id:
         raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    if event.author_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You did not create this event")
     payload = data.model_dump(exclude_unset=True, by_alias=False)
     media_provided = "media" in payload
     documents_provided = "documents" in payload
@@ -690,12 +975,16 @@ def update_vehicle_event(
     expired = [rel for rel, provided in (("media", media_provided), ("documents", documents_provided)) if provided]
     if expired:
         db.expire(event, expired)
-    return get_vehicle_event_or_404(db, event.id, user)
+    event_orm = get_vehicle_event_or_404(db, event.id, user)
+    periods = _load_ownerships(db, event.vehicle_id)
+    return _enrich_event(event_orm, periods, event.vehicle.owner_user_id, user)
 
 
 def delete_vehicle_event(db: Session, event: VehicleEvent, user: User) -> None:
     if event.vehicle.owner_user_id != user.id:
         raise HTTPException(status_code=403, detail="You do not own this vehicle")
+    if event.author_user_id != user.id:
+        raise HTTPException(status_code=403, detail="You did not create this event")
     event.deleted_at = datetime.now(UTC)
     db.commit()
 
@@ -1114,8 +1403,20 @@ def _object_key_from_url(url: str | None) -> str | None:
     return None
 
 
+def _ownership_label_for_export(period: VehicleOwnership | None) -> str:
+    """Return the owner label for the export 'owner' column."""
+    if period is None:
+        return "Previous owner"
+    if period.owner_user_id is not None:
+        if period.show_owner_name and period.owner_user:
+            return f"@{period.owner_user.username}"
+        return "Previous owner"
+    return period.label or "Previous owner"
+
+
 def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> bytes:
     events = list_vehicle_events(db, vehicle, viewer)
+    periods = _load_ownerships(db, vehicle.id)
     settings = get_settings()
     client = _s3_client()
 
@@ -1125,7 +1426,7 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
         writer = csv.writer(csv_buffer)
         writer.writerow(
             ["date", "type", "title", "description", "mileage", "cost_usd",
-             "currency", "shop", "location", "photos", "documents"]
+             "currency", "shop", "location", "owner", "photos", "documents"]
         )
         for idx, event in enumerate(events, start=1):
             photo_files: list[str] = []
@@ -1161,6 +1462,8 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
                 except Exception:
                     continue
             cost_usd = f"{event.cost_cents / 100:.2f}" if event.cost_cents is not None else ""
+            period = ownership_for_event(periods, event.event_date)
+            owner_label = _ownership_label_for_export(period)
             writer.writerow([
                 event.event_date or "",
                 event.event_type,
@@ -1171,10 +1474,32 @@ def export_history_zip(db: Session, vehicle: Vehicle, viewer: User | None) -> by
                 event.currency or "",
                 event.shop_name or "",
                 event.location or "",
+                owner_label,
                 "; ".join(photo_files),
                 "; ".join(doc_files),
             ])
         zf.writestr("history.csv", csv_buffer.getvalue())
+        # Include ownerships.json
+        ownerships_data = [
+            {
+                "id": p.id,
+                "ordinal": p.ordinal,
+                "ownerUserId": p.owner_user_id,
+                "ownerUsername": (
+                    p.owner_user.username
+                    if p.owner_user_id and p.show_owner_name and p.owner_user
+                    else None
+                ),
+                "label": p.label,
+                "startDate": p.start_date.isoformat(),
+                "startMileage": p.start_mileage,
+                "endDate": p.end_date.isoformat() if p.end_date else None,
+                "endMileage": p.end_mileage,
+                "isCurrent": p.end_date is None,
+            }
+            for p in periods
+        ]
+        zf.writestr("ownerships.json", json.dumps(ownerships_data, indent=2))
     return buffer.getvalue()
 
 

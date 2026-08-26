@@ -183,6 +183,32 @@ export type VehicleEvent = {
   visibility: string;
   media: Media[];
   documents: EventDocument[];
+  // Ownership fields (camelCase per backend alias)
+  ownershipId: string | null;
+  isPreviousOwner: boolean;
+  canEdit: boolean;
+};
+
+export type VehicleOwnership = {
+  id: string;
+  ordinal: number;
+  ownerUserId: string | null;
+  ownerUsername: string | null;
+  label: string | null;
+  startDate: string;
+  startMileage: number | null;
+  endDate: string | null;
+  endMileage: number | null;
+  isCurrent: boolean;
+  showOwnerName: boolean;
+};
+
+export type OwnershipPayload = {
+  label?: string | null;
+  startDate: string;
+  startMileage?: number | null;
+  endDate?: string | null;
+  endMileage?: number | null;
 };
 
 export type VehicleMod = {
@@ -316,6 +342,21 @@ export const eventApi = {
   update: (eventId: string, payload: Partial<EventPayload>) =>
     request<VehicleEvent>(`/vehicle-events/${eventId}`, { method: "PATCH", body: JSON.stringify(payload) }),
   delete: (eventId: string) => request<void>(`/vehicle-events/${eventId}`, { method: "DELETE" }),
+};
+
+export const ownershipApi = {
+  list: (vehicleId: string) => request<VehicleOwnership[]>(`/vehicles/${vehicleId}/ownerships`),
+  create: (vehicleId: string, payload: OwnershipPayload) =>
+    request<VehicleOwnership>(`/vehicles/${vehicleId}/ownerships`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  update: (id: string, payload: Partial<OwnershipPayload>) =>
+    request<VehicleOwnership>(`/ownerships/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  remove: (id: string) => request<void>(`/ownerships/${id}`, { method: "DELETE" }),
 };
 
 export const modApi = {

@@ -116,6 +116,24 @@ export type VehicleEvent = {
   media: Media[];
   documents: EventDocument[];
   created_at: string;
+  // Ownership attribution (camelCase — matches backend aliases)
+  ownershipId: string | null;
+  isPreviousOwner: boolean;
+  canEdit: boolean;
+};
+
+export type VehicleOwnership = {
+  id: string;
+  ordinal: number;
+  ownerUserId: string | null;
+  ownerUsername: string | null;
+  label: string | null;
+  startDate: string;
+  startMileage: number | null;
+  endDate: string | null;
+  endMileage: number | null;
+  isCurrent: boolean;
+  showOwnerName: boolean;
 };
 
 export type VehicleMod = {
