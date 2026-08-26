@@ -89,8 +89,8 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [ ] Stats screen rows: "Probable missed fill-ups", "Segments excluded". History timeline shows a grey "Possible missed fill-up ~date" marker between the two events with **Add it** (prefilled fuel event) / **Not missed** (sets `missed_previous=false` on the later event).
 
 ## Safety & account (IN PROGRESS dev 2026-08-26)
-- [ ] **Report** (post / comment / user / vehicle / event; reasons spam·harassment·inappropriate·privacy·other) + **Block** users (both directions hide feed posts + comments; blocked can't comment). `backend/scripts/list_reports.py` for the 24h-action store rule. Web + mobile UI.
-- [ ] **Password change / set** (Settings; passwordless Google/Apple accounts can set one) — web + mobile.
+- [x] (DEV, not deployed) **Report** (post / comment / user / vehicle / event; reasons spam·harassment·inappropriate·privacy·other) + **Block** users (both directions hide feed posts + comments; blocked can't comment). `backend/scripts/list_reports.py` for the 24h-action store rule. Web + mobile UI.
+- [x] (DEV, not deployed) **Password change / set** (Settings; passwordless Google/Apple accounts can set one) — web + mobile.
 
 ## Receipt privacy & provenance (DEV 2026-08-26, not deployed — owner P0)
 - [x] Receipts/documents private by default, private bucket + presigned owner URLs, blurred "Receipt on file" placeholder for visitors.
@@ -100,7 +100,7 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 
 ## Ownership & transfer (DESIGNED 2026-08-26 → plan/OWNERSHIP.md)
 - [x] Slice 1 (M, DEV 2026-08-26, not deployed): `vehicle_ownerships` periods, attribution by event date, timeline divider + "previous owner" badge, ownership filter chips, chart boundaries, stats toggle (Your ownership / Lifetime), period label editing, export owner column.
-- [~] Slice 2 (L, IN PROGRESS dev 2026-08-26): transfer link/code → accept; options (show name, keep receipts, keep posts tagged); locking rule (editable iff current owner AND creator); hide-not-delete; "Previously owned" garage section.
+- [x] Slice 2 (L, DEV 2026-08-26, not deployed): transfer link/code → accept; options (show name, keep receipts, keep posts tagged); locking rule (editable iff current owner AND creator); hide-not-delete; "Previously owned" garage section.
 - [ ] Slice 3: claim previous period by username, multiple historical periods, VIN-match "already on CarFable → request transfer".
 
 ## Owner feedback 2026-08-22 (post-launch)
