@@ -29,6 +29,12 @@ Exit codes: 0 = success, 1 = partial failure (some rows errored).
 """
 
 import argparse
+import os
+
+# GCS's S3-compatible API rejects botocore's newer checksum headers (SignatureDoesNotMatch).
+# The Cloud Run image sets these; set them here too so the script works from any machine.
+os.environ.setdefault("AWS_REQUEST_CHECKSUM_CALCULATION", "when_required")
+os.environ.setdefault("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required")
 import sys
 import time
 
@@ -69,7 +75,8 @@ def main():
         nonlocal errors
         storage_key = row.storage_key or _object_key_from_url(row.url)
         if not storage_key:
-            print(f"  [WARN] media {row.id}: cannot derive key from url={row.url!r}, skipping")
+            print(f"  [ERROR] media {row.id}: cannot derive key from url={row.url!r}")
+            errors += 1
             return False
 
         # Determine which bucket the object currently lives in
@@ -160,7 +167,8 @@ def main():
         nonlocal errors
         storage_key = row.storage_key or _object_key_from_url(row.url)
         if not storage_key:
-            print(f"  [WARN] doc {row.id}: cannot derive key from url={row.url!r}, skipping")
+            print(f"  [WARN] doc {row.id}: cannot derive key from url={row.url!r}")
+            errors += 1
             return False
 
         src_bucket = settings.storage_private_bucket if row.storage_key else settings.storage_bucket

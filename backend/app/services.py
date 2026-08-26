@@ -1933,10 +1933,16 @@ def _object_key_from_url(url: str | None) -> str | None:
     """Map a stored media url back to its object-storage key."""
     if not url:
         return None
-    if url.startswith("/media/"):
-        return url[len("/media/") :]
-    if "/car-social/" in url:
-        return url.split("/car-social/", 1)[1]
+    settings = get_settings()
+    # Relative dev form (/media/<key>) and any configured public base (prod: absolute GCS URL).
+    for prefix in ("/media/", (settings.public_media_base_url or "").rstrip("/") + "/"):
+        if prefix != "/" and url.startswith(prefix):
+            return url[len(prefix) :]
+    # Absolute URL that names one of our buckets: <endpoint>/<bucket>/<key>
+    for bucket in (settings.storage_bucket, settings.storage_private_bucket, "car-social"):
+        marker = f"/{bucket}/"
+        if bucket and marker in url:
+            return url.split(marker, 1)[1].split("?", 1)[0]
     return None
 
 
