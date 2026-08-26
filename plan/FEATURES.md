@@ -96,7 +96,8 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [x] Receipts/documents private by default, private bucket + presigned owner URLs, blurred "Receipt on file" placeholder for visitors.
 - [x] PII detection (Gemini) → locked private when detected; owner sees "Contains personal info: …" banner; "Visible to everyone" switch only when clean.
 - [x] Provenance: From receipt / From receipt · edited (trust fields: date, cost, mileage, shop, gallons, $/gal); raw scan snapshot stored.
-- [ ] Backlog: AI redaction (blur PII boxes) to allow sharing receipts; document (PDF) viewer + toggle on mobile; orphan-object sweep as scheduled job.
+- [ ] **NEXT (owner-approved 2026-08-26): AI redaction** — Gemini returns PII bounding boxes → server renders a redacted copy (blurred boxes); owner reviews and taps **"Publish redacted"** (OPT-IN per receipt; default stays private); public viewers then see the redacted image instead of the placeholder. Original never leaves the private bucket.
+- [ ] Backlog: document (PDF) viewer + toggle on mobile; orphan-object sweep as scheduled job.
 
 ## Ownership & transfer (DESIGNED 2026-08-26 → plan/OWNERSHIP.md)
 - [x] Slice 1 (M, LIVE 2026-08-26): `vehicle_ownerships` periods, attribution by event date, timeline divider + "previous owner" badge, ownership filter chips, chart boundaries, stats toggle (Your ownership / Lifetime), period label editing, export owner column.
