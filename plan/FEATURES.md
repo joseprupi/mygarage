@@ -88,6 +88,11 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [ ] Inferred gap → **estimated phantom fill-up** (date = midpoint, gallons = gap miles ÷ median MPG − logged gallons, price = mean of neighbouring $/gal) counted in fuel spend/gallons totals, always labelled "incl. ~$X estimated for N missed fill-up(s)". Never written to DB; never exported; never feeds back into MPG.
 - [ ] Stats screen rows: "Probable missed fill-ups", "Segments excluded". History timeline shows a grey "Possible missed fill-up ~date" marker between the two events with **Add it** (prefilled fuel event) / **Not missed** (sets `missed_previous=false` on the later event).
 
+## Ownership & transfer (DESIGNED 2026-08-26 → plan/OWNERSHIP.md)
+- [ ] Slice 1 (M): `vehicle_ownerships` periods, attribution by event date, timeline divider + "previous owner" badge, ownership filter chips, chart boundaries, stats toggle (Your ownership / Lifetime), period label editing, export owner column.
+- [ ] Slice 2 (L): transfer link/code → accept; options (show name, keep receipts, keep posts tagged); locking rule (editable iff current owner AND creator); hide-not-delete; "Previously owned" garage section.
+- [ ] Slice 3: claim previous period by username, multiple historical periods, VIN-match "already on CarFable → request transfer".
+
 ## Owner feedback 2026-08-22 (post-launch)
 - [x] Web: Log out visible in nav; event cards keep description newlines and show shop/location to everyone; export button relabeled "Export CSV + photos".
 - [x] Mobile: delete own posts (trash on post screen).
