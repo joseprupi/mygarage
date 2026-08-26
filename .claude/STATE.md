@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-26 (night, fixes) — LIVE: chart x-labels by pixel spacing (web+mobile); export fixed 3 ways (client used hardcoded /api → apiUrl(); ZIP reads receipts from private bucket; response STREAMED because Cloud Run caps buffered responses at 32MB — prod ZIP is 41MB/11 photos). Verified prod export 200. Tool: scripts/owner-view.js (playwright-core in scratchpad) renders pages logged-in, screenshots the chart svg.
+
 ## 2026-08-26 (late) — DEPLOYED: transfer slice 2 + report/block + password (migrations 0016+0017, backend, web, EAS update). Verified prod owner view (scripts/owner-view.js) desktop+phone: Copy link/Edit/Transfer, no errors. Header-clip bug fixed (actions wrap). All slices through today are LIVE.
 
 ## 2026-08-26 (night) — DEV: transfer slice 2 (migrations 0016 reports/blocks + 0017 transfers/hidden), report/block, password change — backend 66 tests, web+mobile UIs. Pending test transfer on fake Subaru: code R5GPVZNN22 (visitor→anyone). Deploy batch on "deploy": migrations 0016+0017, backend, web, EAS update. Owner tool: backend/scripts/list_reports.py (needs prod env like the backfill script).
