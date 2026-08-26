@@ -1,4 +1,4 @@
-import type { Comment, FeedPage, Post, PreviousVehicle, PublicUser, UserSettings, Vehicle, VehicleEvent, VehicleMod, VehicleOwnership, VehicleTransfer, VehicleTransferDetail } from "@/lib/types";
+import type { Comment, FeedPage, Post, PreviousVehicle, PublicUser, RecallsResponse, UserSettings, Vehicle, VehicleEvent, VehicleMod, VehicleOwnership, VehicleSpecs, VehicleTransfer, VehicleTransferDetail, VinDecodeResult } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -94,10 +94,12 @@ export const authApi = {
     api<void>("/auth/change-password", { method: "POST", body: JSON.stringify(body) })
 };
 
+export type VehiclePayload = Partial<Omit<Vehicle, "specs">> & { specs?: VehicleSpecs | null };
+
 export const vehicleApi = {
-  create: (body: Partial<Vehicle>) =>
+  create: (body: VehiclePayload) =>
     api<Vehicle>("/vehicles", { method: "POST", body: JSON.stringify(body) }),
-  update: (id: string, body: Partial<Vehicle>) =>
+  update: (id: string, body: VehiclePayload) =>
     api<Vehicle>(`/vehicles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   delete: (id: string) => api<void>(`/vehicles/${id}`, { method: "DELETE" }),
   get: (id: string) => api<Vehicle>(`/vehicles/${id}`),
@@ -105,7 +107,16 @@ export const vehicleApi = {
   posts: (id: string) => api<Post[]>(`/vehicles/${id}/posts`),
   gallery: (id: string) => api<Post[]>(`/vehicles/${id}/gallery`),
   events: (id: string) => api<VehicleEvent[]>(`/vehicles/${id}/events`),
-  mods: (id: string) => api<VehicleMod[]>(`/vehicles/${id}/mods`)
+  mods: (id: string) => api<VehicleMod[]>(`/vehicles/${id}/mods`),
+  /** POST /vehicles/{id}/decode-vin — decodes stored VIN, saves specs, returns updated vehicle. */
+  decodeVin: (id: string) => api<Vehicle>(`/vehicles/${id}/decode-vin`, { method: "POST" }),
+  /** GET /vehicles/{id}/recalls — NHTSA recall data. */
+  recalls: (id: string) => api<RecallsResponse>(`/vehicles/${id}/recalls`)
+};
+
+export const vinApi = {
+  /** GET /vin/decode/{vin} — decode a VIN without saving. Auth required. */
+  decode: (vin: string) => api<VinDecodeResult>(`/vin/decode/${encodeURIComponent(vin)}`)
 };
 
 export const postApi = {

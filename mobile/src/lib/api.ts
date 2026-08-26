@@ -156,6 +156,58 @@ export type UserProfile = PublicUser & {
   blockedViewer?: boolean;
 };
 
+export type VehicleSpecs = {
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  trim?: string | null;
+  bodyClass?: string | null;
+  driveType?: string | null;
+  engineCylinders?: number | null;
+  displacementL?: number | null;
+  engineHp?: number | null;
+  fuelType?: string | null;
+  transmission?: string | null;
+  plantCountry?: string | null;
+};
+
+export type VinDecodeResult = {
+  vin: string;
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  trim?: string | null;
+  bodyClass?: string | null;
+  driveType?: string | null;
+  engineCylinders?: number | null;
+  displacementL?: number | null;
+  engineHp?: number | null;
+  fuelType?: string | null;
+  transmission?: string | null;
+  plantCountry?: string | null;
+  errorCode?: string | null;
+  errorText?: string | null;
+  matched: boolean;
+};
+
+export type RecallResult = {
+  campaignNumber: string;
+  reportReceivedDate?: string | null;
+  component?: string | null;
+  summary?: string | null;
+  consequence?: string | null;
+  remedy?: string | null;
+  notes?: string | null;
+  parkIt: boolean;
+  parkOutside: boolean;
+};
+
+export type RecallsResponse = {
+  count: number;
+  results: RecallResult[];
+  unavailable?: boolean;
+};
+
 export type Vehicle = {
   id: string;
   owner_user_id: string;
@@ -175,6 +227,8 @@ export type Vehicle = {
   cover_image_url: string | null;
   visibility: string;
   owner?: PublicUser | null;
+  specs?: VehicleSpecs | null;
+  specs_decoded_at?: string | null;
 };
 
 export type EventDocument = {
@@ -348,12 +402,17 @@ export type VehiclePayload = {
   description?: string | null;
   cover_image_url?: string | null;
   visibility?: string;
+  specs?: VehicleSpecs | null;
 };
 
 export const catalogApi = {
   makes: () => request<string[]>("/catalog/makes"),
   models: (make: string, year: number) =>
     request<string[]>(`/catalog/models?make=${encodeURIComponent(make)}&year=${year}`),
+};
+
+export const vinApi = {
+  decode: (vin: string) => request<VinDecodeResult>(`/vin/decode/${encodeURIComponent(vin)}`),
 };
 
 export const vehicleApi = {
@@ -367,6 +426,8 @@ export const vehicleApi = {
   gallery: (id: string) => request<Post[]>(`/vehicles/${id}/gallery`),
   events: (id: string) => request<VehicleEvent[]>(`/vehicles/${id}/events`),
   mods: (id: string) => request<VehicleMod[]>(`/vehicles/${id}/mods`),
+  decodeVin: (id: string) => request<Vehicle>(`/vehicles/${id}/decode-vin`, { method: "POST" }),
+  recalls: (id: string) => request<RecallsResponse>(`/vehicles/${id}/recalls`),
 };
 
 export const eventApi = {

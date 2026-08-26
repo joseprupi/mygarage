@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { catalogApi, vehicleApi } from "@/lib/api/client";
-import type { Vehicle } from "@/lib/types";
+import { catalogApi, vehicleApi, vinApi } from "@/lib/api/client";
+import type { Vehicle, VehicleSpecs } from "@/lib/types";
 
 const OTHER = "__other__";
 
@@ -27,11 +27,11 @@ const emptyVehicle = {
   visibility: "public"
 };
 
-// Free-text fields rendered as plain inputs (make/model/year handled separately).
+// Free-text fields rendered as plain inputs BELOW the main selects.
+// VIN is handled separately (moved to top with Decode button).
 const textFields: [keyof typeof emptyVehicle, string][] = [
   ["trim", "Trim"],
   ["nickname", "Nickname"],
-  ["vin", "VIN"],
   ["purchase_date", "Purchase date (YYYY-MM-DD)"],
   ["mileage", "Initial mileage (at purchase)"],
   ["color", "Color"],
@@ -40,6 +40,23 @@ const textFields: [keyof typeof emptyVehicle, string][] = [
   ["drivetrain", "Drivetrain"],
   ["cover_image_url", "Cover image URL"]
 ];
+
+/** Build a one-line human summary from decoded specs, e.g. "4.7L V8 · 227 hp · 4WD · SUV · Gasoline" */
+function specsOneLiner(specs: VehicleSpecs): string {
+  const parts: string[] = [];
+  if (specs.displacementL != null) {
+    const cyl = specs.engineCylinders != null ? ` V${specs.engineCylinders}` : "";
+    parts.push(`${specs.displacementL.toFixed(1)}L${cyl}`);
+  } else if (specs.engineCylinders != null) {
+    parts.push(`${specs.engineCylinders}-cyl`);
+  }
+  if (specs.engineHp != null) parts.push(`${specs.engineHp} hp`);
+  if (specs.driveType) parts.push(specs.driveType);
+  if (specs.bodyClass) parts.push(specs.bodyClass);
+  if (specs.fuelType) parts.push(specs.fuelType);
+  if (specs.transmission) parts.push(specs.transmission);
+  return parts.join(" · ");
+}
 
 export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
   const router = useRouter();
@@ -52,6 +69,11 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
   const [makeOther, setMakeOther] = useState(false);
   const [modelOther, setModelOther] = useState(false);
   const [yearOther, setYearOther] = useState(false);
+
+  // Decoded specs kept in form state so they can be included in the payload.
+  const [decodedSpecs, setDecodedSpecs] = useState<VehicleSpecs | null>(null);
+  const [decoding, setDecoding] = useState(false);
+  const [decodeError, setDecodeError] = useState<string | null>(null);
 
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
@@ -93,6 +115,7 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
       cover_image_url: v.cover_image_url ?? "",
       visibility: v.visibility ?? "public"
     });
+    if (v.specs) setDecodedSpecs(v.specs);
   }, [vehicleQuery.data]);
 
   // Backward compat: if a saved value isn't in the catalog, drop into "Other" mode.
@@ -128,6 +151,93 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
 
   if (vehicleId && vehicleQuery.isLoading) return <div className="p-6">Loading vehicle...</div>;
 
+  /** VIN is valid when it's exactly 17 alphanumeric chars (basic US VIN check). */
+  const vinValue = form.vin.trim();
+  const vinValid = /^[A-Z0-9]{17}$/i.test(vinValue);
+
+  async function handleDecode() {
+    if (!vinValid || decoding) return;
+    setDecodeError(null);
+    setDecoding(true);
+    try {
+      const result = await vinApi.decode(vinValue.toUpperCase());
+
+      // Store specs from decode result.
+      const specs: VehicleSpecs = {
+        year: result.year,
+        make: result.make,
+        model: result.model,
+        trim: result.trim,
+        bodyClass: result.bodyClass,
+        driveType: result.driveType,
+        engineCylinders: result.engineCylinders,
+        displacementL: result.displacementL,
+        engineHp: result.engineHp,
+        fuelType: result.fuelType,
+        transmission: result.transmission,
+        plantCountry: result.plantCountry
+      };
+      setDecodedSpecs(specs);
+
+      // Fill year/make/model/trim into form — respecting catalog dropdowns.
+      const newForm = { ...form, vin: vinValue.toUpperCase() };
+
+      // Year
+      if (result.year != null) {
+        if (years.includes(result.year)) {
+          newForm.year = String(result.year);
+          setYearOther(false);
+        } else {
+          newForm.year = String(result.year);
+          setYearOther(true);
+        }
+      }
+
+      // Make
+      if (result.make) {
+        if (makes.includes(result.make)) {
+          newForm.make = result.make;
+          setMakeOther(false);
+        } else {
+          newForm.make = result.make;
+          setMakeOther(true);
+          setModelOther(true);
+        }
+      }
+
+      // Model — after setting make/year, the model dropdown might not be loaded yet.
+      // We set modelOther=true and let the user see the value in the text input.
+      if (result.model) {
+        newForm.model = result.model;
+        // Check if the model can be in the catalog (requires make+year in catalog).
+        if (makeOther || yearOther || !makes.includes(newForm.make)) {
+          setModelOther(true);
+        } else {
+          // Optimistically set; the useEffect above will put it into Other if not found.
+          setModelOther(false);
+        }
+      }
+
+      // Trim
+      if (result.trim) {
+        newForm.trim = result.trim;
+      }
+
+      setForm(newForm);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Decode failed";
+      if (msg.includes("422") || msg.toLowerCase().includes("invalid")) {
+        setDecodeError("That doesn't look like a valid VIN.");
+      } else if (msg.includes("502") || msg.includes("503") || msg.toLowerCase().includes("unavailable")) {
+        setDecodeError("VIN service unavailable, try again.");
+      } else {
+        setDecodeError(msg);
+      }
+    } finally {
+      setDecoding(false);
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (submitting) return;
@@ -136,12 +246,15 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
       setError("Make and model are required.");
       return;
     }
-    const body: Partial<Vehicle> = {
+    const body = {
       ...form,
       year: form.year ? Number(form.year) : null,
       purchase_date: form.purchase_date || null,
       mileage: form.mileage ? Number(form.mileage) : null,
-      visibility: form.visibility as Vehicle["visibility"]
+      visibility: form.visibility as Vehicle["visibility"],
+      // Always include specs when we have them (even if user edited year/make/model
+      // after decoding — specs are from the VIN, not the form fields).
+      specs: decodedSpecs ?? undefined
     };
     setSubmitting(true);
     try {
@@ -156,9 +269,48 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
   const selectClass = "input disabled:bg-slate-100 disabled:text-slate-400";
   const inputClass = "input";
 
+  const decodedLine = decodedSpecs ? specsOneLiner(decodedSpecs) : null;
+
   return (
     <form className="surface space-y-4 rounded-3xl p-6" onSubmit={submit}>
       <h1 className="text-2xl font-bold">{vehicleId ? "Edit vehicle" : "Create vehicle"}</h1>
+
+      {/* VIN at the top with Decode button */}
+      <div className="space-y-1 text-sm">
+        <span className="font-medium">VIN</span>
+        <div className="flex gap-2">
+          <input
+            className={inputClass + " flex-1 font-mono uppercase"}
+            maxLength={17}
+            placeholder="17-character VIN"
+            value={form.vin}
+            onChange={(e) => {
+              const v = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+              setForm({ ...form, vin: v });
+              // Clear decoded specs if VIN changes
+              if (v !== decodedSpecs?.make) setDecodeError(null);
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-secondary shrink-0 disabled:opacity-40"
+            disabled={!vinValid || decoding}
+            onClick={() => void handleDecode()}
+          >
+            {decoding ? "Decoding…" : "Decode"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400">
+          US VINs decode best; you can always type the details.
+        </p>
+        {decodeError && <p className="text-xs text-red-600">{decodeError}</p>}
+        {decodedLine && (
+          <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <span className="font-semibold text-slate-700">Decoded specs: </span>
+            {decodedLine}
+          </p>
+        )}
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         {/* Make */}
@@ -316,13 +468,12 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
           )}
         </label>
 
-        {/* Remaining free-text fields */}
+        {/* Remaining free-text fields (VIN moved to top) */}
         {textFields.map(([key, label]) => (
           <label className="space-y-1 text-sm" key={key}>
             <span>{label}</span>
             <input
               className={inputClass}
-              maxLength={key === "vin" ? 32 : undefined}
               value={form[key]}
               onChange={(event) => setForm({ ...form, [key]: event.target.value })}
             />

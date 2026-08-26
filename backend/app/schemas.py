@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -116,6 +116,65 @@ class UserUpdate(BaseModel):
     settings: UserSettings | None = None
 
 
+class VehicleSpecs(BaseModel):
+    """Decoded VIN specs — all fields optional since decode may be partial."""
+    year: int | None = None
+    make: str | None = None
+    model: str | None = None
+    trim: str | None = None
+    body_class: str | None = Field(default=None, alias="bodyClass")
+    drive_type: str | None = Field(default=None, alias="driveType")
+    engine_cylinders: int | None = Field(default=None, alias="engineCylinders")
+    displacement_l: float | None = Field(default=None, alias="displacementL")
+    engine_hp: int | None = Field(default=None, alias="engineHp")
+    fuel_type: str | None = Field(default=None, alias="fuelType")
+    transmission: str | None = None
+    plant_country: str | None = Field(default=None, alias="plantCountry")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class VinDecodeResult(BaseModel):
+    vin: str
+    year: int | None = None
+    make: str | None = None
+    model: str | None = None
+    trim: str | None = None
+    body_class: str | None = Field(default=None, alias="bodyClass")
+    drive_type: str | None = Field(default=None, alias="driveType")
+    engine_cylinders: int | None = Field(default=None, alias="engineCylinders")
+    displacement_l: float | None = Field(default=None, alias="displacementL")
+    engine_hp: int | None = Field(default=None, alias="engineHp")
+    fuel_type: str | None = Field(default=None, alias="fuelType")
+    transmission: str | None = None
+    plant_country: str | None = Field(default=None, alias="plantCountry")
+    error_code: str | None = Field(default=None, alias="errorCode")
+    error_text: str | None = Field(default=None, alias="errorText")
+    matched: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RecallResult(BaseModel):
+    campaign_number: str = Field(alias="campaignNumber")
+    report_received_date: str | None = Field(default=None, alias="reportReceivedDate")
+    component: str | None = None
+    summary: str | None = None
+    consequence: str | None = None
+    remedy: str | None = None
+    notes: str | None = None
+    park_it: bool = Field(default=False, alias="parkIt")
+    park_outside: bool = Field(default=False, alias="parkOutside")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class RecallsResponse(BaseModel):
+    count: int
+    results: list[RecallResult]
+    unavailable: bool = False
+
+
 class VehicleBase(BaseModel):
     make: str = Field(min_length=1, max_length=80)
     model: str = Field(min_length=1, max_length=80)
@@ -132,6 +191,7 @@ class VehicleBase(BaseModel):
     description: str | None = Field(default=None, max_length=3000)
     cover_image_url: str | None = None
     visibility: Visibility = "public"
+    specs: VehicleSpecs | None = None
 
 
 class VehicleCreate(VehicleBase):
@@ -154,6 +214,7 @@ class VehicleUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=3000)
     cover_image_url: str | None = None
     visibility: Visibility | None = None
+    specs: VehicleSpecs | None = None
 
 
 class VehicleRead(VehicleBase):
@@ -162,9 +223,10 @@ class VehicleRead(VehicleBase):
     slug: str | None = None
     created_at: datetime
     updated_at: datetime
+    specs_decoded_at: datetime | None = None
     owner: PublicUser | None = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class VehicleSummary(BaseModel):

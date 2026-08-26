@@ -15,7 +15,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { catalogApi, mediaUrl, uploadImage, vehicleApi } from "@/lib/api";
+import { catalogApi, mediaUrl, uploadImage, vehicleApi, vinApi, type VehicleSpecs } from "@/lib/api";
 
 const emptyForm = {
   make: "",
@@ -42,6 +42,10 @@ export default function VehicleFormScreen() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [vinError, setVinError] = useState<string | null>(null);
+  const [decoding, setDecoding] = useState(false);
+  const [decodedSummary, setDecodedSummary] = useState<string | null>(null);
+  const [pendingSpecs, setPendingSpecs] = useState<VehicleSpecs | null>(null);
 
   useEffect(() => {
     void catalogApi.makes().then(setMakes).catch(() => setMakes([]));
@@ -64,6 +68,10 @@ export default function VehicleFormScreen() {
           visibility: v.visibility,
         });
         setCoverUrl(v.cover_image_url);
+        if (v.specs) {
+          setPendingSpecs(v.specs);
+          setDecodedSummary(buildSpecSummary(v.specs));
+        }
         setLoaded(true);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Couldn't load vehicle"));
@@ -87,6 +95,73 @@ export default function VehicleFormScreen() {
     models.length > 0 && !models.includes(form.model)
       ? models.filter((m) => m.toLowerCase().includes(form.model.toLowerCase())).slice(0, 8)
       : [];
+
+  function buildSpecSummary(specs: VehicleSpecs): string {
+    const parts: string[] = [];
+    if (specs.displacementL != null && specs.engineCylinders != null) {
+      parts.push(`${specs.displacementL.toFixed(1)}L V${specs.engineCylinders}`);
+    } else if (specs.displacementL != null) {
+      parts.push(`${specs.displacementL.toFixed(1)}L`);
+    } else if (specs.engineCylinders != null) {
+      parts.push(`V${specs.engineCylinders}`);
+    }
+    if (specs.engineHp != null) parts.push(`${specs.engineHp} hp`);
+    if (specs.driveType) parts.push(specs.driveType.split("/")[0].trim());
+    if (specs.bodyClass) {
+      // Shorten long body class strings
+      const bc = specs.bodyClass.split("/")[0].replace(/\[.*?\]/g, "").trim();
+      parts.push(bc);
+    }
+    if (specs.fuelType) parts.push(specs.fuelType);
+    return parts.join(" · ");
+  }
+
+  async function decodeVin() {
+    const vin = form.vin.trim().toUpperCase();
+    if (vin.length !== 17) return;
+    setDecoding(true);
+    setVinError(null);
+    setDecodedSummary(null);
+    setPendingSpecs(null);
+    try {
+      const result = await vinApi.decode(vin);
+      const specs: VehicleSpecs = {
+        year: result.year,
+        make: result.make,
+        model: result.model,
+        trim: result.trim,
+        bodyClass: result.bodyClass,
+        driveType: result.driveType,
+        engineCylinders: result.engineCylinders,
+        displacementL: result.displacementL,
+        engineHp: result.engineHp,
+        fuelType: result.fuelType,
+        transmission: result.transmission,
+        plantCountry: result.plantCountry,
+      };
+      setPendingSpecs(specs);
+      setDecodedSummary(buildSpecSummary(specs));
+      // Fill in year / make / model / trim from decode if they're empty or we're creating
+      setForm((prev) => ({
+        ...prev,
+        year: prev.year || (result.year != null ? String(result.year) : prev.year),
+        make: prev.make || result.make || prev.make,
+        model: prev.model || result.model || prev.model,
+        trim: prev.trim || result.trim || prev.trim,
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Decode failed";
+      if (msg.includes("422") || msg.includes("invalid") || msg.toLowerCase().includes("vin")) {
+        setVinError("That doesn't look like a VIN");
+      } else if (msg.includes("502") || msg.includes("service") || msg.includes("unavailable")) {
+        setVinError("VIN service unavailable, try again");
+      } else {
+        setVinError(msg);
+      }
+    } finally {
+      setDecoding(false);
+    }
+  }
 
   async function pickCover(fromCamera: boolean) {
     const options: ImagePicker.ImagePickerOptions = { quality: 0.85, allowsEditing: true, aspect: [16, 9] };
@@ -127,10 +202,9 @@ export default function VehicleFormScreen() {
       vin: form.vin.trim().toUpperCase() || null,
       cover_image_url: coverUrl,
       visibility: form.visibility,
-      // "When you got it": a fixed historical pair, editable any time. The ongoing
-      // odometer story lives in fuel-ups and history events, not here.
       purchase_date: form.purchaseDate || null,
       mileage: form.mileage ? Number(form.mileage) : null,
+      specs: pendingSpecs ?? null,
     };
     try {
       if (isEdit && vehicleId) {
@@ -153,10 +227,51 @@ export default function VehicleFormScreen() {
     );
   }
 
+  const vinReady = form.vin.trim().length === 17;
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}>
     <ScrollView style={styles.container} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
       <Stack.Screen options={{ title: isEdit ? "Edit vehicle" : "Add vehicle" }} />
+
+      {/* VIN at the top with Decode button */}
+      <Text style={styles.label}>VIN</Text>
+      <View style={styles.vinRow}>
+        <TextInput
+          style={[styles.input, styles.vinInput]}
+          value={form.vin}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          placeholder="17-character VIN"
+          placeholderTextColor="#94a3b8"
+          onChangeText={(v) => {
+            const cleaned = v.replace(/[^A-Za-z0-9]/g, "").slice(0, 17).toUpperCase();
+            setForm({ ...form, vin: cleaned });
+            if (vinError) setVinError(null);
+            if (decodedSummary && cleaned !== form.vin) {
+              setDecodedSummary(null);
+              setPendingSpecs(null);
+            }
+          }}
+        />
+        <Pressable
+          style={[styles.decodeBtn, !vinReady && styles.decodeBtnDisabled]}
+          onPress={decodeVin}
+          disabled={!vinReady || decoding}
+        >
+          {decoding ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.decodeBtnText}>Decode</Text>
+          )}
+        </Pressable>
+      </View>
+      {vinError && <Text style={styles.vinError}>{vinError}</Text>}
+      {decodedSummary ? (
+        <Text style={styles.decodedLine}>Decoded: {decodedSummary}</Text>
+      ) : (
+        <Text style={styles.vinHint}>US VINs decode best; you can always type the details.</Text>
+      )}
 
       <Text style={styles.label}>Cover photo</Text>
       {coverUrl ? (
@@ -252,17 +367,6 @@ export default function VehicleFormScreen() {
         onChangeText={(v) => setForm({ ...form, nickname: v })}
       />
 
-      <Text style={styles.label}>VIN</Text>
-      <TextInput
-        style={styles.input}
-        value={form.vin}
-        autoCapitalize="characters"
-        autoCorrect={false}
-        placeholder="Only you can see this"
-        placeholderTextColor="#94a3b8"
-        onChangeText={(v) => setForm({ ...form, vin: v.replace(/[^A-Za-z0-9]/g, "").slice(0, 32) })}
-      />
-
       <Text style={styles.label}>When you got the car</Text>
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
@@ -331,6 +435,22 @@ const styles = StyleSheet.create({
     color: "#0b1120",
     backgroundColor: "#f8fafc",
   },
+  vinRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  vinInput: { flex: 1 },
+  decodeBtn: {
+    backgroundColor: "#2563eb",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 76,
+  },
+  decodeBtnDisabled: { backgroundColor: "#94a3b8" },
+  decodeBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  vinError: { color: "#dc2626", fontSize: 14, marginTop: 2 },
+  decodedLine: { fontSize: 14, color: "#2563eb", fontWeight: "600", marginTop: 2 },
+  vinHint: { fontSize: 13, color: "#94a3b8", marginTop: 2 },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: "#f1f5f9" },
   chipActive: { backgroundColor: "#0b1120" },

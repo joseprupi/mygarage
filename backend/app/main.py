@@ -56,6 +56,8 @@ from app.schemas import (
     VehicleTransferCreate,
     VehicleTransferRead,
     VehicleUpdate,
+    VinDecodeResult,
+    RecallsResponse,
 )
 from app.security import get_current_user, get_optional_user
 from app import services
@@ -429,6 +431,35 @@ def catalog_models(make: str, year: int) -> list[str]:
 @app.get("/geo/search", response_model=list[str])
 def geo_search(q: str) -> list[str]:
     return services.geo_search(q)
+
+
+@app.get("/vin/decode/{vin}", response_model=VinDecodeResult)
+def vin_decode(
+    vin: str,
+    user: User = Depends(get_current_user),
+) -> VinDecodeResult:
+    return services.decode_vin(vin)
+
+
+@app.post("/vehicles/{vehicle_id}/decode-vin", response_model=VehicleRead)
+def vehicle_decode_vin(
+    vehicle_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> VehicleRead:
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, user)
+    vehicle = services.decode_vin_and_save(db, vehicle, user)
+    return _vehicle_out(vehicle, user)
+
+
+@app.get("/vehicles/{vehicle_id}/recalls", response_model=RecallsResponse)
+def vehicle_recalls(
+    vehicle_id: str,
+    db: Session = Depends(get_db),
+    viewer: User | None = Depends(get_optional_user),
+) -> RecallsResponse:
+    vehicle = services.get_vehicle_or_404(db, vehicle_id, viewer)
+    return services.get_vehicle_recalls(vehicle)
 
 
 @app.post("/vehicles/{vehicle_id}/events", response_model=VehicleEventRead)

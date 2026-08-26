@@ -3,6 +3,48 @@ export type UserSettings = {
   includeEstimatedFuel: boolean;
 };
 
+/** Decoded VIN specs stored on the vehicle. All fields optional (partial decode). */
+export type VehicleSpecs = {
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  trim?: string | null;
+  bodyClass?: string | null;
+  driveType?: string | null;
+  engineCylinders?: number | null;
+  displacementL?: number | null;
+  engineHp?: number | null;
+  fuelType?: string | null;
+  transmission?: string | null;
+  plantCountry?: string | null;
+};
+
+/** Result of GET /vin/decode/{vin}. */
+export type VinDecodeResult = VehicleSpecs & {
+  vin: string;
+  errorCode?: string | null;
+  errorText?: string | null;
+  matched: boolean;
+};
+
+export type Recall = {
+  campaignNumber: string;
+  reportReceivedDate?: string | null;
+  component?: string | null;
+  summary?: string | null;
+  consequence?: string | null;
+  remedy?: string | null;
+  notes?: string | null;
+  parkIt: boolean;
+  parkOutside: boolean;
+};
+
+export type RecallsResponse = {
+  count: number;
+  results: Recall[];
+  unavailable?: boolean;
+};
+
 export type PublicUser = {
   id: string;
   username: string;
@@ -33,6 +75,8 @@ export type Vehicle = {
   description?: string | null;
   cover_image_url?: string | null;
   visibility: "public" | "private" | "unlisted";
+  specs?: VehicleSpecs | null;
+  specs_decoded_at?: string | null;
   owner?: PublicUser | null;
 };
 

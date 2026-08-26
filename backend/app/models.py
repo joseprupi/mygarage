@@ -86,6 +86,8 @@ class Vehicle(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text)
     cover_image_url: Mapped[str | None] = mapped_column(Text)
     visibility: Mapped[str] = mapped_column(String(20), default="public", nullable=False)
+    specs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    specs_decoded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     owner: Mapped[User] = relationship(back_populates="vehicles")
     tags: Mapped[list["PostVehicleTag"]] = relationship(back_populates="vehicle")

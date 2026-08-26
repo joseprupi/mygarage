@@ -24,6 +24,8 @@ import {
   vehicleApi,
   type Media,
   type Post,
+  type RecallResult,
+  type RecallsResponse,
   type UserSettings,
   type Vehicle,
   type VehicleEvent,
@@ -441,6 +443,236 @@ function GapCard({
   );
 }
 
+// --- Specs card ---
+
+function SpecsCard({
+  vehicle,
+  isOwner,
+  decoding,
+  onDecode,
+}: {
+  vehicle: Vehicle;
+  isOwner: boolean;
+  decoding: boolean;
+  onDecode: () => void;
+}) {
+  const specs = vehicle.specs;
+  const hasVin = Boolean(vehicle.vin);
+  const hasSpecs = specs != null;
+
+  const rows: { label: string; value: string }[] = [];
+  if (specs) {
+    if (specs.displacementL != null || specs.engineCylinders != null || specs.engineHp != null) {
+      const parts: string[] = [];
+      if (specs.displacementL != null) parts.push(`${specs.displacementL.toFixed(1)}L`);
+      if (specs.engineCylinders != null) parts.push(`V${specs.engineCylinders}`);
+      if (specs.engineHp != null) parts.push(`${specs.engineHp} hp`);
+      rows.push({ label: "Engine", value: parts.join(" · ") });
+    }
+    if (specs.driveType) rows.push({ label: "Drivetrain", value: specs.driveType.split("/")[0].trim() });
+    if (specs.bodyClass) {
+      const bc = specs.bodyClass.split("/")[0].replace(/\[.*?\]/g, "").trim();
+      rows.push({ label: "Body", value: bc });
+    }
+    if (specs.fuelType) rows.push({ label: "Fuel", value: specs.fuelType });
+    if (specs.transmission) rows.push({ label: "Transmission", value: specs.transmission });
+    if (specs.plantCountry) rows.push({ label: "Built in", value: specs.plantCountry });
+  }
+
+  return (
+    <View style={specsStyles.card}>
+      <Text style={specsStyles.heading}>Specifications</Text>
+      {hasSpecs && rows.length > 0 ? (
+        rows.map((r) => (
+          <View key={r.label} style={specsStyles.row}>
+            <Text style={specsStyles.rowLabel}>{r.label}</Text>
+            <Text style={specsStyles.rowValue}>{r.value}</Text>
+          </View>
+        ))
+      ) : (
+        <Text style={specsStyles.emptyText}>
+          {!hasVin && isOwner
+            ? "Add the VIN in Edit to auto-fill specs."
+            : hasSpecs && rows.length === 0
+            ? "No spec details available."
+            : "No specifications yet."}
+        </Text>
+      )}
+      {isOwner && hasVin && (
+        <Pressable
+          style={specsStyles.decodeBtn}
+          onPress={onDecode}
+          disabled={decoding}
+        >
+          {decoding ? (
+            <ActivityIndicator size="small" color="#2563eb" />
+          ) : (
+            <Text style={specsStyles.decodeBtnText}>
+              {hasSpecs ? "Re-decode VIN" : "Decode VIN"}
+            </Text>
+          )}
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+const specsStyles = StyleSheet.create({
+  card: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    padding: 14,
+    gap: 6,
+    backgroundColor: "#f8fafc",
+  },
+  heading: { fontSize: 16, fontWeight: "800", color: "#0b1120", marginBottom: 2 },
+  row: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
+  rowLabel: { fontSize: 14, fontWeight: "600", color: "#64748b", flexShrink: 0 },
+  rowValue: { fontSize: 14, color: "#0b1120", fontWeight: "500", textAlign: "right", flex: 1 },
+  emptyText: { fontSize: 14, color: "#94a3b8" },
+  decodeBtn: {
+    marginTop: 6,
+    paddingVertical: 7,
+    alignItems: "center",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#2563eb",
+  },
+  decodeBtnText: { fontSize: 14, fontWeight: "700", color: "#2563eb" },
+});
+
+// --- Recalls section ---
+
+function RecallRow({ recall }: { recall: RecallResult }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <Pressable
+      style={recallStyles.row}
+      onPress={() => setExpanded((v) => !v)}
+    >
+      <View style={recallStyles.rowTop}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <View style={recallStyles.pillRow}>
+            {recall.parkIt && (
+              <View style={recallStyles.parkItPill}>
+                <Text style={recallStyles.parkItPillText}>Do not drive</Text>
+              </View>
+            )}
+            {recall.parkOutside && !recall.parkIt && (
+              <View style={recallStyles.parkOutsidePill}>
+                <Text style={recallStyles.parkOutsidePillText}>Park outside</Text>
+              </View>
+            )}
+            <Text style={recallStyles.campaign}>{recall.campaignNumber}</Text>
+            {recall.reportReceivedDate && (
+              <Text style={recallStyles.date}>{recall.reportReceivedDate}</Text>
+            )}
+          </View>
+          {recall.component && (
+            <Text style={recallStyles.component}>{recall.component}</Text>
+          )}
+          {recall.summary && (
+            <Text style={recallStyles.summary} numberOfLines={expanded ? undefined : 2}>
+              {recall.summary}
+            </Text>
+          )}
+        </View>
+        <Ionicons
+          name={expanded ? "chevron-up" : "chevron-down"}
+          size={16}
+          color="#94a3b8"
+        />
+      </View>
+      {expanded && (
+        <View style={recallStyles.expandedBody}>
+          {recall.consequence ? (
+            <>
+              <Text style={recallStyles.expandLabel}>Consequence</Text>
+              <Text style={recallStyles.expandText}>{recall.consequence}</Text>
+            </>
+          ) : null}
+          {recall.remedy ? (
+            <>
+              <Text style={recallStyles.expandLabel}>Remedy</Text>
+              <Text style={recallStyles.expandText}>{recall.remedy}</Text>
+            </>
+          ) : null}
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+function RecallsSection({ recalls }: { recalls: RecallsResponse | null }) {
+  if (!recalls) return null;
+
+  return (
+    <View style={recallStyles.section}>
+      <View style={recallStyles.header}>
+        <Text style={specsStyles.heading}>Recalls</Text>
+        {recalls.count > 0 && (
+          <View style={recallStyles.countChip}>
+            <Text style={recallStyles.countChipText}>{recalls.count} recall{recalls.count !== 1 ? "s" : ""}</Text>
+          </View>
+        )}
+      </View>
+      {recalls.unavailable ? (
+        <Text style={specsStyles.emptyText}>Recall data unavailable right now.</Text>
+      ) : recalls.count === 0 ? (
+        <Text style={specsStyles.emptyText}>No recalls found.</Text>
+      ) : (
+        recalls.results.map((r) => <RecallRow key={r.campaignNumber} recall={r} />)
+      )}
+    </View>
+  );
+}
+
+const recallStyles = StyleSheet.create({
+  section: { gap: 6 },
+  header: { flexDirection: "row", alignItems: "center", gap: 8 },
+  countChip: {
+    backgroundColor: "#fef2f2",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
+  countChipText: { fontSize: 12, fontWeight: "700", color: "#dc2626" },
+  row: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    padding: 12,
+    gap: 6,
+    backgroundColor: "#fff",
+  },
+  rowTop: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
+  pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" },
+  campaign: { fontSize: 12, fontWeight: "700", color: "#64748b" },
+  date: { fontSize: 12, color: "#94a3b8" },
+  component: { fontSize: 13, fontWeight: "700", color: "#334155" },
+  summary: { fontSize: 13, color: "#475569", lineHeight: 18 },
+  expandedBody: { gap: 6, marginTop: 4 },
+  expandLabel: { fontSize: 12, fontWeight: "700", color: "#64748b", textTransform: "uppercase" },
+  expandText: { fontSize: 13, color: "#475569", lineHeight: 18 },
+  parkItPill: {
+    backgroundColor: "#dc2626",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  parkItPillText: { fontSize: 11, fontWeight: "700", color: "#fff" },
+  parkOutsidePill: {
+    backgroundColor: "#f59e0b",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  parkOutsidePillText: { fontSize: 11, fontWeight: "700", color: "#fff" },
+});
+
 // --- main screen ---
 
 export default function VehicleScreen() {
@@ -456,6 +688,8 @@ export default function VehicleScreen() {
   const [ownerships, setOwnerships] = useState<VehicleOwnership[]>([]);
   const [mods, setMods] = useState<VehicleMod[] | null>(null);
   const [posts, setPosts] = useState<Post[] | null>(null);
+  const [recalls, setRecalls] = useState<RecallsResponse | null>(null);
+  const [decoding, setDecoding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissedGaps, setDismissedGaps] = useState<Set<string>>(new Set());
 
@@ -473,13 +707,14 @@ export default function VehicleScreen() {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [v, me, ev, md, ps, own] = await Promise.all([
+      const [v, me, ev, md, ps, own, rc] = await Promise.all([
         vehicleApi.get(id),
         userApi.me().catch(() => null),
         vehicleApi.events(id),
         vehicleApi.mods(id),
         vehicleApi.posts(id),
         ownershipApi.list(id).catch(() => [] as VehicleOwnership[]),
+        vehicleApi.recalls(id).catch(() => null),
       ]);
       setVehicle(v);
       setMeId(me?.id ?? null);
@@ -488,6 +723,7 @@ export default function VehicleScreen() {
       setMods(md);
       setPosts(ps);
       setOwnerships(own);
+      setRecalls(rc);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't load the vehicle");
@@ -602,6 +838,19 @@ export default function VehicleScreen() {
       );
       Alert.alert("Error", "Couldn't update visibility");
     });
+  }
+
+  async function handleDecodeVin() {
+    if (!vehicle) return;
+    setDecoding(true);
+    try {
+      const updated = await vehicleApi.decodeVin(vehicle.id);
+      setVehicle(updated);
+    } catch (err) {
+      Alert.alert("Error", err instanceof Error ? err.message : "Couldn't decode VIN");
+    } finally {
+      setDecoding(false);
+    }
   }
 
   return (
@@ -816,7 +1065,18 @@ export default function VehicleScreen() {
 
       {tab === "Build" && (
         <View style={styles.section}>
-          <Text style={styles.sectionInfo}>{(mods ?? []).length} mods</Text>
+          {/* Specifications card */}
+          <SpecsCard
+            vehicle={vehicle}
+            isOwner={isOwner}
+            decoding={decoding}
+            onDecode={handleDecodeVin}
+          />
+
+          {/* Recalls section */}
+          <RecallsSection recalls={recalls} />
+
+          <Text style={[styles.sectionInfo, { marginTop: 8 }]}>{(mods ?? []).length} mods</Text>
           {isOwner && (
             <View style={styles.actionRow}>
               <Pressable

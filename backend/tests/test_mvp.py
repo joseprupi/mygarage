@@ -1905,3 +1905,260 @@ def test_vehicle_read_viewer_is_previous_owner():
     v_resp = client.get(f"/vehicles/{vehicle['id']}")
     assert v_resp.status_code == 200, v_resp.text
     assert v_resp.json()["owner_user_id"] == receiver["user"]["id"]
+
+
+# ---------------------------------------------------------------------------
+# VIN decode + recalls + specs tests
+# ---------------------------------------------------------------------------
+
+_FAKE_VPIC_RESPONSE = {
+    "Results": [
+        {
+            "ModelYear": "2004",
+            "Make": "TOYOTA",
+            "Model": "4Runner",
+            "Trim": "Limited",
+            "Series": "4Runner Limited",
+            "BodyClass": "Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)",
+            "DriveType": "4WD/4-Wheel Drive/4x4",
+            "EngineCylinders": "8",
+            "DisplacementL": "4.7",
+            "EngineHP": "227",
+            "FuelTypePrimary": "Gasoline",
+            "TransmissionStyle": "Automatic",
+            "PlantCountry": "JAPAN",
+            "ErrorCode": "0",
+            "ErrorText": "0 - VIN decoded clean. Check Digit (9th position) is correct",
+        }
+    ]
+}
+
+_FAKE_RECALLS_RESPONSE = {
+    # Uses real NHTSA field names: ReportReceivedDate (capital R), parkIt/parkOutSide (lowercase p)
+    # Date format: DD/MM/YYYY (verified via real NHTSA API call)
+    "results": [
+        {
+            "NHTSACampaignNumber": "23V999000",
+            "ReportReceivedDate": "15/01/2023",
+            "Component": "BRAKES",
+            "Summary": "Brake pads may wear prematurely.",
+            "Consequence": "May increase stopping distance.",
+            "Remedy": "Replace brake pads.",
+            "Notes": "None",
+            "parkIt": False,
+            "parkOutSide": False,
+        },
+        {
+            "NHTSACampaignNumber": "21V001000",
+            "ReportReceivedDate": "05/03/2021",
+            "Component": "ENGINE",
+            "Summary": "Engine may stall.",
+            "Consequence": "Crash risk.",
+            "Remedy": "Software update.",
+            "Notes": "",
+            "parkIt": True,
+            "parkOutSide": True,
+        },
+    ]
+}
+
+
+def test_vin_decode_maps_fields(monkeypatch):
+    """Decode maps NHTSA fields to camelCase and normalises make."""
+    import app.services as svc
+
+    def fake_decode(vin_arg):
+        class FakeResp:
+            def raise_for_status(self): pass
+            def json(self): return _FAKE_VPIC_RESPONSE
+        return FakeResp()
+
+    monkeypatch.setattr(svc.httpx, "get", lambda url, **kw: fake_decode(url))
+    # Clear cache so monkeypatch takes effect
+    svc._VIN_DECODE_CACHE.clear()
+
+    u = signup("vin-decode-user1", "vin-decode-1@example.com")
+    resp = client.get(
+        "/vin/decode/JTEBT17R748010246",
+        headers=auth_headers(u["accessToken"]),
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Basic field mapping
+    assert data["vin"] == "JTEBT17R748010246"
+    assert data["year"] == 2004
+    # Make should be title-cased and catalog-normalized
+    assert data["make"].lower() == "toyota"
+    assert data["model"] == "4Runner"
+    assert data["trim"] == "Limited"
+    assert data["engineCylinders"] == 8
+    assert abs(data["displacementL"] - 4.7) < 0.01
+    assert data["engineHp"] == 227
+    assert data["fuelType"] == "Gasoline"
+    assert data["matched"] is True
+
+
+def test_vin_decode_invalid_vin_returns_422():
+    u = signup("vin-decode-user2", "vin-decode-2@example.com")
+    # Too short
+    resp = client.get("/vin/decode/TOOSHORT", headers=auth_headers(u["accessToken"]))
+    assert resp.status_code == 422
+    # Contains I/O/Q
+    resp2 = client.get("/vin/decode/ITOBT17R748010246", headers=auth_headers(u["accessToken"]))
+    assert resp2.status_code == 422
+
+
+def test_vin_decode_requires_auth():
+    resp = client.get("/vin/decode/JTEBT17R748010246")
+    assert resp.status_code == 401
+
+
+def test_decode_vin_endpoint_stores_specs(monkeypatch):
+    """POST /vehicles/{id}/decode-vin saves specs and returns them on the vehicle."""
+    import app.services as svc
+
+    def fake_get(url, **kw):
+        class FakeResp:
+            def raise_for_status(self): pass
+            def json(self): return _FAKE_VPIC_RESPONSE
+        return FakeResp()
+
+    monkeypatch.setattr(svc.httpx, "get", fake_get)
+    svc._VIN_DECODE_CACHE.clear()
+
+    u = signup("vin-save-user", "vin-save@example.com")
+    # Create vehicle with a VIN
+    veh_resp = client.post(
+        "/vehicles",
+        headers=auth_headers(u["accessToken"]),
+        json={"make": "Toyota", "model": "4Runner", "year": 2004, "vin": "JTEBT17R748010246"},
+    )
+    assert veh_resp.status_code == 200, veh_resp.text
+    veh_id = veh_resp.json()["id"]
+
+    # Trigger decode
+    dec_resp = client.post(
+        f"/vehicles/{veh_id}/decode-vin",
+        headers=auth_headers(u["accessToken"]),
+    )
+    assert dec_resp.status_code == 200, dec_resp.text
+    data = dec_resp.json()
+    assert data["specs"] is not None
+    assert data["specs"]["year"] == 2004
+    assert data["specs"]["engineCylinders"] == 8
+    assert data["specs_decoded_at"] is not None
+
+
+def test_decode_vin_no_vin_returns_400():
+    u = signup("vin-no-vin-user", "vin-no-vin@example.com")
+    veh = client.post(
+        "/vehicles",
+        headers=auth_headers(u["accessToken"]),
+        json={"make": "Ford", "model": "Mustang", "year": 1965},
+    ).json()
+    resp = client.post(
+        f"/vehicles/{veh['id']}/decode-vin",
+        headers=auth_headers(u["accessToken"]),
+    )
+    assert resp.status_code == 400
+
+
+def test_recalls_maps_and_sorts(monkeypatch):
+    """Recalls endpoint maps fields and sorts newest first."""
+    import app.services as svc
+
+    def fake_get(url, **kw):
+        class FakeResp:
+            def raise_for_status(self): pass
+            def json(self): return _FAKE_RECALLS_RESPONSE
+        return FakeResp()
+
+    monkeypatch.setattr(svc.httpx, "get", fake_get)
+    svc._RECALLS_CACHE.clear()
+
+    u = signup("recalls-user1", "recalls-1@example.com")
+    veh = client.post(
+        "/vehicles",
+        headers=auth_headers(u["accessToken"]),
+        json={"make": "Toyota", "model": "4Runner", "year": 2004},
+    ).json()
+
+    resp = client.get(f"/vehicles/{veh['id']}/recalls")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["count"] == 2
+    assert data["unavailable"] is False
+    # Sorted newest first: 2023 before 2021
+    assert data["results"][0]["campaignNumber"] == "23V999000"
+    assert data["results"][0]["reportReceivedDate"] == "2023-01-15"
+    assert data["results"][1]["campaignNumber"] == "21V001000"
+    assert data["results"][1]["reportReceivedDate"] == "2021-03-05"
+    assert data["results"][1]["parkIt"] is True
+
+
+def test_recalls_graceful_on_error(monkeypatch):
+    """On network error, recalls returns empty with unavailable=True."""
+    import app.services as svc
+
+    def fake_get(url, **kw):
+        raise Exception("Network error")
+
+    monkeypatch.setattr(svc.httpx, "get", fake_get)
+    svc._RECALLS_CACHE.clear()
+
+    u = signup("recalls-err-user", "recalls-err@example.com")
+    veh = client.post(
+        "/vehicles",
+        headers=auth_headers(u["accessToken"]),
+        json={"make": "Honda", "model": "Civic", "year": 2010},
+    ).json()
+
+    resp = client.get(f"/vehicles/{veh['id']}/recalls")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["count"] == 0
+    assert data["unavailable"] is True
+
+
+def test_specs_round_trip_via_create():
+    """Specs can be stored on create and read back."""
+    u = signup("specs-create-user", "specs-create@example.com")
+    specs_payload = {
+        "bodyClass": "SUV",
+        "driveType": "4WD",
+        "engineCylinders": 6,
+        "displacementL": 3.5,
+        "engineHp": 280,
+        "fuelType": "Gasoline",
+    }
+    resp = client.post(
+        "/vehicles",
+        headers=auth_headers(u["accessToken"]),
+        json={"make": "Lexus", "model": "GX", "year": 2020, "specs": specs_payload},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["specs"] is not None
+    assert data["specs"]["engineCylinders"] == 6
+    assert data["specs"]["fuelType"] == "Gasoline"
+
+
+def test_specs_round_trip_via_patch():
+    """Specs can be stored via PATCH and read back."""
+    u = signup("specs-patch-user", "specs-patch@example.com")
+    veh = client.post(
+        "/vehicles",
+        headers=auth_headers(u["accessToken"]),
+        json={"make": "BMW", "model": "M3", "year": 2023},
+    ).json()
+    assert veh["specs"] is None
+
+    patch_resp = client.patch(
+        f"/vehicles/{veh['id']}",
+        headers=auth_headers(u["accessToken"]),
+        json={"specs": {"engineHp": 503, "fuelType": "Gasoline"}},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    data = patch_resp.json()
+    assert data["specs"]["engineHp"] == 503
+    assert data["specs_decoded_at"] is not None

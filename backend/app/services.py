@@ -78,9 +78,13 @@ from app.schemas import (
     VehicleOwnershipRead,
     VehicleOwnershipUpdate,
     VehicleSummary,
+    VehicleSpecs,
     VehicleTransferCreate,
     VehicleTransferRead,
     VehicleUpdate,
+    VinDecodeResult,
+    RecallResult,
+    RecallsResponse,
     MediaRead,
     DocumentRead,
 )
@@ -359,7 +363,12 @@ def change_password(db: Session, user: User, data: ChangePasswordRequest) -> Non
 
 
 def create_vehicle(db: Session, user: User, data: VehicleCreate) -> Vehicle:
-    vehicle = Vehicle(owner_user_id=user.id, **data.model_dump())
+    raw = data.model_dump()
+    specs_in = raw.pop("specs", None)
+    vehicle = Vehicle(owner_user_id=user.id, **raw)
+    if specs_in is not None:
+        vehicle.specs = specs_in if isinstance(specs_in, dict) else specs_in
+        vehicle.specs_decoded_at = datetime.now(UTC)
     vehicle.slug = slugify(f"{vehicle.year or ''} {vehicle.make} {vehicle.model} {vehicle.nickname or ''}")
     db.add(vehicle)
     db.flush()
@@ -397,6 +406,10 @@ def assert_vehicle_owner(vehicle: Vehicle, user: User) -> None:
 def update_vehicle(db: Session, vehicle: Vehicle, user: User, data: VehicleUpdate) -> Vehicle:
     assert_vehicle_owner(vehicle, user)
     values = data.model_dump(exclude_unset=True)
+    specs_in = values.pop("specs", None)
+    if specs_in is not None:
+        vehicle.specs = specs_in if isinstance(specs_in, dict) else specs_in
+        vehicle.specs_decoded_at = datetime.now(UTC)
     for key, value in values.items():
         setattr(vehicle, key, value)
     if any(k in values for k in ("make", "model", "year", "nickname")):
@@ -2380,6 +2393,217 @@ def geo_search(query: str) -> list[str]:
             seen.add(label)
             results.append(label)
     return results
+
+
+# --- VIN decode (NHTSA vPIC) + Recalls (NHTSA) --------------------------------
+
+_VPIC_DECODE_URL = "https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/{vin}?format=json"
+_RECALLS_URL = "https://api.nhtsa.gov/recalls/recallsByVehicle"
+_VIN_DECODE_CACHE: dict[str, VinDecodeResult] = {}
+_RECALLS_CACHE: dict[tuple, tuple] = {}  # key → (timestamp, RecallsResponse)
+_RECALLS_CACHE_TTL = 86400  # 24 hours
+_VIN_DECODE_CACHE_MAX = 500
+
+_VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$")
+
+
+def _catalog_make_canonical(make: str) -> str | None:
+    """Return the catalog-canonical spelling of a make, or None if not in catalog."""
+    makes = catalog_makes()
+    make_lower = make.lower()
+    for m in makes:
+        if m.lower() == make_lower:
+            return m
+    return None
+
+
+def _catalog_model_canonical(make: str, year: int | None, model: str) -> str | None:
+    """Return the catalog-canonical spelling of a model, or None if not found."""
+    if not year:
+        return None
+    models = catalog_models(make, year)
+    model_lower = model.lower()
+    for m in models:
+        if m.lower() == model_lower:
+            return m
+    return None
+
+
+def _safe_int(val: str | None) -> int | None:
+    if not val:
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_float(val: str | None) -> float | None:
+    if not val:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def decode_vin(vin: str) -> VinDecodeResult:
+    """Decode a 17-char VIN via NHTSA vPIC. Raises 422 for invalid VINs, 502 on network error.
+    Results are cached in-process (max 500 entries) since VIN→specs is immutable.
+    """
+    vin = vin.upper()
+    if not _VIN_RE.match(vin):
+        raise HTTPException(
+            status_code=422,
+            detail="VIN must be 17 characters, uppercase alphanumeric, excluding I/O/Q",
+        )
+
+    if vin in _VIN_DECODE_CACHE:
+        return _VIN_DECODE_CACHE[vin]
+
+    try:
+        resp = httpx.get(_VPIC_DECODE_URL.format(vin=vin), timeout=8.0)
+        resp.raise_for_status()
+        body = resp.json()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=502, detail="VIN service unavailable")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="VIN service unavailable") from exc
+
+    results = (body or {}).get("Results", [])
+    raw = results[0] if results else {}
+
+    year = _safe_int(raw.get("ModelYear"))
+    nhtsa_make = raw.get("Make", "").strip()
+    nhtsa_model = raw.get("Model", "").strip()
+    trim = raw.get("Trim", "").strip() or None
+
+    # Normalize make: title-case, then match catalog spelling
+    make_title = nhtsa_make.title() if nhtsa_make else None
+    if make_title:
+        canonical_make = _catalog_make_canonical(make_title)
+        if canonical_make:
+            make_title = canonical_make
+
+    # Normalize model: match catalog spelling when possible
+    model_out = nhtsa_model if nhtsa_model else None
+    if model_out and make_title and year:
+        canonical_model = _catalog_model_canonical(make_title, year, model_out)
+        if canonical_model:
+            model_out = canonical_model
+
+    result = VinDecodeResult(
+        vin=vin,
+        year=year,
+        make=make_title,
+        model=model_out,
+        trim=trim,
+        **{
+            "bodyClass": raw.get("BodyClass", "").strip() or None,
+            "driveType": raw.get("DriveType", "").strip() or None,
+            "engineCylinders": _safe_int(raw.get("EngineCylinders")),
+            "displacementL": _safe_float(raw.get("DisplacementL")),
+            "engineHp": _safe_int(raw.get("EngineHP")),
+            "fuelType": raw.get("FuelTypePrimary", "").strip() or None,
+            "transmission": raw.get("TransmissionStyle", "").strip() or None,
+            "plantCountry": raw.get("PlantCountry", "").strip() or None,
+            "errorCode": raw.get("ErrorCode", "").strip() or None,
+            "errorText": raw.get("ErrorText", "").strip() or None,
+        },
+        matched=bool(make_title and year),
+    )
+
+    # Cache (evict oldest entry when at max)
+    if len(_VIN_DECODE_CACHE) >= _VIN_DECODE_CACHE_MAX:
+        _VIN_DECODE_CACHE.pop(next(iter(_VIN_DECODE_CACHE)))
+    _VIN_DECODE_CACHE[vin] = result
+    return result
+
+
+def decode_vin_and_save(db: Session, vehicle: Vehicle, user: User) -> Vehicle:
+    """Decode the vehicle's VIN and persist specs. Raises 400 if no VIN."""
+    assert_vehicle_owner(vehicle, user)
+    if not vehicle.vin:
+        raise HTTPException(status_code=400, detail="Vehicle has no VIN to decode")
+    result = decode_vin(vehicle.vin)
+    specs_dict = result.model_dump(
+        exclude={"vin", "error_code", "error_text", "matched"},
+        by_alias=False,
+    )
+    vehicle.specs = specs_dict
+    vehicle.specs_decoded_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(vehicle)
+    return vehicle
+
+
+def get_vehicle_recalls(vehicle: Vehicle) -> RecallsResponse:
+    """Fetch NHTSA recalls for the vehicle's make/model/year.
+    Cached per (make, model, year) for 24 hours. Gracefully returns empty on error.
+    """
+    make = (vehicle.make or "").strip()
+    model = (vehicle.model or "").strip()
+    year = vehicle.year
+
+    if not (make and model and year):
+        return RecallsResponse(count=0, results=[])
+
+    cache_key = (make.lower(), model.lower(), year)
+    import time as _time
+    now_ts = _time.monotonic()
+    cached = _RECALLS_CACHE.get(cache_key)
+    if cached and (now_ts - cached[0]) < _RECALLS_CACHE_TTL:
+        return cached[1]
+
+    params = {"make": make, "model": model, "modelYear": str(year)}
+    try:
+        resp = httpx.get(_RECALLS_URL, params=params, timeout=8.0)
+        resp.raise_for_status()
+        body = resp.json()
+    except Exception:
+        unavail = RecallsResponse(count=0, results=[], unavailable=True)
+        return unavail
+
+    raw_results = (body or {}).get("results", [])
+    recalls: list[RecallResult] = []
+    for r in raw_results:
+        # NHTSA returns "ReportReceivedDate" in DD/MM/YYYY format (verified via real API call).
+        # Field name may also appear as "reportReceivedDate" in mocked/older responses.
+        raw_date = r.get("ReportReceivedDate") or r.get("reportReceivedDate") or ""
+        iso_date: str | None = None
+        if raw_date:
+            # Try DD/MM/YYYY (verified NHTSA format), then fallback formats
+            for fmt in ("%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d"):
+                try:
+                    from datetime import datetime as _dt
+                    iso_date = _dt.strptime(raw_date.strip()[:10], fmt).strftime("%Y-%m-%d")
+                    break
+                except ValueError:
+                    continue
+            if not iso_date:
+                iso_date = raw_date  # pass through if unparseable
+
+        recalls.append(RecallResult(
+            **{
+                "campaignNumber": r.get("NHTSACampaignNumber", "") or "",
+                "reportReceivedDate": iso_date,
+                "component": r.get("Component") or None,
+                "summary": r.get("Summary") or None,
+                "consequence": r.get("Consequence") or None,
+                "remedy": r.get("Remedy") or None,
+                "notes": r.get("Notes") or None,
+                # NHTSA uses lowercase-p camelCase for these boolean flags
+                "parkIt": bool(r.get("parkIt") or r.get("ParkIt")),
+                "parkOutside": bool(r.get("parkOutSide") or r.get("ParkOutSide")),
+            }
+        ))
+
+    # Sort newest first (by ISO date string; None goes last)
+    recalls.sort(key=lambda x: x.report_received_date or "", reverse=True)
+
+    response = RecallsResponse(count=len(recalls), results=recalls)
+    _RECALLS_CACHE[cache_key] = (now_ts, response)
+    return response
 
 
 # --- Video uploads (Cloudflare Stream, direct creator uploads) ---------------

@@ -8,6 +8,7 @@ import { ChevronDown, ChevronUp, Download, ExternalLink, Pencil, Plus } from "lu
 
 import { eventApi, eventDocumentApi, eventMediaApi, getToken, modApi, ownershipApi, reportApi, transferApi, vehicleApi, apiUrl } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
+import type { RecallsResponse } from "@/lib/types";
 import { carAvatarUri } from "@/lib/avatar";
 import { eventTypeBadge, eventTypeLabel } from "@/lib/events";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -102,6 +103,11 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   // Mods (Specs tab): which form is open ("new" to add, a mod id to edit, null to hide).
   const [modForm, setModForm] = useState<"new" | string | null>(null);
   const [modError, setModError] = useState<string | null>(null);
+  // Recall card expand state: set of campaignNumbers that are expanded.
+  const [expandedRecalls, setExpandedRecalls] = useState<Set<string>>(new Set());
+  // VIN decode-on-page state (Specs tab "Decode VIN" / "Re-decode" button).
+  const [vinDecoding, setVinDecoding] = useState(false);
+  const [vinDecodeError, setVinDecodeError] = useState<string | null>(null);
   const [dismissedGapIds, setDismissedGapIds] = useState<Set<string>>(new Set());
   const [statsScope, setStatsScope] = useState<"current" | "lifetime">("current");
   const [ownershipForm, setOwnershipForm] = useState<null | "new" | string>(null);
@@ -147,6 +153,13 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     enabled: tab === "history",
     retry: false
   });
+  // Recalls — fetched when Specs tab is active. Non-critical; won't block render.
+  const recallsQuery = useQuery<RecallsResponse>({
+    queryKey: ["vehicleRecalls", vehicleId],
+    queryFn: () => vehicleApi.recalls(vehicleId),
+    enabled: tab === "specs",
+    retry: false
+  });
 
   async function deleteMod(modId: string) {
     if (!window.confirm("Delete this mod? This cannot be undone.")) return;
@@ -157,6 +170,29 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     } catch {
       setModError("Couldn't delete the mod. Try again in a moment.");
     }
+  }
+
+  async function decodeVinOnPage() {
+    if (vinDecoding) return;
+    setVinDecodeError(null);
+    setVinDecoding(true);
+    try {
+      await vehicleApi.decodeVin(vehicleId);
+      await queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
+    } catch (err) {
+      setVinDecodeError(err instanceof Error ? err.message : "Decode failed");
+    } finally {
+      setVinDecoding(false);
+    }
+  }
+
+  function toggleRecall(campaignNumber: string) {
+    setExpandedRecalls((prev) => {
+      const next = new Set(prev);
+      if (next.has(campaignNumber)) next.delete(campaignNumber);
+      else next.add(campaignNumber);
+      return next;
+    });
   }
 
   function selectTab(next: Tab) {
@@ -471,6 +507,17 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
               </h1>
             </div>
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+              {/* Recalls indicator — shown when we have recall data and count > 0 */}
+              {recallsQuery.data && recallsQuery.data.count > 0 && (
+                <button
+                  type="button"
+                  className="chip shrink-0 bg-red-100 font-semibold text-red-700 hover:bg-red-200"
+                  onClick={() => selectTab("specs")}
+                  title="Safety recalls — click to view"
+                >
+                  {recallsQuery.data.count} recall{recallsQuery.data.count !== 1 ? "s" : ""}
+                </button>
+              )}
               <ShareButton
                 title="Share vehicle"
                 url={typeof window !== "undefined" ? `${window.location.origin}/v/${v.id}` : `/v/${v.id}`}
@@ -1471,6 +1518,106 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
       )}
       {tab === "specs" && (
         <div className="space-y-6">
+          {/* ── Decoded VIN Specifications card ─────────────────────────────── */}
+          {v.specs ? (
+            <div className="surface rounded-3xl p-6">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-lg font-bold">Specifications</h2>
+                {isOwner && v.vin && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-xs disabled:opacity-60"
+                    disabled={vinDecoding}
+                    onClick={() => void decodeVinOnPage()}
+                  >
+                    {vinDecoding ? "Decoding…" : "Re-decode"}
+                  </button>
+                )}
+              </div>
+              {vinDecodeError && (
+                <p className="mb-3 text-sm text-red-600">{vinDecodeError}</p>
+              )}
+              <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+                {v.specs.displacementL != null || v.specs.engineCylinders != null ? (
+                  <div>
+                    <dt className="font-semibold">Engine</dt>
+                    <dd className="text-slate-600">
+                      {[
+                        v.specs.displacementL != null ? `${v.specs.displacementL.toFixed(1)}L` : null,
+                        v.specs.engineCylinders != null ? `V${v.specs.engineCylinders}` : null,
+                        v.specs.engineHp != null ? `· ${v.specs.engineHp} hp` : null
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    </dd>
+                  </div>
+                ) : null}
+                {v.specs.driveType && (
+                  <div>
+                    <dt className="font-semibold">Drivetrain</dt>
+                    <dd className="text-slate-600">{v.specs.driveType}</dd>
+                  </div>
+                )}
+                {v.specs.bodyClass && (
+                  <div>
+                    <dt className="font-semibold">Body</dt>
+                    <dd className="text-slate-600">{v.specs.bodyClass}</dd>
+                  </div>
+                )}
+                {v.specs.fuelType && (
+                  <div>
+                    <dt className="font-semibold">Fuel</dt>
+                    <dd className="text-slate-600">{v.specs.fuelType}</dd>
+                  </div>
+                )}
+                {v.specs.transmission && (
+                  <div>
+                    <dt className="font-semibold">Transmission</dt>
+                    <dd className="text-slate-600">{v.specs.transmission}</dd>
+                  </div>
+                )}
+                {v.specs.plantCountry && (
+                  <div>
+                    <dt className="font-semibold">Built in</dt>
+                    <dd className="text-slate-600">{v.specs.plantCountry}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          ) : (
+            /* No specs yet */
+            isOwner ? (
+              <div className="surface rounded-3xl p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-bold">Specifications</h2>
+                    {v.vin ? (
+                      <p className="mt-1 text-sm text-slate-500">
+                        Decode the VIN to auto-fill engine, drivetrain, and body specs.
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-sm text-slate-500">
+                        Add the VIN in <a href={`/vehicles/${v.id}/edit`} className="text-petrol hover:underline">Edit</a> to auto-fill specs.
+                      </p>
+                    )}
+                    {vinDecodeError && <p className="mt-2 text-sm text-red-600">{vinDecodeError}</p>}
+                  </div>
+                  {v.vin && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary shrink-0 disabled:opacity-60"
+                      disabled={vinDecoding}
+                      onClick={() => void decodeVinOnPage()}
+                    >
+                      {vinDecoding ? "Decoding…" : "Decode VIN"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : null
+          )}
+
+          {/* ── Vehicle overview fields (year/make/model/etc.) ─────────────── */}
           <dl className="surface grid gap-4 rounded-3xl p-6 text-sm sm:grid-cols-2">
             {visibleSpecs.map(([label, value]) => (
               <div key={label}>
@@ -1485,6 +1632,105 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
               </div>
             )}
           </dl>
+
+          {/* ── Recalls ─────────────────────────────────────────────────────── */}
+          <div className="surface rounded-3xl p-6">
+            <h2 className="mb-4 text-lg font-bold">Recalls</h2>
+            {recallsQuery.isLoading ? (
+              <p className="text-sm text-slate-500">Loading recalls…</p>
+            ) : recallsQuery.data?.unavailable ? (
+              <p className="text-sm text-slate-500">Recall service unavailable.</p>
+            ) : recallsQuery.error ? (
+              <p className="text-sm text-slate-500">Recall data could not be loaded.</p>
+            ) : recallsQuery.data && recallsQuery.data.count === 0 ? (
+              <p className="text-sm text-slate-500">
+                No recalls found for {[v.year, v.make, v.model].filter(Boolean).join(" ")}.
+              </p>
+            ) : recallsQuery.data ? (
+              <div className="space-y-3">
+                {[...recallsQuery.data.results]
+                  .sort((a, b) =>
+                    (b.reportReceivedDate ?? "").localeCompare(a.reportReceivedDate ?? "")
+                  )
+                  .map((recall) => {
+                    const expanded = expandedRecalls.has(recall.campaignNumber);
+                    return (
+                      <div
+                        key={recall.campaignNumber}
+                        className="rounded-2xl border border-slate-200 p-4"
+                      >
+                        <div className="flex flex-wrap items-start gap-2">
+                          <span className="chip shrink-0 font-mono text-xs">
+                            {recall.campaignNumber}
+                          </span>
+                          {recall.parkIt && (
+                            <span className="chip shrink-0 bg-red-600 font-semibold text-white">
+                              Do not drive
+                            </span>
+                          )}
+                          {!recall.parkIt && recall.parkOutside && (
+                            <span className="chip shrink-0 bg-amber-500 font-semibold text-white">
+                              Park outside
+                            </span>
+                          )}
+                          {recall.reportReceivedDate && (
+                            <span className="text-xs text-slate-400 self-center">
+                              {recall.reportReceivedDate}
+                            </span>
+                          )}
+                        </div>
+                        {recall.component && (
+                          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            {recall.component}
+                          </p>
+                        )}
+                        {recall.summary && (
+                          <p className={`mt-1 text-sm ${expanded ? "" : "line-clamp-2"}`}>
+                            {recall.summary}
+                          </p>
+                        )}
+                        {(recall.consequence || recall.remedy) && !expanded && (
+                          <button
+                            type="button"
+                            className="mt-1 text-xs font-semibold text-petrol hover:underline"
+                            onClick={() => toggleRecall(recall.campaignNumber)}
+                          >
+                            More
+                          </button>
+                        )}
+                        {expanded && (
+                          <>
+                            {recall.consequence && (
+                              <div className="mt-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  Consequence
+                                </p>
+                                <p className="text-sm">{recall.consequence}</p>
+                              </div>
+                            )}
+                            {recall.remedy && (
+                              <div className="mt-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  Remedy
+                                </p>
+                                <p className="text-sm">{recall.remedy}</p>
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              className="mt-1 text-xs font-semibold text-petrol hover:underline"
+                              onClick={() => toggleRecall(recall.campaignNumber)}
+                            >
+                              Less
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : null}
+          </div>
 
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
