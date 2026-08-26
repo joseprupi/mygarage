@@ -70,6 +70,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   // Mods (Specs tab): which form is open ("new" to add, a mod id to edit, null to hide).
   const [modForm, setModForm] = useState<"new" | string | null>(null);
   const [modError, setModError] = useState<string | null>(null);
+  const [dismissedGapIds, setDismissedGapIds] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useMe();
@@ -192,7 +193,6 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     detectMissedFillups: currentUser?.settings?.detectMissedFillups ?? true,
     includeEstimatedFuel: currentUser?.settings?.includeEstimatedFuel ?? true,
   });
-  const [dismissedGapIds, setDismissedGapIds] = useState<Set<string>>(new Set());
   const activeGaps = stats.gaps.filter((g) => !dismissedGapIds.has(g.beforeEventId));
   const gapMap = new Map<string, GapInfo>(activeGaps.map((g) => [g.beforeEventId, g]));
   const mileagePoints = Object.entries(mileageByDate)
