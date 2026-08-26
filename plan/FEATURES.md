@@ -92,7 +92,7 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [x] (LIVE 2026-08-26) **Report** (post / comment / user / vehicle / event; reasons spam·harassment·inappropriate·privacy·other) + **Block** users (both directions hide feed posts + comments; blocked can't comment). `backend/scripts/list_reports.py` for the 24h-action store rule. Web + mobile UI.
 - [x] (LIVE 2026-08-26) **Password change / set** (Settings; passwordless Google/Apple accounts can set one) — web + mobile.
 
-## Receipt visibility — SIMPLIFIED MODEL (owner decision 2026-08-26, NEXT)
+## Receipt visibility — SIMPLIFIED MODEL (DEV 2026-08-27, branch media-simplify, not deployed)
 Replace the propose/publish flow with one per-receipt setting.
 - At upload, every receipt image gets three versions automatically: **original** (private bucket), **redacted** (AI PII boxes blurred, public bucket), **placeholder** (fully blurred, public bucket) + `pii_kinds`.
 - One field `visibility: private | redacted | original` (default private). Visitors see the matching version; owner always sees the original.

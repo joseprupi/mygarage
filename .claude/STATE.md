@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-27 — DEPLOYED: VIN/recalls + redaction v1 (migrations 0018+0019); master = 310814a. DEV (branch media-simplify, not deployed): SIMPLIFIED receipt visibility — migration 0020 `visibility` private|redacted|original, three versions rendered at upload, PII guard, propose/publish removed, regenerate + backfill `--regenerate`; web+mobile segmented control. Backend 84 tests. Deploy batch on "deploy": migration 0020, backend, web, prod backfill (redacted copies), EAS update.
+
 ## 2026-08-26 (late night) — DEV, branches vin-decode → pii-redaction (not deployed): VIN decode + recalls (migration 0018, NHTSA proxies, specs on vehicle, "from VIN" tags, web cover uploader) and receipt PII REDACTION (migration 0019; Gemini boxes → preview/final in public bucket; propose/boxes/publish/unpublish; opt-in per receipt; review UIs web+mobile). Backend 82 tests. Deploy batch on "deploy": migrations 0018+0019, backend, web, EAS update. Dev transmission receipt is in status "proposed" (owner to publish in UI).
 
 ## 2026-08-26 (night, fixes) — LIVE: chart x-labels by pixel spacing (web+mobile); export fixed 3 ways (client used hardcoded /api → apiUrl(); ZIP reads receipts from private bucket; response STREAMED because Cloud Run caps buffered responses at 32MB — prod ZIP is 41MB/11 photos). Verified prod export 200. Tool: scripts/owner-view.js (playwright-core in scratchpad) renders pages logged-in, screenshots the chart svg.
