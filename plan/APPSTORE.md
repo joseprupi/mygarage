@@ -14,7 +14,7 @@
 - [x] App Privacy questionnaire: collects Email, Name, Photos/Videos, User Content, Coarse-free-text location — all "linked to identity", none used for tracking; no third-party ads
 - [x] Age rating questionnaire (13+, social/UGC): everything "None" → 4+
 - [x] App Review notes: demo account reviewer@carfable.com / CarFable-Review1 (prod, public Civic w/ history) (create a dedicated reviewer@… account with sample car, NOT the owner account)
-- [x] SUBMITTED 2026-08-25, auto-release on approval
+- [x] SUBMITTED 2026-08-25 (after also setting: category Lifestyle/Utilities, content rights = yes-with-rights, price Free), auto-release on approval
 
 ## Android / Play Store
 - [x] EAS Android production build (AAB, versionCode 2) — done
