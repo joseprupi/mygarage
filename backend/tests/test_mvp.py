@@ -649,3 +649,45 @@ def test_apple_login_garbage_credential_returns_401(monkeypatch):
 
     resp = client.post("/auth/apple", json={"credential": "garbage.jwt.token"})
     assert resp.status_code == 401, resp.text
+
+
+def test_sitemap_entries_returns_public_content_only():
+    """GET /sitemap/entries: no auth, returns only public vehicles and posts."""
+    owner = signup("sitemapowner", "sitemapowner@example.com")
+    token = owner["accessToken"]
+
+    public_vehicle = create_vehicle(token, visibility="public")
+    private_vehicle = create_vehicle(token, visibility="private")
+
+    pub_post = client.post(
+        "/posts",
+        headers=auth_headers(token),
+        json={"caption": "public sitemap post", "vehicleIds": [], "media": [], "visibility": "public"},
+    )
+    assert pub_post.status_code == 200
+
+    client.post(
+        "/posts",
+        headers=auth_headers(token),
+        json={"caption": "private sitemap post", "vehicleIds": [], "media": [], "visibility": "private"},
+    )
+
+    resp = client.get("/sitemap/entries")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    vehicle_ids = [v["id"] for v in body["vehicles"]]
+    post_ids = [p["id"] for p in body["posts"]]
+    usernames = [u["username"] for u in body["users"]]
+
+    assert public_vehicle["id"] in vehicle_ids
+    assert private_vehicle["id"] not in vehicle_ids
+    assert pub_post.json()["id"] in post_ids
+    assert owner["user"]["username"] in usernames
+
+    for v in body["vehicles"]:
+        assert "updatedAt" in v
+    for p in body["posts"]:
+        assert "updatedAt" in p
+    for u in body["users"]:
+        assert "updatedAt" in u

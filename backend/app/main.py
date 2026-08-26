@@ -24,6 +24,7 @@ from app.schemas import (
     PostUpdate,
     PublicUser,
     SignupRequest,
+    SitemapEntries,
     TokenResponse,
     MediaUploadResponse,
     UploadUrlRequest,
@@ -569,3 +570,10 @@ async def ai_fuel_scan(
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return FuelScanResult(**result)
+
+
+@app.get("/sitemap/entries", response_model=SitemapEntries)
+def sitemap_entries(db: Session = Depends(get_db)) -> SitemapEntries:
+    """Public endpoint: returns up to 1000 public vehicles, posts, and users
+    for the Next.js sitemap route. No authentication required."""
+    return services.get_sitemap_entries(db)

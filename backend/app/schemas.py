@@ -476,3 +476,34 @@ class FuelScanResult(BaseModel):
     notes: str | None = None
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+# ---------------------------------------------------------------------------
+# Sitemap
+# ---------------------------------------------------------------------------
+
+class SitemapVehicleEntry(BaseModel):
+    id: str
+    updated_at: datetime = Field(alias="updatedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SitemapPostEntry(BaseModel):
+    id: str
+    updated_at: datetime = Field(alias="updatedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SitemapUserEntry(BaseModel):
+    username: str
+    updated_at: datetime = Field(alias="updatedAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SitemapEntries(BaseModel):
+    vehicles: list[SitemapVehicleEntry] = []
+    posts: list[SitemapPostEntry] = []
+    users: list[SitemapUserEntry] = []

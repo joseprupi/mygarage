@@ -50,6 +50,10 @@ from app.schemas import (
     PostUpdate,
     PublicUser,
     SignupRequest,
+    SitemapEntries,
+    SitemapPostEntry,
+    SitemapUserEntry,
+    SitemapVehicleEntry,
     UploadUrlRequest,
     UploadUrlResponse,
     UserUpdate,
@@ -1329,3 +1333,58 @@ def scan_fuel(files: list[tuple[bytes, str]]) -> dict:
         "confidence": raw.get("confidence", "low"),
         "notes": raw.get("notes"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Sitemap
+# ---------------------------------------------------------------------------
+
+_SITEMAP_LIMIT = 1000
+
+
+def get_sitemap_entries(db: Session) -> SitemapEntries:
+    """Return up to 1000 public vehicles, posts, and users for the XML sitemap.
+    No auth required — only public-visibility rows are returned.
+    """
+    vehicles = list(
+        db.execute(
+            select(Vehicle.id, Vehicle.updated_at)
+            .where(Vehicle.visibility == "public")
+            .order_by(desc(Vehicle.updated_at))
+            .limit(_SITEMAP_LIMIT)
+        ).all()
+    )
+
+    posts = list(
+        db.execute(
+            select(Post.id, Post.updated_at)
+            .where(Post.visibility == "public", Post.deleted_at.is_(None))
+            .order_by(desc(Post.updated_at))
+            .limit(_SITEMAP_LIMIT)
+        ).all()
+    )
+
+    # Users: any user who owns at least one public vehicle or has a public post
+    users = list(
+        db.execute(
+            select(User.username, User.updated_at)
+            .where(
+                User.id.in_(
+                    select(Vehicle.owner_user_id)
+                    .where(Vehicle.visibility == "public")
+                    .union(
+                        select(Post.author_user_id)
+                        .where(Post.visibility == "public", Post.deleted_at.is_(None))
+                    )
+                )
+            )
+            .order_by(desc(User.updated_at))
+            .limit(_SITEMAP_LIMIT)
+        ).all()
+    )
+
+    return SitemapEntries(
+        vehicles=[SitemapVehicleEntry(id=v.id, updatedAt=v.updated_at) for v in vehicles],
+        posts=[SitemapPostEntry(id=p.id, updatedAt=p.updated_at) for p in posts],
+        users=[SitemapUserEntry(username=u.username, updatedAt=u.updated_at) for u in users],
+    )
