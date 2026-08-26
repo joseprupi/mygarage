@@ -5,16 +5,16 @@
 - [x] Support page → carfable.com/support (LIVE)
 - [x] Sign in with Apple (backend + app, entitlement fixed)
 - [x] Google login (iOS client wired)
-- [~] Build 6 on TestFlight → owner sanity pass pending
+- [x] Build 6 on TestFlight — owner verified both logins
 
 ## Owner steps (App Store Connect, appstoreconnect.apple.com → CarFable)
-- [ ] hello@carfable.com: Cloudflare → Email → Email Routing → forward to joseprupi@gmail.com
-- [ ] Listing: name "CarFable", subtitle (e.g. "Your car's life, in one place"), description, keywords, category (Lifestyle or Utilities), support URL carfable.com/support, privacy policy URL carfable.com/privacy (drafts: ask orchestrator, texts prepared on request)
-- [ ] Screenshots: 6.7" iPhone set (take on your iPhone from TestFlight: feed, vehicle history, stats, fuel-up, garage; screenshots straight from the phone are accepted)
-- [ ] App Privacy questionnaire: collects Email, Name, Photos/Videos, User Content, Coarse-free-text location — all "linked to identity", none used for tracking; no third-party ads
-- [ ] Age rating questionnaire: everything "None" → 4+
-- [ ] App Review notes: demo account (create a dedicated reviewer@… account with sample car, NOT the owner account)
-- [ ] Submit for review (1–2 days typical)
+- [x] hello@carfable.com: Cloudflare → Email → Email Routing → forward to joseprupi@gmail.com
+- [x] Listing: name "CarFable", subtitle (e.g. "Your car's life, in one place"), description, keywords, category (Lifestyle or Utilities), support URL carfable.com/support, privacy policy URL carfable.com/privacy (drafts: ask orchestrator, texts prepared on request)
+- [x] Screenshots: (resized to 1284×2778 from owner iPhone) 6.7" iPhone set (take on your iPhone from TestFlight: feed, vehicle history, stats, fuel-up, garage; screenshots straight from the phone are accepted)
+- [x] App Privacy questionnaire: collects Email, Name, Photos/Videos, User Content, Coarse-free-text location — all "linked to identity", none used for tracking; no third-party ads
+- [x] Age rating questionnaire (13+, social/UGC): everything "None" → 4+
+- [x] App Review notes: demo account reviewer@carfable.com / CarFable-Review1 (prod, public Civic w/ history) (create a dedicated reviewer@… account with sample car, NOT the owner account)
+- [x] SUBMITTED 2026-08-25, auto-release on approval
 
 ## Android / Play Store
 - [x] EAS Android production build (AAB, versionCode 2) — done

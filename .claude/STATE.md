@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-25 (late) — **SUBMITTED TO APP STORE REVIEW** (13+, auto-release on approval; demo acct reviewer@carfable.com in prod; hello@carfable.com forwards via Cloudflare)
+
 ## 2026-08-25 — DEPLOYED batch + logins + Android build (commit 978ea86 on `carfable-rename`, not pushed)
 - **Prod (all verified)**: migrations 0011–0013 (fuel flags, users.settings, apple_sub), backend w/ /auth/apple + fuel gaps + settings, web w/ settings/gap cards + carfable.com/privacy + /support, EAS update published.
 - **iOS build 6 on TestFlight** (Google+Apple login, fuel gaps, settings, icon). Build 5 errored: provisioning profile lacked Apple-sign-in entitlement → fixed via ASC API (enabled APPLE_ID_AUTH on bundle id 4TW86BAML2, deleted stale profile), build 6 regenerated it. OWNER: update in TestFlight, test both login buttons.
