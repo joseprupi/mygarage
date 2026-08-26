@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ImageUploader } from "@/components/ImageUploader";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -37,8 +38,7 @@ const textFields: [keyof typeof emptyVehicle, string][] = [
   ["color", "Color"],
   ["transmission", "Transmission"],
   ["engine", "Engine"],
-  ["drivetrain", "Drivetrain"],
-  ["cover_image_url", "Cover image URL"]
+  ["drivetrain", "Drivetrain"]
 ];
 
 /** Build a one-line human summary from decoded specs, e.g. "4.7L V8 · 227 hp · 4WD · SUV · Gasoline" */
@@ -481,6 +481,19 @@ export function VehicleForm({ vehicleId }: { vehicleId?: string }) {
         ))}
       </div>
 
+      <div className="space-y-2 text-sm">
+        <span className="font-medium">Cover photo</span>
+        {form.cover_image_url ? (
+          <div className="flex items-center gap-3">
+            <img src={form.cover_image_url} alt="" className="h-20 w-32 rounded-xl object-cover" />
+            <button type="button" className="btn btn-secondary" onClick={() => setForm({ ...form, cover_image_url: "" })}>
+              Remove
+            </button>
+          </div>
+        ) : (
+          <ImageUploader purpose="vehicle_cover" onUploaded={(media) => setForm({ ...form, cover_image_url: media.url })} />
+        )}
+      </div>
       <label className="block space-y-1 text-sm">
         <span>Description</span>
         <textarea

@@ -144,10 +144,10 @@ export default function VehicleFormScreen() {
       // Fill in year / make / model / trim from decode if they're empty or we're creating
       setForm((prev) => ({
         ...prev,
-        year: prev.year || (result.year != null ? String(result.year) : prev.year),
-        make: prev.make || result.make || prev.make,
-        model: prev.model || result.model || prev.model,
-        trim: prev.trim || result.trim || prev.trim,
+        year: result.year != null ? String(result.year) : prev.year,
+        make: result.make || prev.make,
+        model: result.model || prev.model,
+        trim: result.trim || prev.trim,
       }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Decode failed";
