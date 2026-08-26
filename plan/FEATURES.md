@@ -62,7 +62,7 @@ Keep this list honest: when a feature ships, mark ✅ and add a one-liner to `LO
 ## VIN roadmap (decided 2026-08-03 — slice 1 shipped, rest queued)
 - [x] **VIN privacy** (S): API masks `vin` for everyone but the owner (`_vehicle_out` in main.py + pytest). Field itself has existed since FE-4.
 - [ ] **VIN exact-match search** (S–M): `GET /vehicles/by-vin/{vin}`, exact match only (no prefix/partial — prevents enumeration), public vehicles only. Search box on web + mobile. The "buyer checks the history" moat feature.
-- [~] **VIN decode on vehicle create** (IN PROGRESS dev 2026-08-26, branch vin-decode): NHTSA vPIC proxied via backend — VIN → year/make/model/trim + specs (engine, drivetrain, body, fuel, hp) stored on the vehicle, shown on Specs tab; **Recalls by make/model/year** (NHTSA) shown on the vehicle page. Backfill: "Decode VIN" action on existing vehicles.
+- [x] (DEV 2026-08-26, branch vin-decode→pii-redaction, not deployed) **VIN decode on vehicle create**: NHTSA vPIC proxied via backend — VIN → year/make/model/trim + specs (engine, drivetrain, body, fuel, hp) stored on the vehicle, shown on Specs tab; **Recalls by make/model/year** (NHTSA) shown on the vehicle page. Backfill: "Decode VIN" action on existing vehicles.
 - [ ] **Ownership transfer** (L, own design session): seller generates one-time transfer code → buyer redeems → vehicle + full history move accounts. Events keep `author_user_id` (provenance). Auto-log `sale` event for seller, `purchase` for buyer. Needs transfers table + permission rules.
 
 ## Mobile follow-ups (2026-08-03)
@@ -96,7 +96,7 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [x] Receipts/documents private by default, private bucket + presigned owner URLs, blurred "Receipt on file" placeholder for visitors.
 - [x] PII detection (Gemini) → locked private when detected; owner sees "Contains personal info: …" banner; "Visible to everyone" switch only when clean.
 - [x] Provenance: From receipt / From receipt · edited (trust fields: date, cost, mileage, shop, gallons, $/gal); raw scan snapshot stored.
-- [ ] **NEXT (owner-approved 2026-08-26): AI redaction** — Gemini returns PII bounding boxes → server renders a redacted copy (blurred boxes); owner reviews and taps **"Publish redacted"** (OPT-IN per receipt; default stays private); public viewers then see the redacted image instead of the placeholder. Original never leaves the private bucket.
+- [x] (DEV 2026-08-26, branch pii-redaction, not deployed) **AI redaction** — Gemini returns PII bounding boxes → server renders a redacted copy (blurred boxes); owner reviews and taps **"Publish redacted"** (OPT-IN per receipt; default stays private); public viewers then see the redacted image instead of the placeholder. Original never leaves the private bucket.
 - [ ] Backlog: document (PDF) viewer + toggle on mobile; orphan-object sweep as scheduled job.
 
 ## Ownership & transfer (DESIGNED 2026-08-26 → plan/OWNERSHIP.md)
