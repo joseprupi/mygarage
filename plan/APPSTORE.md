@@ -29,9 +29,9 @@
 ## App Review reply — Guideline 2.1 Information Needed (rejection 2026-08-26)
 Paste into "Reply to App Review" AND into App Review Information → Notes. Attach the screen recording.
 
-**1. Screen recording** — attached (recorded on <IPHONE MODEL>, iOS <VERSION>). Shows: launch → Sign in with Apple → log out → email sign-up → adding a vehicle (VIN decode) → camera permission prompt while scanning a receipt → the history timeline → reporting and blocking a user from a post → Settings → Delete account.
+**1. Screen recording** — attached (recorded on iPhone 17e, iOS 26.5.2). Shows: launch → Sign in with Apple → log out → email sign-up → adding a vehicle (VIN decode) → camera permission prompt while scanning a receipt → the history timeline → reporting and blocking a user from a post → Settings → Delete account.
 
-**2. Devices tested** — <IPHONE MODEL> (iOS <VERSION>) via TestFlight; iPhone 15 Pro / iOS 18 simulator during development.
+**2. Devices tested** — iPhone 17e (iOS 26.5.2) via TestFlight; iPhone 15 Pro / iOS 18 simulator during development.
 
 **3. What the app does / audience** — CarFable keeps a vehicle's complete service history: owners log maintenance, repairs, fuel-ups and modifications, attach receipt photos (the app reads the receipt to pre-fill date, cost and shop), and get mileage and cost statistics. The history stays with the car: owners can transfer a vehicle's record to a buyer. Audience: car enthusiasts and private sellers/buyers, 13+. Value: a trustworthy, portable service record instead of a shoebox of receipts.
 
