@@ -124,6 +124,19 @@ export default function SettingsScreen() {
           Log out
         </Text>
       </View>
+
+      <Text style={styles.sectionHeader}>Danger zone</Text>
+      <View style={styles.card}>
+        <Pressable
+          onPress={() =>
+            router.push(
+              `/delete-account?hasPassword=${me?.has_password === true ? "true" : "false"}`,
+            )
+          }
+        >
+          <Text style={styles.deleteBtn}>Delete account</Text>
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
@@ -168,6 +181,13 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   logoutBtn: {
+    color: "#dc2626",
+    fontWeight: "600",
+    fontSize: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  deleteBtn: {
     color: "#dc2626",
     fontWeight: "600",
     fontSize: 16,

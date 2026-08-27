@@ -682,6 +682,34 @@ export const authApiExtra = {
           : { newPassword },
       ),
     }),
+  /**
+   * Permanently delete the current user's account.
+   * Uses a raw fetch so a wrong-password 401 is surfaced as "Wrong password"
+   * rather than triggering the global session-expired redirect.
+   */
+  deleteAccount: async (payload: { password?: string; confirm: string }): Promise<void> => {
+    const token = await getToken();
+    const res = await fetch(API_BASE + "/users/me", {
+      method: "DELETE",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (res.status === 401) throw new Error("Wrong password");
+    if (res.status === 204) return;
+    if (!res.ok) {
+      let detail = `Request failed (${res.status})`;
+      try {
+        const body = await res.json();
+        if (typeof body?.detail === "string") detail = body.detail;
+      } catch {
+        // keep generic message
+      }
+      throw new Error(detail);
+    }
+  },
 };
 
 export type ReportPayload = {

@@ -36,6 +36,7 @@ export default function RootLayout() {
       <Stack.Screen name="vehicle-form" options={{ title: "Vehicle", presentation: "modal" }} />
       <Stack.Screen name="settings" options={{ title: "Settings" }} />
       <Stack.Screen name="change-password" options={{ title: "Change password" }} />
+      <Stack.Screen name="delete-account" options={{ title: "Delete account" }} />
       <Stack.Screen name="vehicle/[id]/transfer" options={{ title: "Transfer ownership" }} />
       <Stack.Screen name="transfer/[code]" options={{ title: "Accept transfer" }} />
       <Stack.Screen name="u/[id]" options={{ title: "Profile" }} />
