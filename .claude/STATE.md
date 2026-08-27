@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-27 (c) — PROD FIX: pillow was missing from the backend image (all blur/redaction failed in prod; dev+backfill masked it). Declared in pyproject, redeployed (rev 00023), verified regenerate in prod. LESSON: any new import → add to pyproject runtime deps (httpx, pillow both bit us).
+
 ## 2026-08-27 (b) — self-heal receipt processing (POST /vehicle-event-media/{id}/process) + camera-denied handling DEPLOYED; Cloud Run --no-cpu-throttling set (background tasks were starving); iOS BUILD 8 on TestFlight = build to record on / resubmit with. master = media-selfheal.
 
 ## 2026-08-27 — APP REVIEW: v1.0 REJECTED (2.1 Information Needed: recording + notes). Built ACCOUNT DELETION (DELETE /users/me, Settings→Danger zone web+mobile; privacy/support updated) — DEPLOYED (backend/web/EAS) and iOS BUILD 7 on TestFlight. Reply text + recording script in plan/APPSTORE.md. OWNER: update to build 7, record, reply in ASC, select build 7, resubmit. master = account-deletion.
