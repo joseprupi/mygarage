@@ -16,6 +16,7 @@ import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { catalogApi, mediaUrl, uploadImage, vehicleApi, vinApi, type VehicleSpecs } from "@/lib/api";
+import { ensureCamera, ensureLibrary } from "@/lib/permissions";
 
 const emptyForm = {
   make: "",
@@ -178,11 +179,13 @@ export default function VehicleFormScreen() {
     const options: ImagePicker.ImagePickerOptions = { quality: 0.85, allowsEditing: true, aspect: [16, 9] };
     const result = fromCamera
       ? await (async () => {
-          const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) return null;
+          if (!(await ensureCamera())) return null;
           return ImagePicker.launchCameraAsync(options);
         })()
-      : await ImagePicker.launchImageLibraryAsync(options);
+      : await (async () => {
+          if (!(await ensureLibrary())) return null;
+          return ImagePicker.launchImageLibraryAsync(options);
+        })();
     if (!result || result.canceled) return;
     setUploading(true);
     setError(null);

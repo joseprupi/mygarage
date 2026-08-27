@@ -611,6 +611,12 @@ export const eventMediaApi = {
       method: "PATCH",
       body: JSON.stringify({ visibility }),
     }),
+  /**
+   * Synchronously complete any missing processing (blur / PII / redacted copy) for the
+   * given media item and return the updated Media object.
+   */
+  process: (id: string) =>
+    request<Media>(`/vehicle-event-media/${id}/process`, { method: "POST" }),
 };
 
 export const redactionApi = {

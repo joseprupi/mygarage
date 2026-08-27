@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -112,20 +112,65 @@ function MediaViewerModal({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  // Local copy so the control reflects the change immediately (the parent refetch is async).
+
+  // Local mirror of the media prop, updated immediately after process() completes so
+  // the UI reflects fresh pii/redaction state without waiting for the parent to refetch.
+  const [localMedia, setLocalMedia] = useState<Media>(media);
+  const [processing, setProcessing] = useState(false);
+  const [processError, setProcessError] = useState(false);
+  // Guard: auto-trigger process() at most once per media id per modal mount.
+  const processedRef = useRef<string | null>(null);
+
+  // Visibility local copy so the control reflects changes immediately.
   const [visibility, setLocalVisibility] = useState<"private" | "redacted" | "original">(media.visibility ?? "private");
   const [previewVisitor, setPreviewVisitor] = useState(false);
+
+  // Reset local state when a different media item is opened.
+  useEffect(() => {
+    setLocalMedia(media);
+    setProcessing(false);
+    setProcessError(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [media.id]);
+
   useEffect(() => {
     setLocalVisibility(media.visibility ?? "private");
   }, [media.id, media.visibility]);
-  const piiStatus = media.piiStatus ?? "unknown";
+
+  // Auto-heal: if processing is incomplete on open, kick off process() once.
+  useEffect(() => {
+    if (!localMedia.id) return;
+    const needsProcess = localMedia.piiStatus === "unknown" || !localMedia.redactionReady;
+    if (!needsProcess) return;
+    if (processedRef.current === localMedia.id) return; // already triggered
+    processedRef.current = localMedia.id;
+    void doProcess();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localMedia.id, localMedia.piiStatus, localMedia.redactionReady]);
+
+  async function doProcess() {
+    if (!localMedia.id) return;
+    setProcessing(true);
+    setProcessError(false);
+    try {
+      const updated = await eventMediaApi.process(localMedia.id);
+      setLocalMedia(updated);
+      onRefetch();
+    } catch {
+      setProcessError(true);
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  const piiStatus = localMedia.piiStatus ?? "unknown";
   const piiKindsText =
-    piiStatus === "detected" && media.piiKinds?.length
-      ? media.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")
+    piiStatus === "detected" && localMedia.piiKinds?.length
+      ? localMedia.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")
       : null;
 
   const originalDisabled = piiStatus !== "none";
-  const redactedDisabled = !media.redactionReady;
+  const redactedDisabled = !localMedia.redactionReady;
 
   type VisSegment = { label: string; value: "private" | "redacted" | "original"; disabled: boolean; hint?: string };
   const segments: VisSegment[] = [
@@ -144,14 +189,41 @@ function MediaViewerModal({
     },
   ];
 
-  // PII line
-  let piiLine: string;
-  if (piiStatus === "detected") {
-    piiLine = piiKindsText ? `Contains: ${piiKindsText}` : "Contains personal info";
+  // PII / status line: show processing indicator, error retry, or the detected kinds.
+  let piiLine: ReactNode;
+  if (processing) {
+    piiLine = (
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <ActivityIndicator size="small" color="#94a3b8" />
+        <Text style={viewerStyles.piiLine}>
+          Preparing… (checking for personal info and creating the redacted copy)
+        </Text>
+      </View>
+    );
+  } else if (processError) {
+    piiLine = (
+      <Pressable
+        onPress={() => {
+          processedRef.current = null;
+          void doProcess();
+        }}
+        hitSlop={8}
+      >
+        <Text style={[viewerStyles.piiLine, { color: "#64748b" }]}>
+          Couldn't finish processing — tap to retry
+        </Text>
+      </Pressable>
+    );
+  } else if (piiStatus === "detected") {
+    piiLine = (
+      <Text style={viewerStyles.piiLine}>
+        {piiKindsText ? `Contains: ${piiKindsText}` : "Contains personal info"}
+      </Text>
+    );
   } else if (piiStatus === "none") {
-    piiLine = "No personal info found";
+    piiLine = <Text style={viewerStyles.piiLine}>No personal info found</Text>;
   } else {
-    piiLine = "Checking for personal info…";
+    piiLine = <Text style={viewerStyles.piiLine}>Checking for personal info…</Text>;
   }
 
   async function handleSetVisibility(vis: "private" | "redacted" | "original") {
@@ -180,8 +252,8 @@ function MediaViewerModal({
   }
 
   const visitorUri =
-    visibility === "original" ? media.url : visibility === "redacted" ? media.redactedUrl : media.blurUrl;
-  const imageUri = mediaUrl(previewVisitor ? visitorUri ?? media.blurUrl : media.url) ?? undefined;
+    visibility === "original" ? localMedia.url : visibility === "redacted" ? localMedia.redactedUrl : localMedia.blurUrl;
+  const imageUri = mediaUrl(previewVisitor ? visitorUri ?? localMedia.blurUrl : localMedia.url) ?? undefined;
   const visitorCaption =
     visibility === "original"
       ? "Visitors see the original"
@@ -230,7 +302,7 @@ function MediaViewerModal({
           </View>
 
           {/* PII / status line */}
-          <Text style={viewerStyles.piiLine}>{piiLine}</Text>
+          {piiLine}
           <Pressable onPress={() => setPreviewVisitor((v) => !v)} hitSlop={8} style={viewerStyles.previewToggle}>
             <Ionicons name={previewVisitor ? "eye-off-outline" : "eye-outline"} size={16} color="#2563eb" />
             <Text style={viewerStyles.previewToggleText}>
@@ -244,7 +316,7 @@ function MediaViewerModal({
           ))}
 
           {/* Adjust redaction link */}
-          {media.redactionReady && (
+          {localMedia.redactionReady && (
             <Pressable onPress={handleAdjustRedaction} hitSlop={8}>
               <Text style={viewerStyles.adjustLink}>Adjust redaction</Text>
             </Pressable>

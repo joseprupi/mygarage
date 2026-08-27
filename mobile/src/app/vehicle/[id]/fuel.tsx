@@ -24,6 +24,7 @@ import {
   type Media,
   type PickedAsset,
 } from "@/lib/api";
+import { ensureCamera, ensureLibrary } from "@/lib/permissions";
 
 type Slot = { label: string; hint: string; asset: PickedAsset | null; media: Media | null };
 
@@ -57,11 +58,13 @@ export default function FuelScreen() {
     const options: ImagePicker.ImagePickerOptions = { quality: 0.9 };
     const result = fromCamera
       ? await (async () => {
-          const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) return null;
+          if (!(await ensureCamera())) return null;
           return ImagePicker.launchCameraAsync(options);
         })()
-      : await ImagePicker.launchImageLibraryAsync(options);
+      : await (async () => {
+          if (!(await ensureLibrary())) return null;
+          return ImagePicker.launchImageLibraryAsync(options);
+        })();
     if (!result || result.canceled) return;
     const asset = result.assets[0];
     setBusySlot(slotIndex);

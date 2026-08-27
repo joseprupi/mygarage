@@ -18,6 +18,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { aiApi, eventApi, mediaUrl, uploadImage, type Media, type PickedAsset, type ReceiptScan } from "@/lib/api";
+import { ensureCamera, ensureLibrary } from "@/lib/permissions";
 
 // Extends Media with a localUri for in-form previews (never sent to backend).
 type MediaWithPreview = Media & { localUri?: string };
@@ -82,11 +83,13 @@ export default function EventFormScreen() {
     const options: ImagePicker.ImagePickerOptions = { quality: 0.8, allowsMultipleSelection: !fromCamera };
     const result = fromCamera
       ? await (async () => {
-          const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) return null;
+          if (!(await ensureCamera())) return null;
           return ImagePicker.launchCameraAsync(options);
         })()
-      : await ImagePicker.launchImageLibraryAsync(options);
+      : await (async () => {
+          if (!(await ensureLibrary())) return null;
+          return ImagePicker.launchImageLibraryAsync(options);
+        })();
     if (!result || result.canceled) return;
     setUploading(true);
     setError(null);
@@ -107,11 +110,13 @@ export default function EventFormScreen() {
     const options: ImagePicker.ImagePickerOptions = { quality: 0.9, allowsMultipleSelection: !fromCamera };
     const result = fromCamera
       ? await (async () => {
-          const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) return null;
+          if (!(await ensureCamera())) return null;
           return ImagePicker.launchCameraAsync(options);
         })()
-      : await ImagePicker.launchImageLibraryAsync(options);
+      : await (async () => {
+          if (!(await ensureLibrary())) return null;
+          return ImagePicker.launchImageLibraryAsync(options);
+        })();
     if (!result || result.canceled) return;
     setScanPages((prev) => [...prev, ...result.assets].slice(0, 5));
     setScanNote(null);
