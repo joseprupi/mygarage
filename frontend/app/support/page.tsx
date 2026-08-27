@@ -13,7 +13,7 @@ export default function SupportPage() {
       </p>
       <ul className="list-disc pl-5 space-y-1">
         <li><strong>Questions or problems:</strong> email <a className="text-petrol underline" href="mailto:hello@carfable.com">hello@carfable.com</a> — we usually answer within a day.</li>
-        <li><strong>Account deletion:</strong> email us from your account address and we will delete your account and data.</li>
+        <li><strong>Account deletion:</strong> you can delete your account and all data at any time from Settings (Profile → Danger zone). You can also email us from your account address and we will do it.</li>
         <li><strong>Privacy:</strong> see our <Link href="/privacy" className="text-petrol underline">privacy policy</Link>.</li>
       </ul>
     </div>

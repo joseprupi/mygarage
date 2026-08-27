@@ -91,7 +91,9 @@ export const authApi = {
     settings?: Partial<UserSettings>;
   }) => api<unknown>("/users/me", { method: "PATCH", body: JSON.stringify(body) }),
   changePassword: (body: { currentPassword?: string; newPassword: string }) =>
-    api<void>("/auth/change-password", { method: "POST", body: JSON.stringify(body) })
+    api<void>("/auth/change-password", { method: "POST", body: JSON.stringify(body) }),
+  deleteAccount: (body: { password?: string; confirm: "DELETE" }) =>
+    api<void>("/users/me", { method: "DELETE", body: JSON.stringify(body) })
 };
 
 export type VehiclePayload = Partial<Omit<Vehicle, "specs">> & { specs?: VehicleSpecs | null };

@@ -41,7 +41,7 @@ export default function PrivacyPage() {
       <h2 className="text-lg font-semibold">Your rights</h2>
       <ul className="list-disc pl-5 space-y-1">
         <li>Export: your vehicle history can be exported (CSV + photos) at any time.</li>
-        <li>Deletion: deleting a vehicle or post removes its data; to delete your whole account and data, contact us and we will do it promptly.</li>
+        <li>Deletion: deleting a vehicle or post removes its data. You can delete your account and all data at any time from Settings (Profile → Danger zone). You can also contact us and we will do it promptly.</li>
         <li>Access/correction: edit your data directly in the app, or contact us.</li>
       </ul>
 

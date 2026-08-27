@@ -3,10 +3,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 
 import { LocationInput } from "@/components/LocationInput";
 import { authApi, mediaApi, setToken, ApiError } from "@/lib/api/client";
+import { useDialogFocus } from "@/lib/useDialogFocus";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import type { PublicUser } from "@/lib/types";
@@ -18,6 +20,124 @@ type MeUser = PublicUser & {
   created_at?: string;
 };
 
+function DeleteAccountDialog({ hasPassword, onClose }: { hasPassword: boolean; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const dialogRef = useDialogFocus<HTMLDivElement>();
+  const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  const deleteAccount = useMutation({
+    mutationFn: () =>
+      authApi.deleteAccount({
+        ...(hasPassword ? { password } : {}),
+        confirm: "DELETE"
+      }),
+    onSuccess: () => {
+      setToken(null);
+      queryClient.clear();
+      router.push("/");
+    },
+    onError: (err) => {
+      setDeleteError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Failed to delete account");
+    }
+  });
+
+  const canSubmit = confirmText === "DELETE" && (!hasPassword || password.length > 0) && !deleteAccount.isPending;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-account-title"
+        tabIndex={-1}
+        className="surface flex max-h-[90vh] w-full max-w-sm flex-col rounded-3xl p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="mb-4 flex items-center justify-between">
+          <h2 id="delete-account-title" className="text-base font-semibold text-red-600">
+            Delete account
+          </h2>
+          <button
+            className="rounded-full p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-asphalt"
+            onClick={onClose}
+            aria-label="Close"
+            type="button"
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canSubmit) deleteAccount.mutate();
+          }}
+        >
+          <p className="text-sm text-slate-700">
+            Your account, your vehicles and their full history, receipts, posts and comments are permanently deleted. Vehicles you transferred to others keep their history; your name is removed from them.
+          </p>
+          {hasPassword && (
+            <label className="block space-y-1 text-sm">
+              <span>Password</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+          )}
+          <label className="block space-y-1 text-sm">
+            <span>
+              Type <strong>DELETE</strong> to confirm
+            </span>
+            <input
+              className="input"
+              type="text"
+              autoComplete="off"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+            />
+          </label>
+          {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              className="btn disabled:opacity-60 bg-red-600 text-white hover:bg-red-700"
+              disabled={!canSubmit}
+            >
+              {deleteAccount.isPending ? "Deleting…" : "Delete my account"}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function ProfileEditor() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -28,6 +148,7 @@ export function ProfileEditor() {
   const [pwFields, setPwFields] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [pwMsg, setPwMsg] = useState<string | null>(null);
   const [pwError, setPwError] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   function logOut() {
     setToken(null);
@@ -307,6 +428,22 @@ export function ProfileEditor() {
           </label>
         </div>
       </div>
+      <div className="surface rounded-3xl p-6">
+        <h2 className="mb-4 text-lg font-bold">Danger zone</h2>
+        <button
+          type="button"
+          className="btn text-red-600"
+          onClick={() => setShowDeleteDialog(true)}
+        >
+          Delete account
+        </button>
+      </div>
+      {showDeleteDialog && (
+        <DeleteAccountDialog
+          hasPassword={user.has_password ?? false}
+          onClose={() => setShowDeleteDialog(false)}
+        />
+      )}
     </section>
   );
 }
