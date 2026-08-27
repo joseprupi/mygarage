@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import React, { Suspense, use, useState } from "react";
+import React, { Suspense, use, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Download, ExternalLink, Pencil, Plus } from "lucide-react";
 
 import { eventApi, eventDocumentApi, eventMediaApi, redactionApi, getToken, modApi, ownershipApi, reportApi, transferApi, vehicleApi, apiUrl } from "@/lib/api/client";
@@ -140,6 +140,12 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
   const [transferError, setTransferError] = useState<string | null>(null);
   const [pendingTransfer, setPendingTransfer] = useState<VehicleTransfer | null | undefined>(undefined);
   const [reportVehicleOpen, setReportVehicleOpen] = useState(false);
+  // Per-media processing state: tracks ids currently being auto-processed and
+  // ids that errored (to show the retry button). The triggeredIds ref guards
+  // against firing the same POST more than once per mount.
+  const [processingMediaIds, setProcessingMediaIds] = useState<Set<string>>(new Set());
+  const [processingErrorIds, setProcessingErrorIds] = useState<Set<string>>(new Set());
+  const triggeredProcessIds = useRef<Set<string>>(new Set());
   const queryClient = useQueryClient();
   const vehicle = useQuery({ queryKey: ["vehicle", vehicleId], queryFn: () => vehicleApi.get(vehicleId) });
   const me = useMe();
@@ -210,6 +216,34 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
     if (value !== "all") params.set("owner", value);
     router.replace(`/v/${vehicleId}?${params.toString()}`, { scroll: false });
   }
+
+  // Auto-trigger processing for owner media items that have not yet been fully
+  // processed (piiStatus === "unknown" OR !redactionReady). Fires once per media
+  // id per mount (triggeredProcessIds guards re-entry). Must be at top level —
+  // no hooks after early returns.
+  useEffect(() => {
+    if (!events.data) return;
+    const isOwnerNow = Boolean(me.data && (me.data as { id: string }).id === vehicle.data?.owner_user_id);
+    if (!isOwnerNow) return;
+    for (const event of events.data) {
+      for (const m of event.media) {
+        if (m.mediaType !== "image") continue;
+        const needsProcess = m.piiStatus === "unknown" || !m.redactionReady;
+        if (!needsProcess) continue;
+        if (triggeredProcessIds.current.has(m.id)) continue;
+        triggeredProcessIds.current.add(m.id);
+        setProcessingMediaIds((prev) => new Set([...prev, m.id]));
+        setProcessingErrorIds((prev) => { const next = new Set(prev); next.delete(m.id); return next; });
+        eventMediaApi.process(m.id).then(() => {
+          setProcessingMediaIds((prev) => { const next = new Set(prev); next.delete(m.id); return next; });
+          void queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
+        }).catch(() => {
+          setProcessingMediaIds((prev) => { const next = new Set(prev); next.delete(m.id); return next; });
+          setProcessingErrorIds((prev) => new Set([...prev, m.id]));
+        });
+      }
+    }
+  }, [events.data, me.data, vehicle.data?.owner_user_id, vehicleId, queryClient]);
 
   if (vehicle.isLoading) return <div>Loading vehicle...</div>;
   if (vehicle.error) return <LoadErrorCard error={vehicle.error} noun="vehicle" />;
@@ -1388,13 +1422,48 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
                                       </button>
                                     )}
                                   </div>
-                                  <p className="mt-1 text-slate-400">
-                                    {m.piiStatus === "detected"
-                                      ? `Contains: ${m.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")}`
-                                      : m.piiStatus === "none"
-                                        ? "No personal info found"
-                                        : "Checking for personal info…"}
-                                  </p>
+                                  {processingMediaIds.has(m.id) ? (
+                                    <p className="mt-1 flex items-center gap-1.5 text-slate-400">
+                                      <svg className="h-3 w-3 animate-spin text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                                      </svg>
+                                      Preparing… (checking for personal info and creating the redacted copy)
+                                    </p>
+                                  ) : processingErrorIds.has(m.id) ? (
+                                    <p className="mt-1 flex items-center gap-2 text-red-600">
+                                      Couldn&apos;t finish processing —{" "}
+                                      <button
+                                        type="button"
+                                        className="underline"
+                                        onClick={() => {
+                                          if (triggeredProcessIds.current.has(m.id)) {
+                                            triggeredProcessIds.current.delete(m.id);
+                                          }
+                                          setProcessingErrorIds((prev) => { const next = new Set(prev); next.delete(m.id); return next; });
+                                          triggeredProcessIds.current.add(m.id);
+                                          setProcessingMediaIds((prev) => new Set([...prev, m.id]));
+                                          eventMediaApi.process(m.id).then(() => {
+                                            setProcessingMediaIds((prev) => { const next = new Set(prev); next.delete(m.id); return next; });
+                                            void queryClient.invalidateQueries({ queryKey: ["vehicleEvents", vehicleId] });
+                                          }).catch(() => {
+                                            setProcessingMediaIds((prev) => { const next = new Set(prev); next.delete(m.id); return next; });
+                                            setProcessingErrorIds((prev) => new Set([...prev, m.id]));
+                                          });
+                                        }}
+                                      >
+                                        retry
+                                      </button>
+                                    </p>
+                                  ) : (
+                                    <p className="mt-1 text-slate-400">
+                                      {m.piiStatus === "detected"
+                                        ? `Contains: ${m.piiKinds.map((k) => PII_KIND_LABELS[k] ?? k).join(", ")}`
+                                        : m.piiStatus === "none"
+                                          ? "No personal info found"
+                                          : "Checking for personal info…"}
+                                    </p>
+                                  )}
                                 </div>
                               ))}
                             </div>

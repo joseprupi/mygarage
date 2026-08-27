@@ -343,7 +343,11 @@ export const eventMediaApi = {
     api<EventMedia>(`/vehicle-event-media/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ visibility })
-    })
+    }),
+  // POST /vehicle-event-media/{id}/process — owner-only. Synchronously completes any
+  // missing processing (PII scan + redacted copy) and returns the updated media item.
+  process: (id: string) =>
+    api<EventMedia>(`/vehicle-event-media/${id}/process`, { method: "POST" })
 };
 
 // PATCH /vehicle-event-documents/{id} — same semantics as eventMediaApi.setPublic.
