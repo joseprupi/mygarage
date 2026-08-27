@@ -19,13 +19,14 @@ from botocore.config import Config
 from fastapi import BackgroundTasks, HTTPException, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
-from sqlalchemy import Select, and_, delete, desc, func, or_, select
+from sqlalchemy import Select, and_, delete, desc, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.models import (
     Comment,
     CommentLike,
+    Follow,
     Post,
     PostLike,
     PostMedia,
@@ -45,6 +46,7 @@ from app.models import (
 from app.schemas import (
     AppleLoginRequest,
     ChangePasswordRequest,
+    DeleteAccountRequest,
     CommentCreate,
     CommentRead,
     EventDocumentRead,
@@ -359,6 +361,217 @@ def change_password(db: Session, user: User, data: ChangePasswordRequest) -> Non
         if not verify_password(data.current_password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect current password")
     user.password_hash = hash_password(data.new_password)
+    db.commit()
+
+
+def delete_user_account(db: Session, user: User, data: DeleteAccountRequest) -> None:
+    """Full, transactional hard-deletion of the user's account and all owned data.
+
+    FK tables handled (every table with a FK → users):
+    - vehicles (owner_user_id): owned vehicles deleted entirely (delete_vehicle semantics)
+    - vehicle_events (author_user_id): reassigned to current vehicle owner for events on transferred vehicles
+    - vehicle_mods (author_user_id): same
+    - posts (author_user_id): deleted with post media storage objects
+    - post_media: deleted (storage objects) then rows
+    - post_likes (user_id): deleted
+    - comments (author_user_id): deleted (+ replies nulled first)
+    - comment_likes (user_id): deleted
+    - vehicle_ownerships (owner_user_id): nulled out + label "Previous owner" for periods on other users' vehicles
+    - vehicle_ownerships (created_by): reassigned to current vehicle owner for FK integrity
+    - reports (reporter_user_id): deleted
+    - user_blocks (blocker_user_id, blocked_user_id): deleted both directions
+    - vehicle_transfers (from_user_id, to_user_id): deleted (pending + historical for FK safety)
+    - follows (follower_user_id, followed_user_id): deleted both directions
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
+    # 1. Verify confirm token
+    if data.confirm != "DELETE":
+        raise HTTPException(
+            status_code=422,
+            detail='confirm must be the string "DELETE"',
+        )
+
+    # 2. Verify password for password-based accounts
+    if user.has_password:
+        if not data.password:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Password is required to delete your account",
+            )
+        if not verify_password(data.password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect password",
+            )
+
+    uid = user.id
+
+    # 3. Delete vehicles currently owned by the user (full delete_vehicle semantics)
+    owned_vehicle_ids = list(db.scalars(
+        select(Vehicle.id).where(Vehicle.owner_user_id == uid)
+    ))
+    for vid in owned_vehicle_ids:
+        # Events + their storage
+        event_ids = list(db.scalars(
+            select(VehicleEvent.id).where(VehicleEvent.vehicle_id == vid)
+        ))
+        if event_ids:
+            media_rows = list(db.scalars(
+                select(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids))
+            ))
+            for m in media_rows:
+                _delete_event_media_storage(m)
+            doc_rows = list(db.scalars(
+                select(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids))
+            ))
+            for d in doc_rows:
+                _delete_event_doc_storage(d)
+            db.execute(delete(VehicleEventMedia).where(VehicleEventMedia.vehicle_event_id.in_(event_ids)))
+            db.execute(delete(VehicleEventDocument).where(VehicleEventDocument.vehicle_event_id.in_(event_ids)))
+            db.execute(delete(VehicleEvent).where(VehicleEvent.vehicle_id == vid))
+        # Mods
+        mod_ids = list(db.scalars(
+            select(VehicleMod.id).where(VehicleMod.vehicle_id == vid)
+        ))
+        if mod_ids:
+            db.execute(delete(VehicleModMedia).where(VehicleModMedia.vehicle_mod_id.in_(mod_ids)))
+            db.execute(delete(VehicleMod).where(VehicleMod.vehicle_id == vid))
+        # Vehicle-level relations
+        db.execute(delete(PostVehicleTag).where(PostVehicleTag.vehicle_id == vid))
+        db.execute(delete(VehicleOwnership).where(VehicleOwnership.vehicle_id == vid))
+        db.execute(delete(VehicleTransfer).where(VehicleTransfer.vehicle_id == vid))
+        db.execute(delete(Follow).where(Follow.followed_vehicle_id == vid))
+    if owned_vehicle_ids:
+        db.execute(delete(Vehicle).where(Vehicle.id.in_(owned_vehicle_ids)))
+    db.flush()
+
+    # 4. Null out ownership periods on OTHER users' vehicles where the user was a previous owner.
+    #    Keep the row for history integrity; clear the identity link.
+    db.execute(
+        update(VehicleOwnership)
+        .where(VehicleOwnership.owner_user_id == uid)
+        .values(owner_user_id=None, label="Previous owner")
+    )
+    db.flush()
+
+    # 5. Reassign VehicleOwnership.created_by → current vehicle owner (NOT NULL FK safety for Postgres)
+    orphan_created_by = list(db.scalars(
+        select(VehicleOwnership).where(VehicleOwnership.created_by == uid)
+    ))
+    for period in orphan_created_by:
+        current_owner_id = db.scalar(
+            select(Vehicle.owner_user_id).where(Vehicle.id == period.vehicle_id)
+        )
+        if current_owner_id:
+            period.created_by = current_owner_id
+    db.flush()
+
+    # 6. Reassign vehicle_events.author_user_id on other (transferred) vehicles to current owner
+    orphan_events = list(db.scalars(
+        select(VehicleEvent).where(VehicleEvent.author_user_id == uid)
+    ))
+    for evt in orphan_events:
+        current_owner_id = db.scalar(
+            select(Vehicle.owner_user_id).where(Vehicle.id == evt.vehicle_id)
+        )
+        if current_owner_id:
+            evt.author_user_id = current_owner_id
+    db.flush()
+
+    # 7. Reassign vehicle_mods.author_user_id on other vehicles
+    orphan_mods = list(db.scalars(
+        select(VehicleMod).where(VehicleMod.author_user_id == uid)
+    ))
+    for mod in orphan_mods:
+        current_owner_id = db.scalar(
+            select(Vehicle.owner_user_id).where(Vehicle.id == mod.vehicle_id)
+        )
+        if current_owner_id:
+            mod.author_user_id = current_owner_id
+    db.flush()
+
+    # 8. Delete user's posts (and their media storage, likes, comments)
+    post_ids = list(db.scalars(
+        select(Post.id).where(Post.author_user_id == uid)
+    ))
+    if post_ids:
+        # Delete storage objects for post media (public bucket)
+        pm_rows = list(db.scalars(
+            select(PostMedia).where(PostMedia.post_id.in_(post_ids))
+        ))
+        for pm in pm_rows:
+            key = _object_key_from_url(pm.url)
+            if key:
+                try:
+                    _s3_client().delete_object(
+                        Bucket=get_settings().storage_bucket, Key=key
+                    )
+                except Exception:
+                    pass  # already gone — log + continue
+        # Comments on user's posts (all, from anyone)
+        comment_ids_on_posts = list(db.scalars(
+            select(Comment.id).where(Comment.post_id.in_(post_ids))
+        ))
+        if comment_ids_on_posts:
+            db.execute(
+                update(Comment)
+                .where(Comment.parent_comment_id.in_(comment_ids_on_posts))
+                .values(parent_comment_id=None)
+            )
+            db.execute(delete(CommentLike).where(CommentLike.comment_id.in_(comment_ids_on_posts)))
+            db.execute(delete(Comment).where(Comment.id.in_(comment_ids_on_posts)))
+        db.execute(delete(PostLike).where(PostLike.post_id.in_(post_ids)))
+        db.execute(delete(PostVehicleTag).where(PostVehicleTag.post_id.in_(post_ids)))
+        db.execute(delete(PostMedia).where(PostMedia.post_id.in_(post_ids)))
+        db.execute(delete(Post).where(Post.id.in_(post_ids)))
+    db.flush()
+
+    # 9. Delete user's own comments on other posts
+    user_comment_ids = list(db.scalars(
+        select(Comment.id).where(Comment.author_user_id == uid)
+    ))
+    if user_comment_ids:
+        db.execute(
+            update(Comment)
+            .where(Comment.parent_comment_id.in_(user_comment_ids))
+            .values(parent_comment_id=None)
+        )
+        db.execute(delete(CommentLike).where(CommentLike.comment_id.in_(user_comment_ids)))
+        db.execute(delete(Comment).where(Comment.id.in_(user_comment_ids)))
+    db.flush()
+
+    # 10. Delete user's likes (post + comment) — may already be deleted above, idempotent
+    db.execute(delete(PostLike).where(PostLike.user_id == uid))
+    db.execute(delete(CommentLike).where(CommentLike.user_id == uid))
+
+    # 11. Delete follows both directions (user → others, others → user, user → vehicles)
+    db.execute(
+        delete(Follow).where(
+            or_(Follow.follower_user_id == uid, Follow.followed_user_id == uid)
+        )
+    )
+
+    # 12. Delete blocks both directions
+    db.execute(
+        delete(UserBlock).where(
+            or_(UserBlock.blocker_user_id == uid, UserBlock.blocked_user_id == uid)
+        )
+    )
+
+    # 13. Delete reports filed by this user (delete both directions for simplicity)
+    db.execute(delete(Report).where(Report.reporter_user_id == uid))
+
+    # 14. Delete vehicle transfers involving this user (pending + historical for FK safety)
+    db.execute(
+        delete(VehicleTransfer).where(
+            or_(VehicleTransfer.from_user_id == uid, VehicleTransfer.to_user_id == uid)
+        )
+    )
+
+    # 15. Hard-delete the user row
+    db.execute(delete(User).where(User.id == uid))
     db.commit()
 
 

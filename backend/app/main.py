@@ -14,6 +14,7 @@ from app.models import User
 from app.schemas import (
     AppleLoginRequest,
     ChangePasswordRequest,
+    DeleteAccountRequest,
     EventDocumentRead,
     EventHiddenToggle,
     EventMediaRead,
@@ -134,6 +135,20 @@ def change_password(
     user: User = Depends(get_current_user),
 ) -> None:
     services.change_password(db, user, data)
+
+
+@app.delete("/users/me", status_code=204)
+def delete_me(
+    data: DeleteAccountRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Permanently delete the authenticated user's account and all their data.
+
+    Requires confirm="DELETE" in the request body.
+    Password-based accounts must also supply their current password.
+    """
+    services.delete_user_account(db, user, data)
 
 
 @app.get("/auth/me", response_model=UserRead)

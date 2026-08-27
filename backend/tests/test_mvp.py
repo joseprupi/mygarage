@@ -2566,3 +2566,179 @@ def test_render_redacted_image_produces_valid_jpeg():
     out = _PilImage.open(_redact_io.BytesIO(result))
     assert out.format == "JPEG"
     assert max(out.width, out.height) <= 2000
+
+
+# ---------------------------------------------------------------------------
+# Account deletion (DELETE /users/me)
+# ---------------------------------------------------------------------------
+
+def _delete_me(token: str, body: dict) -> "httpx.Response":
+    """Helper: DELETE /users/me with a JSON body (httpx delete() does not support json=)."""
+    import json as _json
+    return client.request(
+        "DELETE",
+        "/users/me",
+        headers={**auth_headers(token), "Content-Type": "application/json"},
+        content=_json.dumps(body).encode(),
+    )
+
+
+def test_delete_account_wrong_confirm():
+    """confirm != 'DELETE' → 422."""
+    user = signup("del-confirm1", "del-confirm1@example.com")
+    resp = _delete_me(user["accessToken"], {"confirm": "delete"})  # lowercase — rejected
+    assert resp.status_code == 422
+
+
+def test_delete_account_wrong_password():
+    """Wrong password for a password-based account → 401."""
+    user = signup("del-badpw1", "del-badpw1@example.com")
+    resp = _delete_me(user["accessToken"], {"password": "notmypassword", "confirm": "DELETE"})
+    assert resp.status_code == 401
+
+
+def test_delete_account_missing_password_for_password_user():
+    """Omitting password for a password account → 401."""
+    user = signup("del-nopw1", "del-nopw1@example.com")
+    resp = _delete_me(user["accessToken"], {"confirm": "DELETE"})
+    assert resp.status_code == 401
+
+
+def test_delete_account_full(monkeypatch):
+    """Full account deletion: vehicle+event+media+post+comment+like+block+previous-owner period.
+
+    Checks:
+    - DELETE → 204
+    - Subsequent login → 401
+    - Transferred vehicle still exists owned by other user
+    - Previous-owner period nulled out (owner_user_id=None, label='Previous owner')
+    - Private storage object for the event media removed from fake S3
+    - Owned vehicle and its events are gone
+    """
+    import app.services as _svc
+
+    storage_key = "vehicle_event_media/del-acct-test.jpg"
+    settings = _svc.get_settings()
+    fake_s3 = _FakeS3(preloaded={
+        f"{settings.storage_private_bucket}/{storage_key}": b"fake-image-bytes",
+    })
+    monkeypatch.setattr(_svc, "_s3_client", lambda: fake_s3)
+
+    # ── Victim: the user to delete ──────────────────────────────────────────
+    victim = signup(f"del-victim-{uuid.uuid4().hex[:6]}", f"del-victim-{uuid.uuid4().hex[:6]}@example.com")
+    vtok = victim["accessToken"]
+
+    # ── Other: receives the transferred vehicle ──────────────────────────────
+    other = signup(f"del-other-{uuid.uuid4().hex[:6]}", f"del-other-{uuid.uuid4().hex[:6]}@example.com")
+    otok = other["accessToken"]
+
+    # ── Victim creates Vehicle B and transfers it to Other ───────────────────
+    # After transfer, victim is a previous owner of Vehicle B
+    vehicle_b = create_vehicle(vtok)
+    vb_id = vehicle_b["id"]
+    tr = client.post(
+        f"/vehicles/{vb_id}/transfers",
+        headers=auth_headers(vtok),
+        json={"handoverDate": "2025-06-01"},
+    ).json()
+    accept_resp = client.post(
+        f"/transfers/by-code/{tr['code']}/accept",
+        headers=auth_headers(otok),
+    )
+    assert accept_resp.status_code == 200, accept_resp.text
+
+    # ── Victim creates Vehicle A (still owned at deletion time) ──────────────
+    vehicle_a = create_vehicle(vtok)
+    va_id = vehicle_a["id"]
+
+    # Victim adds an event with media to Vehicle A
+    event_resp = client.post(
+        f"/vehicles/{va_id}/events",
+        headers=auth_headers(vtok),
+        json={
+            "eventType": "repair",
+            "title": "Big service",
+            "eventDate": "2025-01-15",
+            "media": [{"url": f"/media/{storage_key}", "media_type": "image"}],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    media_id = event_resp.json()["media"][0]["id"]
+
+    # Set storage_key on the media row so _delete_event_media_storage can find the object
+    from app.database import SessionLocal
+    from app.models import VehicleEventMedia as _VEM
+    from sqlalchemy import update as _upd
+    with SessionLocal() as db:
+        db.execute(_upd(_VEM).where(_VEM.id == media_id).values(storage_key=storage_key))
+        db.commit()
+
+    # Victim creates a post (tagged to Vehicle A)
+    post_resp = client.post(
+        "/posts",
+        headers=auth_headers(vtok),
+        json={"caption": "My build", "vehicleIds": [va_id], "media": [], "visibility": "public"},
+    )
+    assert post_resp.status_code == 200, post_resp.text
+    post_id = post_resp.json()["id"]
+
+    # Other user comments on victim's post
+    comment_resp = client.post(
+        f"/posts/{post_id}/comments",
+        headers=auth_headers(otok),
+        json={"body": "Nice!"},
+    )
+    assert comment_resp.status_code == 200, comment_resp.text
+
+    # Victim likes the comment
+    c_id = comment_resp.json()["id"]
+    client.post(f"/comments/{c_id}/like", headers=auth_headers(vtok))
+
+    # Victim blocks other user
+    client.post(f"/users/{other['user']['id']}/block", headers=auth_headers(vtok))
+
+    # Verify fake S3 has the event-media object before deletion
+    assert fake_s3.has(settings.storage_private_bucket, storage_key), "Pre-condition: object in fake S3"
+
+    # ── DELETE the victim account ────────────────────────────────────────────
+    del_resp = _delete_me(vtok, {"password": "password123", "confirm": "DELETE"})
+    assert del_resp.status_code == 204, del_resp.text
+
+    # Login should fail afterwards
+    login_resp = client.post(
+        "/auth/login",
+        json={"email": victim["user"]["email"], "password": "password123"},
+    )
+    assert login_resp.status_code == 401
+
+    # Vehicle B (transferred) still exists, now owned by Other
+    vb_resp = client.get(f"/vehicles/{vb_id}")
+    assert vb_resp.status_code == 200, vb_resp.text
+    assert vb_resp.json()["owner_user_id"] == other["user"]["id"]
+
+    # Ownership period for victim on Vehicle B is nulled out with "Previous owner"
+    ownerships_resp = client.get(
+        f"/vehicles/{vb_id}/ownerships",
+        headers=auth_headers(otok),
+    )
+    assert ownerships_resp.status_code == 200, ownerships_resp.text
+    ownerships = ownerships_resp.json()
+    prev_period = next(
+        (p for p in ownerships if p.get("ownerUserId") is None),
+        None,
+    )
+    assert prev_period is not None, f"Expected a period with ownerUserId=None; got: {ownerships}"
+    assert prev_period["label"] == "Previous owner", f"Expected label='Previous owner'; got: {prev_period}"
+
+    # Vehicle A is gone
+    va_resp = client.get(f"/vehicles/{va_id}")
+    assert va_resp.status_code == 404
+
+    # Post is gone
+    p_resp = client.get(f"/posts/{post_id}")
+    assert p_resp.status_code == 404
+
+    # Storage object for Vehicle A's event media was removed from fake S3
+    assert not fake_s3.has(settings.storage_private_bucket, storage_key), (
+        "Expected event-media storage object to be deleted from fake S3"
+    )

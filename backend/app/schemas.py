@@ -721,6 +721,19 @@ class ChangePasswordRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DeleteAccountRequest(BaseModel):
+    """Body for DELETE /users/me.
+
+    password is required only if the account has a password (email/password users).
+    Google/Apple-only accounts may omit it. confirm must be the literal string "DELETE".
+    """
+
+    password: str | None = None
+    confirm: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 # ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
