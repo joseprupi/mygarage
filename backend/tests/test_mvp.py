@@ -2742,3 +2742,225 @@ def test_delete_account_full(monkeypatch):
     assert not fake_s3.has(settings.storage_private_bucket, storage_key), (
         "Expected event-media storage object to be deleted from fake S3"
     )
+
+# ── POST /vehicle-event-media/{id}/process (synchronous self-heal) ────────────
+
+
+def test_process_endpoint_fills_blur_pii_redacted(monkeypatch):
+    """Fresh row → POST /process fills blur, pii_status, and redacted_url (Gemini mocked)."""
+    import app.services as _svc
+
+    img_bytes = _make_test_image_bytes()
+
+    owner = signup(f"proc-{uuid.uuid4().hex[:6]}", f"proc-{uuid.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+
+    vehicle = client.post(
+        "/vehicles",
+        headers=auth_headers(token),
+        json={"make": "Toyota", "model": "Camry", "year": 2023},
+    ).json()
+    event = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(token),
+        json={
+            "eventType": "repair",
+            "title": "Process test event",
+            "eventDate": "2026-01-15",
+            "media": [{"url": "/media/vehicle_event_media/proc.jpg", "media_type": "image"}],
+        },
+    ).json()
+    media_id = event["media"][0]["id"]
+
+    storage_key = "vehicle_event_media/proc.jpg"
+    settings = _svc.get_settings()
+    fake_s3 = _FakeS3(
+        preloaded={f"{settings.storage_private_bucket}/{storage_key}": img_bytes}
+    )
+
+    # Patch storage_key on the row
+    from sqlalchemy import update as _upd4
+    from app.models import VehicleEventMedia as _VEM4
+    with _SL() as db:
+        db.execute(_upd4(_VEM4).where(_VEM4.id == media_id).values(storage_key=storage_key))
+        db.commit()
+
+    monkeypatch.setattr(_svc, "_s3_client", lambda: fake_s3)
+    monkeypatch.setattr(
+        _svc, "classify_media_pii",
+        lambda content, mime: {"is_document": False, "pii_kinds": ["license_plate"]},
+    )
+    monkeypatch.setattr(
+        _svc, "_detect_pii_boxes",
+        lambda img: [{"kind": "license_plate", "box": [10, 20, 100, 50], "source": "ai"}],
+    )
+
+    resp = client.post(
+        f"/vehicle-event-media/{media_id}/process",
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+
+    # blur and pii fields should be filled
+    assert data["blurUrl"] is not None
+    assert data["piiStatus"] == "detected"
+    assert data["piiKinds"] == ["license_plate"]
+    assert data["redactionReady"] is True
+
+    # S3 should have blur and redacted objects
+    assert fake_s3.has(settings.storage_bucket, f"event_media_blur/{media_id}-blur.jpg")
+    assert fake_s3.has(settings.storage_bucket, f"event_media_redacted/{media_id}.jpg")
+
+
+def test_process_endpoint_is_idempotent(monkeypatch):
+    """Second call to POST /process is a no-op and returns same data."""
+    import app.services as _svc
+
+    img_bytes = _make_test_image_bytes()
+
+    owner = signup(f"proc2-{uuid.uuid4().hex[:6]}", f"proc2-{uuid.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+    vehicle = client.post(
+        "/vehicles",
+        headers=auth_headers(token),
+        json={"make": "Honda", "model": "Civic", "year": 2022},
+    ).json()
+    event = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(token),
+        json={
+            "eventType": "maintenance",
+            "title": "Idempotent process test",
+            "eventDate": "2026-02-01",
+            "media": [{"url": "/media/vehicle_event_media/proc2.jpg", "media_type": "image"}],
+        },
+    ).json()
+    media_id = event["media"][0]["id"]
+
+    storage_key = "vehicle_event_media/proc2.jpg"
+    settings = _svc.get_settings()
+    fake_s3 = _FakeS3(
+        preloaded={f"{settings.storage_private_bucket}/{storage_key}": img_bytes}
+    )
+
+    from sqlalchemy import update as _upd5
+    from app.models import VehicleEventMedia as _VEM5
+    with _SL() as db:
+        db.execute(_upd5(_VEM5).where(_VEM5.id == media_id).values(storage_key=storage_key))
+        db.commit()
+
+    monkeypatch.setattr(_svc, "_s3_client", lambda: fake_s3)
+    monkeypatch.setattr(
+        _svc, "classify_media_pii",
+        lambda content, mime: {"is_document": False, "pii_kinds": []},
+    )
+    monkeypatch.setattr(
+        _svc, "_detect_pii_boxes",
+        lambda img: [],
+    )
+
+    # First call — should process
+    r1 = client.post(
+        f"/vehicle-event-media/{media_id}/process",
+        headers=auth_headers(token),
+    )
+    assert r1.status_code == 200, r1.text
+    d1 = r1.json()
+    assert d1["blurUrl"] is not None
+    assert d1["piiStatus"] == "none"
+
+    # Second call — idempotent
+    classify_count = {"n": 0}
+    orig_classify = _svc.classify_media_pii
+
+    def counting_classify(content, mime):
+        classify_count["n"] += 1
+        return orig_classify(content, mime)
+
+    monkeypatch.setattr(_svc, "classify_media_pii", counting_classify)
+
+    r2 = client.post(
+        f"/vehicle-event-media/{media_id}/process",
+        headers=auth_headers(token),
+    )
+    assert r2.status_code == 200, r2.text
+    d2 = r2.json()
+    # Data unchanged
+    assert d2["blurUrl"] == d1["blurUrl"]
+    assert d2["piiStatus"] == d1["piiStatus"]
+    # classify should NOT have been called again (row already done)
+    assert classify_count["n"] == 0, "classify was called again on an already-processed row"
+
+
+def test_process_endpoint_non_owner_gets_403_or_404(monkeypatch):
+    """Non-owner calling POST /process gets 403."""
+    import app.services as _svc
+
+    img_bytes = _make_test_image_bytes()
+
+    owner = signup(f"proc3-{uuid.uuid4().hex[:6]}", f"proc3-{uuid.uuid4().hex[:6]}@example.com")
+    other = signup(f"proc3o-{uuid.uuid4().hex[:6]}", f"proc3o-{uuid.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+    other_token = other["accessToken"]
+
+    vehicle = client.post(
+        "/vehicles",
+        headers=auth_headers(token),
+        json={"make": "Mazda", "model": "3", "year": 2021},
+    ).json()
+    event = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(token),
+        json={
+            "eventType": "repair",
+            "title": "Non-owner test",
+            "eventDate": "2026-03-01",
+            "media": [{"url": "/media/vehicle_event_media/proc3.jpg", "media_type": "image"}],
+        },
+    ).json()
+    media_id = event["media"][0]["id"]
+
+    storage_key = "vehicle_event_media/proc3.jpg"
+    settings = _svc.get_settings()
+    fake_s3 = _FakeS3(
+        preloaded={f"{settings.storage_private_bucket}/{storage_key}": img_bytes}
+    )
+    monkeypatch.setattr(_svc, "_s3_client", lambda: fake_s3)
+
+    resp = client.post(
+        f"/vehicle-event-media/{media_id}/process",
+        headers=auth_headers(other_token),
+    )
+    assert resp.status_code in (403, 404), resp.text
+
+
+def test_process_endpoint_document_media_type_returns_400(monkeypatch):
+    """POST /process on a non-image VehicleEventMedia row returns 400."""
+    import app.services as _svc
+
+    owner = signup(f"proc4-{uuid.uuid4().hex[:6]}", f"proc4-{uuid.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+
+    vehicle = client.post(
+        "/vehicles",
+        headers=auth_headers(token),
+        json={"make": "BMW", "model": "3 Series", "year": 2020},
+    ).json()
+    event = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(token),
+        json={
+            "eventType": "repair",
+            "title": "Doc media test",
+            "eventDate": "2026-04-01",
+            "media": [{"url": "/media/vehicle_event_media/proc4.mp4", "media_type": "video"}],
+        },
+    ).json()
+    media_id = event["media"][0]["id"]
+
+    resp = client.post(
+        f"/vehicle-event-media/{media_id}/process",
+        headers=auth_headers(token),
+    )
+    assert resp.status_code == 400, resp.text

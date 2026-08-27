@@ -580,6 +580,18 @@ def regenerate_redaction(
     return services.regenerate_redaction(db, media_id, user)
 
 
+@app.post("/vehicle-event-media/{media_id}/process", response_model=EventMediaRead)
+def process_event_media(
+    media_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> EventMediaRead:
+    """Synchronous self-heal: idempotently run any missing processing steps (blur, PII classify,
+    redacted render) for a VehicleEventMedia row. Owner only; image media only (400 otherwise).
+    Runs synchronously (~5-8s worst case) and returns the updated EventMediaRead."""
+    return services.process_event_media(db, media_id, user)
+
+
 @app.patch("/vehicle-event-documents/{doc_id}", response_model=EventDocumentRead)
 def toggle_event_document_public(
     doc_id: str,

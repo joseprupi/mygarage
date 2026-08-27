@@ -2,10 +2,13 @@ import base64
 import csv
 import io
 import json
+import logging
 import re
 import urllib.request
 import uuid
 import zipfile
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from pathlib import Path
@@ -1397,12 +1400,87 @@ def classify_media_pii(image_or_pdf_bytes: bytes, mime: str) -> dict:
     }
 
 
+def _run_event_media_steps(
+    media_id: str,
+    content: bytes,
+    mime: str,
+    settings: Any,
+    s3_client: Any,
+) -> None:
+    """Idempotently run blur/classify/redact steps for a VehicleEventMedia row.
+    Re-reads the row from DB before each step to skip already-completed work.
+    Safe to call concurrently with the background task or another request."""
+    from app.database import SessionLocal
+
+    # Step 1: blur (images only)
+    with SessionLocal() as db:
+        row = db.get(VehicleEventMedia, media_id)
+        if row and row.blur_url is None and mime.startswith("image/"):
+            logger.info("process_event_media[%s]: step=blur start", media_id)
+            try:
+                blur_bytes = make_blur_placeholder(content)
+                blur_key = f"event_media_blur/{media_id}-blur.jpg"
+                s3_client.put_object(
+                    Bucket=settings.storage_bucket,  # blur goes to PUBLIC bucket (safe)
+                    Key=blur_key,
+                    Body=blur_bytes,
+                    ContentType="image/jpeg",
+                )
+                row.blur_url = f"{settings.public_media_base_url}/{blur_key}"
+                db.commit()
+                logger.info("process_event_media[%s]: step=blur done", media_id)
+            except Exception:
+                logger.exception("process_event_media[%s]: step=blur failed", media_id)
+
+    # Step 2: PII classification
+    with SessionLocal() as db:
+        row = db.get(VehicleEventMedia, media_id)
+        if row and row.pii_status == "unknown" and settings.ai_scan_enabled:
+            logger.info("process_event_media[%s]: step=classify start", media_id)
+            try:
+                result = classify_media_pii(content, mime)
+                pii_kinds = result["pii_kinds"]
+                row.pii_status = "detected" if pii_kinds else "none"
+                row.pii_kinds = pii_kinds
+                db.commit()
+                logger.info(
+                    "process_event_media[%s]: step=classify done pii_status=%s",
+                    media_id,
+                    row.pii_status,
+                )
+            except Exception:
+                logger.exception("process_event_media[%s]: step=classify failed", media_id)
+
+    # Step 3+4: PII box detection + render + upload redacted copy (images only, classify must succeed)
+    with SessionLocal() as db:
+        row = db.get(VehicleEventMedia, media_id)
+        if (
+            row
+            and row.redacted_url is None
+            and settings.ai_scan_enabled
+            and mime.startswith("image/")
+            and row.pii_status != "unknown"
+        ):
+            logger.info("process_event_media[%s]: step=redact start", media_id)
+            try:
+                ai_boxes = _detect_pii_boxes(content)
+                redacted_bytes = _render_redacted_image(content, ai_boxes)
+                redacted_url = _upload_redacted_object(media_id, redacted_bytes)
+                row.redacted_url = redacted_url
+                row.redaction_boxes = ai_boxes
+                db.commit()
+                logger.info("process_event_media[%s]: step=redact done", media_id)
+            except Exception:
+                logger.exception("process_event_media[%s]: step=redact failed", media_id)
+
+
 def _process_event_media_bg(media_id: str, url: str, storage_key: str | None, mime: str) -> None:
     """Background task: blur placeholder → PII classify → PII boxes → render+upload redacted copy."""
-    from app.database import SessionLocal
+    logger.info("process_event_media_bg[%s]: start mime=%s", media_id, mime)
     settings = get_settings()
     key = storage_key or _object_key_from_url(url)
     if not key:
+        logger.info("process_event_media_bg[%s]: no storage key, skipping", media_id)
         return
 
     # Fetch bytes from private bucket (new rows) or public bucket (legacy rows without storage_key)
@@ -1412,57 +1490,11 @@ def _process_event_media_bg(media_id: str, url: str, storage_key: str | None, mi
         obj = client.get_object(Bucket=bucket, Key=key)
         content = obj["Body"].read()
     except Exception:
+        logger.exception("process_event_media_bg[%s]: failed to fetch from storage", media_id)
         return
 
-    # Step 1: Generate blur placeholder (images only)
-    blur_url = None
-    if mime.startswith("image/"):
-        try:
-            blur_bytes = make_blur_placeholder(content)
-            blur_key = f"event_media_blur/{media_id}-blur.jpg"
-            client.put_object(
-                Bucket=settings.storage_bucket,  # blur goes to PUBLIC bucket (safe)
-                Key=blur_key,
-                Body=blur_bytes,
-                ContentType="image/jpeg",
-            )
-            blur_url = f"{settings.public_media_base_url}/{blur_key}"
-        except Exception:
-            pass
-
-    # Step 2: PII classification
-    pii_kinds: list[str] = []
-    pii_status = "unknown"
-    if settings.ai_scan_enabled:
-        try:
-            result = classify_media_pii(content, mime)
-            pii_kinds = result["pii_kinds"]
-            pii_status = "detected" if pii_kinds else "none"
-        except Exception:
-            pass  # pii_status stays 'unknown'
-
-    # Step 3+4: PII box detection + render + upload redacted copy (images only, if classify succeeded)
-    redacted_url: str | None = None
-    redaction_boxes: list | None = None
-    if settings.ai_scan_enabled and mime.startswith("image/") and pii_status != "unknown":
-        try:
-            ai_boxes = _detect_pii_boxes(content)
-            redacted_bytes = _render_redacted_image(content, ai_boxes)
-            redacted_url = _upload_redacted_object(media_id, redacted_bytes)
-            redaction_boxes = ai_boxes
-        except Exception:
-            pass  # leave redacted_url null
-
-    with SessionLocal() as db:
-        row = db.get(VehicleEventMedia, media_id)
-        if row:
-            row.blur_url = blur_url
-            row.pii_status = pii_status
-            row.pii_kinds = pii_kinds
-            if redacted_url is not None:
-                row.redacted_url = redacted_url
-                row.redaction_boxes = redaction_boxes
-            db.commit()
+    _run_event_media_steps(media_id, content, mime, settings, client)
+    logger.info("process_event_media_bg[%s]: done", media_id)
 
 
 def _process_event_doc_bg(doc_id: str, url: str, storage_key: str | None, mime: str) -> None:
@@ -3563,6 +3595,31 @@ def regenerate_redaction(db: Session, media_id: str, user: User) -> "EventMediaR
     row.redaction_boxes = new_boxes
     row.redacted_url = redacted_url
     db.commit()
+    db.expire(row)
+    db.refresh(row)
+    return _event_media_read(row, is_owner=True)
+
+
+def process_event_media(db: Session, media_id: str, user: User) -> "EventMediaRead":
+    """Synchronously run whatever processing steps are missing for a VehicleEventMedia row.
+    Owner only; image media only (400 for non-image). Idempotent — safe to call concurrently
+    with the background task. Returns the updated EventMediaRead."""
+    # Validates ownership and image-only constraint (raises 403/404/400 as needed)
+    row = _load_event_media_for_redaction(db, media_id, user)
+
+    settings = get_settings()
+    # Derive mime from media_type (consistent with how the background task receives it)
+    mime = "image/jpeg" if row.media_type == "image" else row.media_type
+
+    # Fetch original bytes from storage
+    content = _fetch_media_bytes(row)
+
+    client = _s3_client()
+    logger.info("process_event_media[%s]: synchronous self-heal start", media_id)
+    _run_event_media_steps(media_id, content, mime, settings, client)
+    logger.info("process_event_media[%s]: synchronous self-heal done", media_id)
+
+    # Reload the row to pick up any changes (steps commit their own transactions)
     db.expire(row)
     db.refresh(row)
     return _event_media_read(row, is_owner=True)
