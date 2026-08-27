@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-08-27 — RESUBMITTED to App Review 03:57 UTC with build 8 + reply + recording (WAITING_FOR_REVIEW). Test accts in prod: test@/test2@carfable.com / Review-Demo1.
+
 ## 2026-08-27 (c) — PROD FIX: pillow was missing from the backend image (all blur/redaction failed in prod; dev+backfill masked it). Declared in pyproject, redeployed (rev 00023), verified regenerate in prod. LESSON: any new import → add to pyproject runtime deps (httpx, pillow both bit us).
 
 ## 2026-08-27 (b) — self-heal receipt processing (POST /vehicle-event-media/{id}/process) + camera-denied handling DEPLOYED; Cloud Run --no-cpu-throttling set (background tasks were starving); iOS BUILD 8 on TestFlight = build to record on / resubmit with. master = media-selfheal.
