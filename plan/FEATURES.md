@@ -107,6 +107,15 @@ Replace the propose/publish flow with one per-receipt setting.
 - [x] (LIVE 2026-08-27, superseded by simplified model) **AI redaction** — Gemini returns PII bounding boxes → server renders a redacted copy (blurred boxes); owner reviews and taps **"Publish redacted"** (OPT-IN per receipt; default stays private); public viewers then see the redacted image instead of the placeholder. Original never leaves the private bucket.
 - [ ] Backlog: document (PDF) viewer + toggle on mobile; orphan-object sweep as scheduled job.
 
+## European market groundwork (backlog, 2026-09-13)
+VINs are global (ISO 3779) and stored fine today; NHTSA decode is US-strong/EU-weak (make/origin resolve, model/trim often blank) — keep decode optional. Per-country public history sources to integrate when chasing EU users:
+- [ ] **UK: DVLA MOT history API** (free, public) — inspection history + odometer by plate → auto-seed a car's mileage timeline. Best first EU integration.
+- [ ] **NL: RDW open data** (free, public API by plate) — same idea.
+- [ ] **FR: HistoVec** (free, owner-initiated) — document attachment flow rather than API.
+- [ ] **ES: DGT informe de vehículo** (paid, per-request; ITV inspections with mileage, owner count, liens) — owners buy + attach; no open API.
+- [ ] EU recalls: Safety Gate/RAPEX instead of NHTSA when the car is EU-market.
+- [ ] Units (km/L, €) once any of the above ships.
+
 ## Ownership & transfer (DESIGNED 2026-08-26 → plan/OWNERSHIP.md)
 - [x] Slice 1 (M, LIVE 2026-08-26): `vehicle_ownerships` periods, attribution by event date, timeline divider + "previous owner" badge, ownership filter chips, chart boundaries, stats toggle (Your ownership / Lifetime), period label editing, export owner column.
 - [x] Slice 2 (L, LIVE 2026-08-26): transfer link/code → accept; options (show name, keep receipts, keep posts tagged); locking rule (editable iff current owner AND creator); hide-not-delete; "Previously owned" garage section.
