@@ -268,18 +268,22 @@ def _verify_apple_token(token: str, allowed_audiences: list[str]) -> dict[str, A
 
     try:
         public_key = jose_jwk.construct(jwk_dict, algorithm=ALGORITHMS.RS256)
-        # Decode and verify: audience is checked against any of allowed_audiences
-        # python-jose accepts a list for audience
+        # python-jose only accepts a single string audience, so verify signature/issuer/expiry
+        # here and check the aud claim against our allowed list ourselves below.
         claims = jose_jwt.decode(
             token,
             public_key.to_dict() if hasattr(public_key, "to_dict") else jwk_dict,
             algorithms=[ALGORITHMS.RS256],
-            audience=allowed_audiences,
             issuer=_APPLE_ISS,
-            options={"verify_exp": True},
+            options={"verify_exp": True, "verify_aud": False},
         )
-    except JWTError as exc:
+    except (JWTError, ValueError) as exc:
         raise HTTPException(status_code=401, detail=f"Invalid Apple credential: {exc}") from exc
+
+    aud = claims.get("aud")
+    token_audiences = aud if isinstance(aud, list) else [aud]
+    if not any(a in allowed_audiences for a in token_audiences):
+        raise HTTPException(status_code=401, detail="Invalid Apple credential: audience mismatch")
 
     return claims
 
