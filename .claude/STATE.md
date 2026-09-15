@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-09-15 — 🎉 APPROVED. v1.0 (build 8) READY_FOR_DISTRIBUTION 22:48 UTC, auto-releasing to the App Store. Store link: https://apps.apple.com/app/id6804418892. Next: launch (Reddit/PH/HN texts + Cammisa/Cars&Bids emails on owner request), Android verifications still on owner.
+
 ## 2026-09-13 — Apple sign-in FIXED (two causes: App ID capability recycled via ASC API after my Aug-26 API write left it broken → "Sign Up Not Completed" for everyone; python-jose upgrade rejects list audiences → aud now checked manually, backend redeployed rev fix 5b9a47e). Owner's stray hide-my-email account merged into @joseprupi (apple_sub moved). RESUBMITTED to App Review (build 8, server-side fixes only). Backlog: nicer usernames for private-relay signups + username picker on first login.
 
 ## 2026-08-27 — RESUBMITTED to App Review 03:57 UTC with build 8 + reply + recording (WAITING_FOR_REVIEW). Test accts in prod: test@/test2@carfable.com / Review-Demo1.
