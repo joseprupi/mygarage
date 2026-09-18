@@ -124,16 +124,31 @@ export type TokenResponse = {
 
 // --- fetch wrapper ---
 
+
+/** fetch with a hard timeout — RN's fetch has none, and a stalled request otherwise spins forever. */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) throw new Error("Request timed out — check your connection and try again.");
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = await getToken();
-  const res = await fetch(API_BASE + path, {
+  const res = await fetchWithTimeout(API_BASE + path, {
     ...options,
     headers: {
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(options.headers as Record<string, string> | undefined),
     },
-  });
+  }, 30000);
   if (res.status === 401 && token) {
     // Stored token is expired or invalid — clear it and send the user to login.
     await setToken(null);
@@ -510,11 +525,12 @@ async function appendAsset(form: FormData, field: string, asset: PickedAsset): P
 
 async function postForm<T>(path: string, form: FormData, errorLabel: string): Promise<T> {
   const token = await getToken();
-  const res = await fetch(`${API_BASE}${path}`, {
+  // 120s: uploads and AI scans carry multi-MB photos over cell connections.
+  const res = await fetchWithTimeout(`${API_BASE}${path}`, {
     method: "POST",
     headers: token ? { authorization: `Bearer ${token}` } : undefined,
     body: form,
-  });
+  }, 120000);
   if (!res.ok) {
     let detail = `${errorLabel} (${res.status})`;
     try {

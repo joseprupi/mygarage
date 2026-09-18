@@ -130,10 +130,11 @@ export default function EventFormScreen() {
     try {
       // All pages = ONE receipt: extract fields and attach every page as event media.
       const assets = [...scanPages]; // capture before clearing
-      const [scan, ...uploaded] = await Promise.all([
-        aiApi.scanReceipt(assets),
-        ...assets.map((a) => uploadImage(a, "vehicle_event_media")),
-      ]);
+      // Sequential on purpose: the scan and the uploads read the same local files,
+      // and concurrent multipart reads of one file:// URI can stall forever on iOS.
+      const scan = await aiApi.scanReceipt(assets);
+      const uploaded: Awaited<ReturnType<typeof uploadImage>>[] = [];
+      for (const a of assets) uploaded.push(await uploadImage(a, "vehicle_event_media"));
       setForm((prev) => ({
         ...prev,
         eventType: scan.eventType || prev.eventType,
