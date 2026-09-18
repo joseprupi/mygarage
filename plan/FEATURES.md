@@ -88,6 +88,9 @@ Current MPG pairs *consecutive logged* fuel events; a missed fill-up makes the m
 - [ ] Inferred gap → **estimated phantom fill-up** (date = midpoint, gallons = gap miles ÷ median MPG − logged gallons, price = mean of neighbouring $/gal) counted in fuel spend/gallons totals, always labelled "incl. ~$X estimated for N missed fill-up(s)". Never written to DB; never exported; never feeds back into MPG.
 - [ ] Stats screen rows: "Probable missed fill-ups", "Segments excluded". History timeline shows a grey "Possible missed fill-up ~date" marker between the two events with **Add it** (prefilled fuel event) / **Not missed** (sets `missed_previous=false` on the later event).
 
+## Mobile hardening (backlog)
+- [ ] Network timeouts on all RN fetches (30s JSON / 120s uploads+scans) — a stalled request currently spins forever (seen once in prod, cleared by app restart). Patch sketched 2026-09-17, ship with next mobile slice.
+
 ## Safety & account (IN PROGRESS dev 2026-08-26)
 - [x] (LIVE 2026-08-26) **Report** (post / comment / user / vehicle / event; reasons spam·harassment·inappropriate·privacy·other) + **Block** users (both directions hide feed posts + comments; blocked can't comment). `backend/scripts/list_reports.py` for the 24h-action store rule. Web + mobile UI.
 - [x] (LIVE 2026-08-26) **Password change / set** (Settings; passwordless Google/Apple accounts can set one) — web + mobile.
