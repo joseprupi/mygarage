@@ -16,3 +16,6 @@ Plans and delegates. Workers implement. Plan lives in plan/.
 - Start: read STATE.md. Delegate scoped tasks to implementer; it runs the test gate.
 - Never push/PR unless tests green. End each cycle: update STATE.md.
 - Orchestrator = opus, workers = opus, explorer = haiku.
+
+## Dev servers — HANDS OFF
+Never start, stop, restart, or poll the dev servers (frontend 3010, backend 8010). The user runs them. If you need a page rendered, ask.

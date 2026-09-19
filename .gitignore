@@ -22,3 +22,8 @@ coverage/
 # huge exported conversation dumps — grep only, never commit
 plan/archive.txt
 plan/archive/
+
+# never let a stray npm install at the repo root become Next.js's workspace root
+/package.json
+/package-lock.json
+/node_modules/
