@@ -10,7 +10,7 @@ import { blockApi, getToken, postApi } from "@/lib/api/client";
 import { useMe } from "@/lib/useMe";
 import { carAvatarUri } from "@/lib/avatar";
 import { formatDateTime } from "@/lib/format";
-import type { FeedPage, Post } from "@/lib/types";
+import type { FeedItem, FeedPage, Post } from "@/lib/types";
 import { ImageCarousel } from "@/components/ImageCarousel";
 import { ReportDialog } from "@/components/ReportDialog";
 import { ShareButton } from "@/components/ShareButton";
@@ -44,16 +44,19 @@ export function PostCard({ post }: { post: Post }) {
   // already matches `nextLiked`), so the same call safely patches the post
   // wherever it appears and is reusable for rollback.
   function patchLike(nextLiked: boolean) {
-    const apply = (p: Post): Post =>
+    const applyPost = (p: Post): Post =>
       p.id !== post.id || p.viewer_has_liked === nextLiked
         ? p
         : { ...p, viewer_has_liked: nextLiked, like_count: Math.max(0, p.like_count + (nextLiked ? 1 : -1)) };
-    queryClient.setQueryData<Post>(["post", post.id], (old) => (old ? apply(old) : old));
+    // Feed items are mixed (Post | EventFeedItem); only patch Post items.
+    const applyFeedItem = (item: FeedItem): FeedItem =>
+      item.itemType === "event" ? item : applyPost(item as Post);
+    queryClient.setQueryData<Post>(["post", post.id], (old) => (old ? applyPost(old) : old));
     queryClient.setQueryData<InfiniteData<FeedPage>>(["feed"], (old) =>
-      old ? { ...old, pages: old.pages.map((page) => ({ ...page, items: page.items.map(apply) })) } : old
+      old ? { ...old, pages: old.pages.map((page) => ({ ...page, items: page.items.map(applyFeedItem) })) } : old
     );
-    queryClient.setQueriesData<Post[]>({ queryKey: ["vehiclePosts"] }, (old) => (old ? old.map(apply) : old));
-    queryClient.setQueriesData<Post[]>({ queryKey: ["userPosts"] }, (old) => (old ? old.map(apply) : old));
+    queryClient.setQueriesData<Post[]>({ queryKey: ["vehiclePosts"] }, (old) => (old ? old.map(applyPost) : old));
+    queryClient.setQueriesData<Post[]>({ queryKey: ["userPosts"] }, (old) => (old ? old.map(applyPost) : old));
   }
 
   const likeMutation = useMutation({

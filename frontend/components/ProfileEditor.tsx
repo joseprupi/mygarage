@@ -204,7 +204,7 @@ export function ProfileEditor() {
   });
 
   const saveSetting = useMutation({
-    mutationFn: (patch: { detectMissedFillups?: boolean; includeEstimatedFuel?: boolean }) =>
+    mutationFn: (patch: { detectMissedFillups?: boolean; includeEstimatedFuel?: boolean; shareHistoryToFeed?: boolean }) =>
       authApi.updateProfile({ settings: patch }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["me"] });
@@ -400,32 +400,54 @@ export function ProfileEditor() {
       </div>
       <div className="surface rounded-3xl p-6">
         <h2 className="mb-4 text-lg font-bold">Settings</h2>
-        <div className="space-y-4">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-1 h-4 w-4 rounded border-slate-300 accent-petrol"
-              checked={user?.settings?.detectMissedFillups ?? true}
-              onChange={(e) => saveSetting.mutate({ detectMissedFillups: e.target.checked })}
-            />
-            <span className="space-y-0.5">
-              <span className="block text-sm font-semibold">Detect missed fill-ups</span>
-              <span className="block text-xs text-slate-500">
-                Flags tanks whose MPG is far above your usual and estimates the missing fill-up
+        <div className="space-y-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Sharing</p>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-slate-300 accent-petrol"
+                checked={user?.settings?.shareHistoryToFeed ?? true}
+                onChange={(e) => saveSetting.mutate({ shareHistoryToFeed: e.target.checked })}
+              />
+              <span className="space-y-0.5">
+                <span className="block text-sm font-semibold">Share history to the feed</span>
+                <span className="block text-xs text-slate-500">
+                  Service events from your public vehicles appear in the CarFable feed. Receipts keep their Private/Redacted/Original setting.
+                </span>
               </span>
-            </span>
-          </label>
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-1 h-4 w-4 rounded border-slate-300 accent-petrol"
-              checked={user?.settings?.includeEstimatedFuel ?? true}
-              onChange={(e) => saveSetting.mutate({ includeEstimatedFuel: e.target.checked })}
-            />
-            <span className="space-y-0.5">
-              <span className="block text-sm font-semibold">Include estimates in fuel totals</span>
-            </span>
-          </label>
+            </label>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Fuel</p>
+            <div className="space-y-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 accent-petrol"
+                  checked={user?.settings?.detectMissedFillups ?? true}
+                  onChange={(e) => saveSetting.mutate({ detectMissedFillups: e.target.checked })}
+                />
+                <span className="space-y-0.5">
+                  <span className="block text-sm font-semibold">Detect missed fill-ups</span>
+                  <span className="block text-xs text-slate-500">
+                    Flags tanks whose MPG is far above your usual and estimates the missing fill-up
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 accent-petrol"
+                  checked={user?.settings?.includeEstimatedFuel ?? true}
+                  onChange={(e) => saveSetting.mutate({ includeEstimatedFuel: e.target.checked })}
+                />
+                <span className="space-y-0.5">
+                  <span className="block text-sm font-semibold">Include estimates in fuel totals</span>
+                </span>
+              </label>
+            </div>
+          </div>
         </div>
       </div>
       <div className="surface rounded-3xl p-6">

@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { feedApi } from "@/lib/api/client";
 import { PostCard } from "@/components/PostCard";
+import { EventFeedCard } from "@/components/EventFeedCard";
+import type { FeedItem, Post } from "@/lib/types";
 
 export function Feed() {
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -17,14 +19,14 @@ export function Feed() {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined
   });
 
-  const posts = useMemo(() => {
-    const items = data?.pages.flatMap((page) => page.items) ?? [];
-    return Array.from(new Map(items.map((post) => [post.id, post])).values());
+  const items = useMemo(() => {
+    const all = data?.pages.flatMap((page) => page.items) ?? [];
+    return Array.from(new Map(all.map((item) => [item.id, item])).values());
   }, [data]);
 
   // Virtualize against the window so the page has a single scrollbar.
   const rowVirtualizer = useWindowVirtualizer({
-    count: posts.length,
+    count: items.length,
     estimateSize: () => 760,
     overscan: 5,
     scrollMargin: listRef.current?.offsetTop ?? 0
@@ -45,7 +47,7 @@ export function Feed() {
   if (isLoading) return <div className="surface rounded-3xl p-8 text-center">Loading the garage...</div>;
 
   // A failed load and a genuinely empty feed are different states — say so.
-  if (error && posts.length === 0) {
+  if (error && items.length === 0) {
     return (
       <div className="surface rounded-3xl p-8 text-center">
         <h2 className="text-xl font-bold">Couldn&apos;t load the feed.</h2>
@@ -57,7 +59,7 @@ export function Feed() {
     );
   }
 
-  if (posts.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="surface rounded-3xl p-8 text-center">
         <h2 className="text-xl font-bold">Nothing here yet.</h2>
@@ -70,16 +72,20 @@ export function Feed() {
     <div>
       <div ref={listRef} className="relative" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-          const post = posts[virtualItem.index];
+          const item: FeedItem = items[virtualItem.index];
           return (
             <div
               className="absolute left-0 top-0 w-full pb-5"
               data-index={virtualItem.index}
-              key={post.id}
+              key={item.id}
               ref={rowVirtualizer.measureElement}
               style={{ transform: `translateY(${virtualItem.start - rowVirtualizer.options.scrollMargin}px)` }}
             >
-              <PostCard post={post} />
+              {item.itemType === "event" ? (
+                <EventFeedCard event={item} />
+              ) : (
+                <PostCard post={item as Post} />
+              )}
             </div>
           );
         })}

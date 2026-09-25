@@ -1,6 +1,7 @@
 export type UserSettings = {
   detectMissedFillups: boolean;
   includeEstimatedFuel: boolean;
+  shareHistoryToFeed?: boolean;
 };
 
 /** Decoded VIN specs stored on the vehicle. All fields optional (partial decode). */
@@ -195,8 +196,32 @@ export type Comment = {
   viewer_has_liked: boolean;
 };
 
+export type EventFeedItem = {
+  itemType: "event";
+  id: string;
+  createdAt: string;
+  eventDate: string | null;
+  eventType: string;
+  title: string;
+  costCents: number | null;
+  mileage: number | null;
+  tags: string[];
+  author: PublicUser;
+  vehicle: {
+    id: string;
+    year?: number | null;
+    make: string;
+    model: string;
+    nickname?: string | null;
+  };
+  thumbnailUrl: string | null;
+  receiptCount: number;
+};
+
+export type FeedItem = (Post & { itemType?: "post" }) | EventFeedItem;
+
 export type FeedPage = {
-  items: Post[];
+  items: FeedItem[];
   nextCursor?: string | null;
   hasMore: boolean;
 };
