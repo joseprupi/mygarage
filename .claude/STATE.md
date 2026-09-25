@@ -1,5 +1,7 @@
 # STATE — CarFable (formerly MyGarage / CeCeCar) handoff
 
+## 2026-09-25 — DEPLOYED guest-cta batch: mixed post+event FEED (history events as cards, shareHistoryToFeed opt-out default on), guest landing = hero+featured 4Runner+App Store link (feed logged-in only), vehicle-page guest banner, iOS Smart App Banner. Verified prod headless: guest / clean, banner on /v, anonymous feed 10 event items, no private URL leaks, logged-in feed renders event cards. Rollback point was e332ece; master now = guest-cta. IG account @carfable_app created (avatar = app icon; /root/mygarage/tmp/ig-avatar.png). Next: IG first 4 posts + ads plan (plan/LAUNCH.md), r/SideProject + Show HN posts. Still 0 organic users.
+
 ## 2026-09-15 — 🎉 APPROVED. v1.0 (build 8) READY_FOR_DISTRIBUTION 22:48 UTC, auto-releasing to the App Store. Store link: https://apps.apple.com/app/id6804418892. Next: launch (Reddit/PH/HN texts + Cammisa/Cars&Bids emails on owner request), Android verifications still on owner.
 
 ## 2026-09-13 — Apple sign-in FIXED (two causes: App ID capability recycled via ASC API after my Aug-26 API write left it broken → "Sign Up Not Completed" for everyone; python-jose upgrade rejects list audiences → aud now checked manually, backend redeployed rev fix 5b9a47e). Owner's stray hide-my-email account merged into @joseprupi (apple_sub moved). RESUBMITTED to App Review (build 8, server-side fixes only). Backlog: nicer usernames for private-relay signups + username picker on first login.
