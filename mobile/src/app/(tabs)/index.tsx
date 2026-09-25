@@ -11,13 +11,14 @@ import {
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
-import { feedApi, getToken, postApi, type Post } from "@/lib/api";
+import { feedApi, getToken, postApi, type FeedItem, type Post } from "@/lib/api";
 import { PostCard } from "@/components/post-card";
+import { EventFeedCard } from "@/components/event-feed-card";
 
 export default function FeedScreen() {
   const router = useRouter();
   const [checkedAuth, setCheckedAuth] = useState(false);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [items, setItems] = useState<FeedItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -29,7 +30,7 @@ export default function FeedScreen() {
     setError(null);
     try {
       const page = await feedApi.get(fromCursor);
-      setPosts((prev) => (fromCursor ? [...prev, ...page.items] : page.items));
+      setItems((prev) => (fromCursor ? [...prev, ...page.items] : page.items));
       setCursor(page.nextCursor);
       setHasMore(page.hasMore);
     } catch (err) {
@@ -54,20 +55,22 @@ export default function FeedScreen() {
 
   function toggleLike(post: Post) {
     const liked = post.viewer_has_liked;
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === post.id
-          ? { ...p, viewer_has_liked: !liked, like_count: p.like_count + (liked ? -1 : 1) }
-          : p,
-      ),
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.itemType === "event") return item;
+        const p = item as Post & { itemType?: "post" };
+        if (p.id !== post.id) return p;
+        return { ...p, viewer_has_liked: !liked, like_count: p.like_count + (liked ? -1 : 1) };
+      }),
     );
     void (liked ? postApi.unlike(post.id) : postApi.like(post.id)).catch(() => {
-      setPosts((prev) =>
-        prev.map((p) =>
-          p.id === post.id
-            ? { ...p, viewer_has_liked: liked, like_count: p.like_count + (liked ? 1 : -1) }
-            : p,
-        ),
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.itemType === "event") return item;
+          const p = item as Post & { itemType?: "post" };
+          if (p.id !== post.id) return p;
+          return { ...p, viewer_has_liked: liked, like_count: p.like_count + (liked ? 1 : -1) };
+        }),
       );
     });
   }
@@ -82,7 +85,7 @@ export default function FeedScreen() {
 
   return (
     <View style={styles.container}>
-      {error && posts.length === 0 ? (
+      {error && items.length === 0 ? (
         <View style={styles.center}>
           <Text style={styles.errorTitle}>Couldn&apos;t load the feed.</Text>
           <Text style={styles.errorDetail}>{error}</Text>
@@ -92,15 +95,29 @@ export default function FeedScreen() {
         </View>
       ) : (
         <FlatList
-          data={posts}
-          keyExtractor={(post) => post.id}
-          renderItem={({ item }) => (
-            <PostCard
-              post={item}
-              onPress={() => router.push(`/post/${item.id}`)}
-              onToggleLike={() => toggleLike(item)}
-            />
-          )}
+          data={items}
+          keyExtractor={(item) => {
+            const prefix = item.itemType === "event" ? "event" : "post";
+            return `${prefix}-${item.id}`;
+          }}
+          renderItem={({ item }) => {
+            if (item.itemType === "event") {
+              return (
+                <EventFeedCard
+                  item={item}
+                  onPress={() => router.push(`/vehicle/${item.vehicle.id}`)}
+                />
+              );
+            }
+            const post = item as Post & { itemType?: "post" };
+            return (
+              <PostCard
+                post={post}
+                onPress={() => router.push(`/post/${post.id}`)}
+                onToggleLike={() => toggleLike(post)}
+              />
+            );
+          }}
           contentContainerStyle={styles.list}
           refreshControl={
             <RefreshControl
@@ -128,7 +145,7 @@ export default function FeedScreen() {
             )
           }
           ListFooterComponent={
-            loading && posts.length > 0 ? <ActivityIndicator style={{ margin: 16 }} /> : null
+            loading && items.length > 0 ? <ActivityIndicator style={{ margin: 16 }} /> : null
           }
         />
       )}

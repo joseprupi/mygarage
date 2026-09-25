@@ -76,6 +76,25 @@ export default function SettingsScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
+      <Text style={styles.sectionHeader}>Sharing</Text>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowLabel}>Share history to the feed</Text>
+            <Text style={styles.rowSub}>
+              Service events from your public vehicles appear in the feed. Receipts keep their
+              visibility setting.
+            </Text>
+          </View>
+          <Switch
+            value={settings.shareHistoryToFeed !== false}
+            onValueChange={(v) => void toggleSetting("shareHistoryToFeed", v)}
+            trackColor={{ false: "#e2e8f0", true: "#2563eb" }}
+            thumbColor="#fff"
+          />
+        </View>
+      </View>
+
       <Text style={styles.sectionHeader}>Fuel</Text>
       <View style={styles.card}>
         <View style={styles.row}>
