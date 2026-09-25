@@ -17,6 +17,7 @@ const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-display", 
 export const metadata: Metadata = {
   metadataBase: new URL("https://carfable.com"),
   title: "CarFable",
+  itunes: { appId: "6804418892" },
   description: "Vehicle-first social profiles, posts, galleries, and history."
 };
 

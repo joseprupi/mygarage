@@ -21,6 +21,7 @@ import { tagLabel } from "@/lib/events";
 import { computeVehicleStats, type GapInfo } from "@/lib/stats";
 import { ReportDialog } from "@/components/ReportDialog";
 import { ShareButton } from "@/components/ShareButton";
+import { GuestVehicleBanner } from "@/components/GuestVehicleBanner";
 import { PlayBadge } from "@/components/VideoPlayer";
 import { VehicleModForm } from "@/components/VehicleModForm";
 import type { EventMedia, Media, VehicleMod, VehicleOwnership, VehicleTransfer } from "@/lib/types";
@@ -528,6 +529,7 @@ function VehiclePageInner({ params }: { params: Promise<{ vehicleId: string }> }
 
   return (
     <section className="space-y-4">
+      <GuestVehicleBanner />
       {v.cover_image_url && (
         <div className="overflow-hidden rounded-3xl">
           <img src={v.cover_image_url} alt="" className="aspect-[16/9] w-full object-cover" />
