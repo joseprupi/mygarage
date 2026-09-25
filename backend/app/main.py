@@ -16,6 +16,7 @@ from app.schemas import (
     ChangePasswordRequest,
     DeleteAccountRequest,
     EventDocumentRead,
+    EventFeedItem,
     EventHiddenToggle,
     EventMediaRead,
     FuelScanResult,

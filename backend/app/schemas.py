@@ -39,6 +39,7 @@ EventType = Literal[
 class UserSettings(BaseModel):
     detect_missed_fillups: bool = Field(default=True, alias="detectMissedFillups")
     include_estimated_fuel: bool = Field(default=True, alias="includeEstimatedFuel")
+    share_history_to_feed: bool = Field(default=True, alias="shareHistoryToFeed")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -365,6 +366,7 @@ class PostUpdate(BaseModel):
 
 class PostRead(BaseModel):
     id: str
+    itemType: Literal["post"] = "post"
     caption: str | None = None
     visibility: Visibility
     created_at: datetime
@@ -377,8 +379,25 @@ class PostRead(BaseModel):
     viewer_has_liked: bool = False
 
 
+class EventFeedItem(BaseModel):
+    """A history event surfaced in the public feed."""
+    itemType: Literal["event"] = "event"
+    id: str
+    createdAt: datetime
+    eventDate: date | None = None
+    eventType: str
+    title: str
+    costCents: int | None = None
+    mileage: int | None = None
+    tags: list[str] = []
+    author: PublicUser
+    vehicle: VehicleSummary
+    thumbnailUrl: str | None = None
+    receiptCount: int = 0
+
+
 class CursorPage(BaseModel):
-    items: list[PostRead]
+    items: list[Any]
     next_cursor: str | None = Field(default=None, alias="nextCursor")
     has_more: bool = Field(alias="hasMore")
 

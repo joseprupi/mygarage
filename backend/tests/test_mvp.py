@@ -151,7 +151,11 @@ def test_feed_excludes_private_posts_and_paginates_without_duplicates():
     ids = [item["id"] for item in first["items"] + second["items"]]
 
     assert len(ids) == len(set(ids))
-    assert all(item["visibility"] == "public" for item in first["items"] + second["items"])
+    # Post items have visibility=="public"; event items have itemType=="event" (no visibility key).
+    assert all(
+        item.get("itemType") == "event" or item.get("visibility") == "public"
+        for item in first["items"] + second["items"]
+    )
     assert len(first["items"]) == 2
 
 
@@ -2964,3 +2968,273 @@ def test_process_endpoint_document_media_type_returns_400(monkeypatch):
         headers=auth_headers(token),
     )
     assert resp.status_code == 400, resp.text
+
+
+# =============================================================================
+# Mixed feed (events in the public timeline)
+# =============================================================================
+
+def test_event_in_feed_correct_fields_and_thumbnail():
+    """Event on a public vehicle appears in the feed with all required fields.
+    Thumbnail selection: private→blurUrl, redacted→redactedUrl, original→public path."""
+    import uuid as _u
+    from app.database import SessionLocal as _SL3
+    from app.models import VehicleEventMedia as _VEM3
+    from sqlalchemy import update as _upd3
+
+    owner = signup(f"feedev-{_u.uuid4().hex[:6]}", f"feedev-{_u.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+    uid = owner["user"]["id"]
+
+    vehicle = create_vehicle(token, visibility="public")
+    vid = vehicle["id"]
+
+    # Event with one media item (starts private)
+    event_resp = client.post(
+        f"/vehicles/{vid}/events",
+        headers=auth_headers(token),
+        json={
+            "eventType": "maintenance",
+            "title": "Feed event test",
+            "eventDate": "2026-01-01",
+            "costCents": 9900,
+            "mileage": 55000,
+            "tags": ["oil"],
+            "media": [{"url": "/media/vehicle_event_media/feedtest.jpg", "media_type": "image"}],
+        },
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event_id = event_resp.json()["id"]
+    media_id = event_resp.json()["media"][0]["id"]
+
+    # Inject blur_url directly
+    fake_blur = "/media/event_media_blur/feedtest-blur.jpg"
+    with _SL3() as db:
+        db.execute(_upd3(_VEM3).where(_VEM3.id == media_id).values(blur_url=fake_blur))
+        db.commit()
+
+    # ---- (a) private visibility → thumbnailUrl == blur_url ----
+    feed = client.get("/feed", headers=auth_headers(token)).json()
+    event_items = [i for i in feed["items"] if i.get("itemType") == "event" and i["id"] == event_id]
+    assert len(event_items) == 1, "Event should appear in feed"
+    item = event_items[0]
+    assert item["itemType"] == "event"
+    assert item["title"] == "Feed event test"
+    assert item["eventType"] == "maintenance"
+    assert item["costCents"] == 9900
+    assert item["mileage"] == 55000
+    assert item["tags"] == ["oil"]
+    assert item["author"]["id"] == uid
+    assert item["vehicle"]["id"] == vid
+    assert item["receiptCount"] == 1
+    assert item["thumbnailUrl"] == fake_blur
+
+    # ---- (b) redacted visibility → thumbnailUrl == redacted_url ----
+    fake_redacted = "/media/event_media_redacted/feedtest-redacted.jpg"
+    with _SL3() as db:
+        db.execute(
+            _upd3(_VEM3).where(_VEM3.id == media_id).values(
+                visibility="redacted", redacted_url=fake_redacted
+            )
+        )
+        db.commit()
+    feed2 = client.get("/feed", headers=auth_headers(token)).json()
+    item2 = next(i for i in feed2["items"] if i.get("itemType") == "event" and i["id"] == event_id)
+    assert item2["thumbnailUrl"] == fake_redacted
+
+    # ---- (c) original visibility → thumbnailUrl == public path ----
+    with _SL3() as db:
+        db.execute(_upd3(_VEM3).where(_VEM3.id == media_id).values(visibility="original"))
+        db.commit()
+    feed3 = client.get("/feed", headers=auth_headers(token)).json()
+    item3 = next(i for i in feed3["items"] if i.get("itemType") == "event" and i["id"] == event_id)
+    assert item3["thumbnailUrl"] is not None
+    assert "event_media_public" in item3["thumbnailUrl"]
+    assert media_id in item3["thumbnailUrl"]
+
+
+def test_hidden_event_excluded_from_feed():
+    """An event with hidden=True is not returned in the public feed."""
+    import uuid as _u2
+    owner = signup(f"feedhide-{_u2.uuid4().hex[:6]}", f"feedhide-{_u2.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+    vehicle = create_vehicle(token, visibility="public")
+
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(token),
+        json={"eventType": "note", "title": "Hide me", "eventDate": "2026-02-01"},
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event_id = event_resp.json()["id"]
+
+    # Confirm event appears before hiding
+    feed_before = client.get("/feed", headers=auth_headers(token)).json()
+    before_ids = [i["id"] for i in feed_before["items"] if i.get("itemType") == "event"]
+    assert event_id in before_ids
+
+    # Hide it
+    hide = client.patch(
+        f"/vehicle-events/{event_id}/hidden",
+        headers=auth_headers(token),
+        json={"hidden": True},
+    )
+    assert hide.status_code == 200, hide.text
+
+    # Should no longer appear in feed
+    feed_after = client.get("/feed", headers=auth_headers(token)).json()
+    after_ids = [i["id"] for i in feed_after["items"] if i.get("itemType") == "event"]
+    assert event_id not in after_ids
+
+
+def test_private_vehicle_event_excluded_from_feed():
+    """Events on a private vehicle must not appear in the public feed."""
+    import uuid as _u3
+    owner = signup(f"feedpriv-{_u3.uuid4().hex[:6]}", f"feedpriv-{_u3.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+    vehicle = create_vehicle(token, visibility="private")
+
+    event_resp = client.post(
+        f"/vehicles/{vehicle['id']}/events",
+        headers=auth_headers(token),
+        json={"eventType": "note", "title": "Private vehicle event", "eventDate": "2026-03-01"},
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event_id = event_resp.json()["id"]
+
+    # Walk multiple pages; should never see this event
+    feed = client.get("/feed", headers=auth_headers(token)).json()
+    event_ids_in_feed = [i["id"] for i in feed["items"] if i.get("itemType") == "event"]
+    assert event_id not in event_ids_in_feed
+
+
+def test_share_history_to_feed_false_excludes_events_but_keeps_posts():
+    """Owner sets shareHistoryToFeed=false → their events vanish from feed, posts remain."""
+    import uuid as _u4
+    owner = signup(f"feedopt-{_u4.uuid4().hex[:6]}", f"feedopt-{_u4.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+    uid = owner["user"]["id"]
+    vehicle = create_vehicle(token, visibility="public")
+    vid = vehicle["id"]
+
+    # Create one post and one event
+    post_resp = client.post(
+        "/posts",
+        headers=auth_headers(token),
+        json={"caption": "feedopt-post", "vehicleIds": [], "media": [], "visibility": "public"},
+    )
+    assert post_resp.status_code == 200, post_resp.text
+    post_id = post_resp.json()["id"]
+
+    event_resp = client.post(
+        f"/vehicles/{vid}/events",
+        headers=auth_headers(token),
+        json={"eventType": "note", "title": "feedopt-event", "eventDate": "2026-04-01"},
+    )
+    assert event_resp.status_code == 200, event_resp.text
+    event_id = event_resp.json()["id"]
+
+    # Both appear before opt-out
+    feed_before = client.get("/feed", headers=auth_headers(token)).json()
+    ids_before = {i["id"] for i in feed_before["items"]}
+    assert post_id in ids_before
+    assert event_id in ids_before
+
+    # Opt out
+    patch = client.patch(
+        "/users/me",
+        headers=auth_headers(token),
+        json={"settings": {"shareHistoryToFeed": False}},
+    )
+    assert patch.status_code == 200, patch.text
+    settings_out = patch.json()["settings"]
+    assert settings_out["shareHistoryToFeed"] is False
+
+    # Post stays; event gone
+    feed_after = client.get("/feed", headers=auth_headers(token)).json()
+    ids_after = {i["id"] for i in feed_after["items"]}
+    assert post_id in ids_after
+    assert event_id not in ids_after
+
+
+def test_mixed_feed_pagination_no_dupes_or_gaps():
+    """Create 3 posts + 3 events via the API; walk cursor with limit=2;
+    assert exactly 6 unique items from this user appear with no duplicates.
+
+    Uses API calls (not direct DB inserts) so all items are created at the
+    actual current time and are guaranteed to be the newest in the DB.
+    """
+    import uuid as _u5
+
+    owner = signup(f"feedpag-{_u5.uuid4().hex[:6]}", f"feedpag-{_u5.uuid4().hex[:6]}@example.com")
+    token = owner["accessToken"]
+    vehicle = create_vehicle(token, visibility="public")
+    vid = vehicle["id"]
+
+    # Create 3 posts and 3 events via API — these are the most-recent items in the DB.
+    inserted_ids: set[str] = set()
+    for i in range(3):
+        pr = client.post(
+            "/posts",
+            headers=auth_headers(token),
+            json={
+                "caption": f"pagitest-post-{i}",
+                "vehicleIds": [],
+                "media": [],
+                "visibility": "public",
+            },
+        )
+        assert pr.status_code == 200, pr.text
+        inserted_ids.add(pr.json()["id"])
+
+        er = client.post(
+            f"/vehicles/{vid}/events",
+            headers=auth_headers(token),
+            json={
+                "eventType": "note",
+                "title": f"pagitest-event-{i}",
+                "eventDate": "2026-01-01",
+                "visibility": "public",
+            },
+        )
+        assert er.status_code == 200, er.text
+        inserted_ids.add(er.json()["id"])
+
+    # Walk the feed with limit=2 checking for duplicates across ALL pages.
+    # Stop as soon as all 6 items are found (they are the newest so appear early).
+    # If hasMore=False before that, the feed is exhausted — the assertion below
+    # will catch the missing items.
+    seen_all: list[str] = []   # every item id seen across all pages (dup guard)
+    found_ours: set[str] = set()
+    cursor = None
+    for _page in range(200):
+        url = "/feed?limit=2"
+        if cursor:
+            url += f"&cursor={cursor}"
+        resp = client.get(url).json()
+
+        for item in resp["items"]:
+            pid = item["id"]
+            assert pid not in seen_all, f"Duplicate item {pid} on page {_page + 1}"
+            seen_all.append(pid)
+            if pid in inserted_ids:
+                found_ours.add(pid)
+
+        if len(found_ours) == 6:
+            break                       # found all 6 — success path
+        if not resp.get("hasMore"):
+            break                       # feed exhausted — assertion below will fail
+        cursor = resp["nextCursor"]
+
+    assert len(found_ours) == 6, f"Expected 6 items from test user, got {len(found_ours)}"
+
+    # Verify 3 posts and 3 events among our items (use a large-limit page)
+    feed_all = client.get("/feed?limit=50").json()
+    all_items = list(feed_all["items"])
+    if feed_all.get("hasMore"):
+        page2 = client.get(f"/feed?limit=50&cursor={feed_all['nextCursor']}").json()
+        all_items += page2["items"]
+    our_items = [i for i in all_items if i.get("id") in inserted_ids]
+    seen_types = [i.get("itemType") for i in our_items]
+    assert seen_types.count("post") == 3, f"Expected 3 posts, got {seen_types.count('post')}"
+    assert seen_types.count("event") == 3, f"Expected 3 events, got {seen_types.count('event')}"

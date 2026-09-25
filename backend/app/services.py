@@ -53,6 +53,7 @@ from app.schemas import (
     CommentCreate,
     CommentRead,
     EventDocumentRead,
+    EventFeedItem,
     EventMediaRead,
     GoogleLoginRequest,
     LoginRequest,
@@ -132,6 +133,103 @@ def decode_cursor(cursor: str | None) -> tuple[datetime, str] | None:
         return datetime.fromisoformat(payload["createdAt"]), payload["postId"]
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid cursor") from exc
+
+
+# ---------------------------------------------------------------------------
+# Mixed-feed cursor helpers (supports both posts and events in a single timeline)
+# ---------------------------------------------------------------------------
+
+def encode_feed_cursor(created_at: datetime, item_id: str) -> str:
+    """Encode a cursor for the mixed (posts + events) feed."""
+    payload = {"createdAt": created_at.isoformat(), "itemId": item_id}
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+
+def decode_feed_cursor(cursor: str | None) -> tuple[datetime, str] | None:
+    """Decode a mixed-feed cursor; also handles legacy post-only cursor format."""
+    if not cursor:
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+        created_at = datetime.fromisoformat(payload["createdAt"])
+        # Accept both "itemId" (new) and "postId" (legacy) key names.
+        item_id = payload.get("itemId") or payload.get("postId")
+        return created_at, item_id
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid cursor") from exc
+
+
+def _public_safe_thumbnail(media: "VehicleEventMedia", public_media_base: str) -> str | None:
+    """Return the public-safe thumbnail URL for an event media item.
+
+    Never returns presigned or private URLs:
+    - visibility == 'original' → derived public-copy path
+    - visibility == 'redacted' → redacted_url (already a public URL)
+    - else (private)           → blur_url (blurred placeholder, always public)
+    - no media / all None      → None
+    """
+    visibility = getattr(media, "visibility", None) or "private"
+    if visibility == "original":
+        return f"{public_media_base}/event_media_public/{media.id}.jpg"
+    if visibility == "redacted":
+        redacted = getattr(media, "redacted_url", None)
+        if redacted:
+            return redacted
+    return getattr(media, "blur_url", None)
+
+
+def _compose_event_feed_items(db: Session, event_ids: list[str]) -> dict[str, EventFeedItem]:
+    """Load events and build EventFeedItem objects, keyed by event ID."""
+    if not event_ids:
+        return {}
+
+    events = list(db.scalars(
+        select(VehicleEvent)
+        .options(
+            selectinload(VehicleEvent.media),
+            selectinload(VehicleEvent.documents),
+            selectinload(VehicleEvent.vehicle),
+        )
+        .where(VehicleEvent.id.in_(event_ids))
+    ))
+
+    # Batch-load authors (VehicleEvent has no ORM author relationship)
+    author_ids = {e.author_user_id for e in events}
+    authors: dict[str, User] = {}
+    if author_ids:
+        for u in db.scalars(select(User).where(User.id.in_(author_ids))):
+            authors[u.id] = u
+
+    settings = get_settings()
+    result: dict[str, EventFeedItem] = {}
+    for event in events:
+        author = authors.get(event.author_user_id)
+        if not author:
+            continue
+
+        # First media item (lowest sort_order) → thumbnail
+        thumbnail_url: str | None = None
+        if event.media:
+            first_m = min(event.media, key=lambda m: m.sort_order)
+            thumbnail_url = _public_safe_thumbnail(first_m, settings.public_media_base_url)
+
+        receipt_count = len(event.media or []) + len(event.documents or [])
+
+        result[event.id] = EventFeedItem(
+            id=event.id,
+            createdAt=event.created_at,
+            eventDate=event.event_date,
+            eventType=event.event_type,
+            title=event.title,
+            costCents=event.cost_cents,
+            mileage=event.mileage,
+            tags=event.tags or [],
+            author=PublicUser.model_validate(author),
+            vehicle=VehicleSummary.model_validate(event.vehicle),
+            thumbnailUrl=thumbnail_url,
+            receiptCount=receipt_count,
+        )
+    return result
 
 
 def public_user(user: User) -> PublicUser:
@@ -1307,31 +1405,122 @@ def compose_posts(db: Session, post_ids: list[str], viewer: User | None) -> list
 
 
 class NewestFeedService:
-    def get_feed(self, db: Session, viewer: User | None, cursor: str | None, limit: int) -> tuple[list[PostRead], str | None, bool]:
+    def get_feed(
+        self,
+        db: Session,
+        viewer: User | None,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[Any], str | None, bool]:
+        """Return a mixed timeline of posts and history events, newest-first.
+
+        Each item has an ``itemType`` field ("post" | "event").  Post items are
+        PostRead objects (unchanged shape + itemType).  Event items are
+        EventFeedItem objects.
+
+        Cursor format: base64-encoded JSON ``{"createdAt": "<ISO>", "itemId": "<uuid>"}``.
+        The same cursor works regardless of whether the last item was a post or an
+        event, because we order globally by (created_at DESC, id DESC) across both
+        tables.
+        """
         limit = min(max(limit, 1), 50)
-        stmt: Select[Any] = (
+        blocked = blocked_user_ids(db, viewer.id if viewer else None)
+        decoded = decode_feed_cursor(cursor)
+        cursor_ca: datetime | None = decoded[0] if decoded else None
+        cursor_id: str | None = decoded[1] if decoded else None
+
+        # ---- posts -------------------------------------------------------
+        post_stmt: Select[Any] = (
             select(Post.id, Post.created_at)
             .where(Post.visibility == "public", Post.deleted_at.is_(None))
             .order_by(desc(Post.created_at), desc(Post.id))
             .limit(limit + 1)
         )
-        # Filter out posts by blocked/blocking users
-        blocked = blocked_user_ids(db, viewer.id if viewer else None)
         if blocked:
-            stmt = stmt.where(Post.author_user_id.notin_(blocked))
-        decoded = decode_cursor(cursor)
-        if decoded:
-            created_at, post_id = decoded
-            stmt = stmt.where(
-                or_(Post.created_at < created_at, and_(Post.created_at == created_at, Post.id < post_id))
+            post_stmt = post_stmt.where(Post.author_user_id.notin_(blocked))
+        if cursor_ca and cursor_id:
+            post_stmt = post_stmt.where(
+                or_(
+                    Post.created_at < cursor_ca,
+                    and_(Post.created_at == cursor_ca, Post.id < cursor_id),
+                )
             )
-        rows = list(db.execute(stmt))
-        page_rows = rows[:limit]
-        post_ids = [row.id for row in page_rows]
-        items = compose_posts(db, post_ids, viewer)
-        has_more = len(rows) > limit
-        next_cursor = encode_cursor(page_rows[-1].created_at, page_rows[-1].id) if has_more and page_rows else None
-        return items, next_cursor, has_more
+        post_rows = list(db.execute(post_stmt))
+
+        # ---- events ------------------------------------------------------
+        event_stmt: Select[Any] = (
+            select(VehicleEvent.id, VehicleEvent.created_at, Vehicle.owner_user_id)
+            .join(Vehicle, Vehicle.id == VehicleEvent.vehicle_id)
+            .where(
+                Vehicle.visibility == "public",
+                VehicleEvent.visibility == "public",
+                VehicleEvent.hidden == False,  # noqa: E712
+                VehicleEvent.deleted_at.is_(None),
+            )
+            .order_by(desc(VehicleEvent.created_at), desc(VehicleEvent.id))
+            .limit(limit + 1)
+        )
+        if blocked:
+            event_stmt = event_stmt.where(VehicleEvent.author_user_id.notin_(blocked))
+        if cursor_ca and cursor_id:
+            event_stmt = event_stmt.where(
+                or_(
+                    VehicleEvent.created_at < cursor_ca,
+                    and_(VehicleEvent.created_at == cursor_ca, VehicleEvent.id < cursor_id),
+                )
+            )
+        event_rows = list(db.execute(event_stmt))
+
+        # Filter by vehicle owner's share_history_to_feed setting
+        owner_ids = {r.owner_user_id for r in event_rows}
+        owner_settings: dict[str, dict] = {}
+        if owner_ids:
+            for u in db.scalars(select(User).where(User.id.in_(owner_ids))):
+                owner_settings[u.id] = u.settings or {}
+        filtered_event_rows = [
+            r for r in event_rows
+            if owner_settings.get(r.owner_user_id, {}).get("share_history_to_feed", True) is not False
+        ]
+
+        # ---- merge-sort --------------------------------------------------
+        all_candidates = (
+            [{"id": r.id, "created_at": r.created_at, "item_type": "post"} for r in post_rows]
+            + [{"id": r.id, "created_at": r.created_at, "item_type": "event"} for r in filtered_event_rows]
+        )
+        # Sort newest-first; use item_type as final tiebreaker for stability
+        all_candidates.sort(
+            key=lambda x: (x["created_at"], x["id"], x["item_type"]),
+            reverse=True,
+        )
+
+        has_more = len(all_candidates) > limit
+        page_candidates = all_candidates[:limit]
+
+        # ---- compose full items ------------------------------------------
+        page_post_ids = [c["id"] for c in page_candidates if c["item_type"] == "post"]
+        page_event_ids = [c["id"] for c in page_candidates if c["item_type"] == "event"]
+
+        composed_posts: dict[str, PostRead] = (
+            {p.id: p for p in compose_posts(db, page_post_ids, viewer)} if page_post_ids else {}
+        )
+        composed_events: dict[str, EventFeedItem] = (
+            _compose_event_feed_items(db, page_event_ids) if page_event_ids else {}
+        )
+
+        result: list[Any] = []
+        for c in page_candidates:
+            if c["item_type"] == "post" and c["id"] in composed_posts:
+                result.append(composed_posts[c["id"]])
+            elif c["item_type"] == "event" and c["id"] in composed_events:
+                result.append(composed_events[c["id"]])
+
+        # ---- cursor for next page ----------------------------------------
+        next_cursor: str | None = None
+        if has_more and page_candidates:
+            last = page_candidates[-1]
+            next_cursor = encode_feed_cursor(last["created_at"], last["id"])
+
+        return result, next_cursor, has_more
 
 
 # ---------------------------------------------------------------------------
@@ -1597,7 +1786,8 @@ def create_vehicle_event(
     values = data.model_dump(
         exclude={"media", "documents", "source", "scan_snapshot"}, by_alias=False
     )
-    event = VehicleEvent(vehicle_id=vehicle.id, author_user_id=user.id, **values)
+    now = datetime.now(UTC)
+    event = VehicleEvent(vehicle_id=vehicle.id, author_user_id=user.id, created_at=now, updated_at=now, **values)
     db.add(event)
     db.flush()
     # Apply provenance before commit so _compute_edited_fields sees the saved values
