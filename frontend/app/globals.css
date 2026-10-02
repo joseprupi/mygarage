@@ -168,3 +168,453 @@ textarea {
   background: #f8fafc;
   color: var(--color-asphalt);
 }
+
+/* --- Auth / chrome gating ---------------------------------------------------
+   <html data-auth="1|0" data-home="1|0"> is set before first paint by the boot
+   script in app/layout.tsx and kept current by setToken() + AuthChromeSync.
+   Unlayered on purpose so it beats Tailwind utilities (md:pl-16, max-w-3xl…). */
+html[data-auth="1"] .guest-only {
+  display: none;
+}
+html:not([data-auth="1"]) .member-only {
+  display: none;
+}
+/* Guests on "/" get the full-width landing: no nav rail / tab bar / container. */
+html:not([data-auth="1"])[data-home="1"] .app-chrome {
+  display: none;
+}
+html:not([data-auth="1"])[data-home="1"] .app-shell {
+  padding-left: 0;
+}
+html:not([data-auth="1"])[data-home="1"] .app-main {
+  max-width: none;
+  padding: 0;
+}
+/* Same, keyed on the landing being in the page — covers clients that never ran
+   the boot script (e.g. crawlers without JS). Separate rules: a browser without
+   :has() drops only these. */
+html:not([data-auth="1"]):has(.guest-only .landing) .app-chrome {
+  display: none;
+}
+html:not([data-auth="1"]):has(.guest-only .landing) .app-shell {
+  padding-left: 0;
+}
+html:not([data-auth="1"]):has(.guest-only .landing) .app-main {
+  max-width: none;
+  padding: 0;
+}
+
+/* --- Logged-out landing (components/landing/Landing.tsx) --------------------
+   Mirrors the owner-approved mockup. Scoped to .landing / lp-* classes. */
+.landing {
+  --lp-muted: #5b6474;
+  --lp-line: #e4e8ef;
+  --lp-wash: #f5f7fb;
+  --lp-blush: #f8e0dc;
+  overflow-x: clip;
+  font-size: 16px;
+  line-height: 1.55;
+}
+.landing a:focus-visible {
+  outline: 3px solid var(--color-petrol);
+  outline-offset: 3px;
+}
+.lp-wrap {
+  max-width: 1080px;
+  margin-inline: auto;
+  padding-inline: 20px;
+}
+.lp-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 16px;
+}
+.lp-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+}
+.lp-logo {
+  display: block;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 10px;
+}
+.lp-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.lp-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 11px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lp-btn-primary {
+  background: var(--color-asphalt);
+  color: #fff;
+}
+.lp-btn-primary:hover {
+  background: #1e293b;
+}
+.lp-btn-secondary {
+  background: #fff;
+  color: var(--color-asphalt);
+  border-color: var(--lp-line);
+}
+.lp-btn-secondary:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+.lp-btn-lg {
+  padding: 14px 24px;
+  font-size: 16px;
+}
+.lp-btn-ghost {
+  padding: 11px 12px;
+  color: var(--color-asphalt);
+}
+
+.lp-hero {
+  display: grid;
+  gap: 36px;
+  align-items: center;
+  padding-block: 28px 56px;
+}
+.lp-hero > * {
+  min-width: 0;
+}
+.lp-h1 {
+  font-weight: 700;
+  font-size: clamp(34px, 6.4vw, 56px);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.lp-lede {
+  margin-top: 18px;
+  max-width: 34em;
+  font-size: clamp(17px, 2.2vw, 19px);
+  color: var(--lp-muted);
+}
+.lp-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 26px;
+}
+.lp-fine {
+  margin-top: 14px;
+  font-size: 14px;
+  color: var(--lp-muted);
+}
+
+/* A real receipt becoming a real record. */
+.lp-proof {
+  position: relative;
+  display: grid;
+  justify-items: center;
+}
+.lp-receipt {
+  width: min(78%, 330px);
+  overflow: hidden;
+  border-radius: 6px;
+  background: #fff;
+  transform: rotate(-3deg);
+  box-shadow:
+    0 18px 40px -18px rgba(11, 17, 32, 0.45),
+    0 0 0 1px var(--lp-line);
+}
+.lp-receipt img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lp-record {
+  position: relative;
+  width: min(100%, 400px);
+  margin-top: -64px;
+  border: 1px solid var(--lp-line);
+  border-radius: 20px;
+  background: #fff;
+  padding: 18px 20px;
+  box-shadow: 0 20px 44px -22px rgba(11, 17, 32, 0.4);
+}
+.lp-record-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.lp-record-title {
+  margin-top: 8px;
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1.2;
+}
+.lp-record-cost {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.lp-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin-top: 14px;
+  font-size: 14px;
+}
+.lp-kv dt {
+  color: var(--lp-muted);
+}
+.lp-kv dd {
+  font-weight: 500;
+}
+.lp-read {
+  margin-top: 14px;
+  border-top: 1px solid var(--lp-line);
+  padding-top: 12px;
+  font-size: 13px;
+  color: var(--lp-muted);
+}
+
+.lp-badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.lp-chip {
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--lp-wash);
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--lp-muted);
+}
+.lp-chip-src {
+  background: #e8f0fe;
+  color: #1d4ed8;
+}
+
+/* The real car. */
+.lp-car {
+  background: var(--lp-wash);
+  padding-block: 56px;
+}
+.lp-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-petrol);
+}
+.lp-h2 {
+  margin-top: 8px;
+  font-weight: 700;
+  font-size: clamp(26px, 4.4vw, 38px);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.lp-sub {
+  margin-top: 10px;
+  max-width: 38em;
+  color: var(--lp-muted);
+}
+.lp-car-grid {
+  display: grid;
+  gap: 20px;
+  margin-top: 28px;
+}
+.lp-car-grid > * {
+  min-width: 0;
+}
+.lp-photo {
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #e2e8f0;
+}
+.lp-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lp-panel {
+  border: 1px solid var(--lp-line);
+  border-radius: 20px;
+  background: #fff;
+  padding: 20px;
+}
+.lp-panel-chart {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.lp-chart-cap {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--lp-muted);
+}
+.lp-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.lp-stat b {
+  display: block;
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  font-size: clamp(24px, 5vw, 32px);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.lp-stat span {
+  font-size: 14px;
+  color: var(--lp-muted);
+}
+.lp-ev {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid var(--lp-line);
+  padding-block: 14px;
+}
+.lp-ev:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.lp-ev-main {
+  min-width: 0;
+}
+.lp-ev-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 13px;
+  color: var(--lp-muted);
+}
+.lp-ev-title {
+  margin-top: 6px;
+  font-weight: 600;
+}
+.lp-ev-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.lp-ev-cost {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lp-more {
+  display: inline-flex;
+  margin-top: 18px;
+  font-weight: 600;
+  color: var(--color-petrol);
+}
+.lp-more:hover {
+  text-decoration: underline;
+}
+
+.lp-facts {
+  display: grid;
+  gap: 28px;
+  padding-block: 56px;
+}
+.lp-fact h3 {
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1.25;
+}
+.lp-fact p {
+  margin-top: 8px;
+  max-width: 30em;
+  color: var(--lp-muted);
+}
+
+.lp-close {
+  background: var(--lp-blush);
+  padding-block: 48px;
+}
+.lp-close-in {
+  display: grid;
+  gap: 20px;
+  align-items: center;
+}
+.lp-close-in .lp-cta {
+  margin-top: 0;
+}
+.lp-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 20px;
+  padding-block: 24px;
+  font-size: 14px;
+  color: var(--lp-muted);
+}
+.lp-foot-links {
+  display: flex;
+  gap: 16px;
+}
+.lp-foot a:hover {
+  color: var(--color-asphalt);
+}
+
+@media (min-width: 860px) {
+  .lp-hero {
+    padding-block: 48px 80px;
+  }
+  .lp-hero-split {
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 48px;
+  }
+  .lp-car-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .lp-span2 {
+    grid-column: 1 / -1;
+  }
+  .lp-stats {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .lp-facts {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 40px;
+    padding-block: 72px;
+  }
+  .lp-close-in {
+    grid-template-columns: 1fr auto;
+  }
+}

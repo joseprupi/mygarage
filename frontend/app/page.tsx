@@ -1,39 +1,22 @@
 import { FeedSection } from "@/components/FeedSection";
-import { GuestHero } from "@/components/GuestHero";
-import { serverApiBase } from "@/lib/api/serverBase";
+import { Landing } from "@/components/landing/Landing";
+import { loadLanding } from "@/lib/landing";
 
-type FeaturedVehicle = {
-  id: string;
-  year?: number | null;
-  make: string;
-  model: string;
-  nickname?: string | null;
-};
-
-async function getFirstPublicVehicle(): Promise<FeaturedVehicle | undefined> {
-  try {
-    const base = serverApiBase();
-    const sitemapRes = await fetch(`${base}/sitemap/entries`, { cache: "no-store" });
-    if (!sitemapRes.ok) return undefined;
-    const sitemapData = await sitemapRes.json();
-    const id = sitemapData?.vehicles?.[0]?.id as string | undefined;
-    if (!id) return undefined;
-    const vRes = await fetch(`${base}/vehicles/${id}`, { cache: "no-store" });
-    if (!vRes.ok) return undefined;
-    const v = await vRes.json();
-    return { id: v.id, year: v.year ?? null, make: v.make, model: v.model, nickname: v.nickname ?? null };
-  } catch {
-    return undefined;
-  }
-}
-
+// "/" serves both audiences from one HTML response: the landing (server-rendered
+// with the featured vehicle's real data, for guests and crawlers) and the feed
+// slot (logged-in users). Which one is visible is decided by CSS on
+// <html data-auth>, set before first paint by the boot script in layout.tsx.
 export default async function HomePage() {
-  const featuredVehicle = await getFirstPublicVehicle();
+  const data = await loadLanding();
 
   return (
-    <section className="space-y-5">
-      <GuestHero exampleVehicleId={featuredVehicle?.id} featuredVehicle={featuredVehicle} />
-      <FeedSection />
-    </section>
+    <>
+      <div className="guest-only">
+        <Landing data={data} />
+      </div>
+      <section className="member-only space-y-5">
+        <FeedSection />
+      </section>
+    </>
   );
 }

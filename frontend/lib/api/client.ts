@@ -50,6 +50,13 @@ export function setToken(token: string | null) {
   if (typeof window === "undefined") return;
   if (token) window.localStorage.setItem("carSocialToken", token);
   else window.localStorage.removeItem("carSocialToken");
+  // Keep the boot-script attribute (app/layout.tsx) in sync so guest-only /
+  // member-only CSS flips immediately on login/logout, without a reload.
+  try {
+    document.documentElement.dataset.auth = token ? "1" : "0";
+  } catch {
+    // ignore
+  }
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {

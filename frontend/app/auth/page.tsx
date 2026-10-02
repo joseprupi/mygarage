@@ -3,7 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { track } from "@/lib/analytics";
 import { authApi, setToken } from "@/lib/api/client";
+
+// /auth/google signs in or creates the account in one call and doesn't say
+// which; a user row created in the last couple of minutes means it was a sign-up.
+function isFreshAccount(user: unknown): boolean {
+  const created = (user as { created_at?: string } | null)?.created_at;
+  if (!created) return false;
+  const t = Date.parse(created);
+  return Number.isFinite(t) && Date.now() - t < 2 * 60 * 1000;
+}
 
 declare global {
   interface Window {
@@ -45,6 +55,7 @@ export default function AuthPage() {
           try {
             const result = await authApi.google(response.credential);
             setToken(result.accessToken);
+            track(isFreshAccount(result.user) ? "sign_up" : "login", { method: "google" });
             router.push("/profile");
           } catch (err) {
             setError(err instanceof Error ? err.message : "Google login failed");
@@ -83,6 +94,7 @@ export default function AuthPage() {
           ? await authApi.signup(form)
           : await authApi.login({ email: form.email, password: form.password });
       setToken(result.accessToken);
+      track(mode === "signup" ? "sign_up" : "login", { method: "email" });
       router.push("/profile");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");

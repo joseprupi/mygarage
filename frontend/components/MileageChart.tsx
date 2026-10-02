@@ -10,7 +10,18 @@ function toTime(d: string): number {
   return Date.parse(`${d}T00:00:00Z`);
 }
 
-export function MileageChart({ points, boundaries }: { points: Point[]; boundaries?: Boundary[] }) {
+export function MileageChart({
+  points,
+  boundaries,
+  bare,
+  ariaLabel
+}: {
+  points: Point[];
+  boundaries?: Boundary[];
+  /** Render only the chart svg (no card or "Mileage" heading) — for embedding in another panel. */
+  bare?: boolean;
+  ariaLabel?: string;
+}) {
   const sorted = [...points].sort((a, b) => toTime(a.date) - toTime(b.date));
   if (sorted.length < 2) return null;
 
@@ -49,10 +60,13 @@ export function MileageChart({ points, boundaries }: { points: Point[]; boundari
   // (dropping a neighbour that would overlap it).
   const xTickIdx = pickTickIndices(coords.map((c) => c.px), 64);
 
-  return (
-    <div className="surface rounded-2xl p-4">
-      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Mileage</p>
-      <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img" aria-label="Mileage over time">
+  const svg = (
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className={bare ? "block h-auto w-full" : "mt-2 w-full"}
+        role="img"
+        aria-label={ariaLabel ?? "Mileage over time"}
+      >
         {/* y gridlines + labels (bottom gridline doubles as the baseline) */}
         {yTicks.map((v, i) => {
           const gy = y(v);
@@ -107,6 +121,13 @@ export function MileageChart({ points, boundaries }: { points: Point[]; boundari
           );
         })}
       </svg>
+  );
+
+  if (bare) return svg;
+  return (
+    <div className="surface rounded-2xl p-4">
+      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Mileage</p>
+      {svg}
     </div>
   );
 }

@@ -130,6 +130,9 @@ export type EventMedia = {
   canViewRedacted: boolean;
   mediaType: "image" | "video";
   thumbnailUrl: string | null;
+  /** Pixel size when known (often null). */
+  width?: number | null;
+  height?: number | null;
   sortOrder: number;
   createdAt: string;
   /** Owner controls what public sees: 'private' (blur placeholder), 'redacted' (AI-redacted copy), 'original' (full image). */

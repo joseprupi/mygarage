@@ -3,11 +3,11 @@
 import { useMe } from "@/lib/useMe";
 import { Feed } from "@/components/Feed";
 
-// Renders the feed only for logged-in users.
-// Guests see the hero/showcase instead (GuestHero handles that).
+// Renders the feed only for logged-in users. Guests see the server-rendered
+// landing instead; the wrapper in app/page.tsx is CSS-gated (.member-only) so
+// nothing here flashes for them.
 export function FeedSection() {
   const me = useMe();
-  // While me is pending or guest: show nothing (GuestHero handles guest content).
   if (!me.data) return null;
   return <Feed />;
 }
