@@ -39,7 +39,7 @@ import { computeVehicleStats } from "@/lib/stats";
 import { MileageChart } from "@/components/mileage-chart";
 import { PostCard } from "@/components/post-card";
 
-const TABS = ["History", "Build", "Posts"] as const;
+const TABS = ["History", "Specs", "Posts"] as const;
 type Tab = (typeof TABS)[number];
 type StatsScope = "ownership" | "lifetime";
 
@@ -650,6 +650,38 @@ function GapCard({
 }
 
 // --- Specs card ---
+
+/** Vehicle details, same rows as the web Specs tab. Owners see every row (VIN included); visitors only filled ones. */
+function DetailsCard({ vehicle, isOwner }: { vehicle: Vehicle; isOwner: boolean }) {
+  const all: { label: string; value: string }[] = [
+    { label: "Year", value: vehicle.year != null ? String(vehicle.year) : "" },
+    { label: "Make", value: vehicle.make ?? "" },
+    { label: "Model", value: vehicle.model ?? "" },
+    { label: "Trim", value: vehicle.trim ?? "" },
+    { label: "Nickname", value: vehicle.nickname ?? "" },
+    { label: "VIN", value: vehicle.vin ?? "" },
+    { label: "Mileage", value: vehicle.mileage != null ? `${vehicle.mileage.toLocaleString()} mi` : "" },
+    { label: "Color", value: vehicle.color ?? "" },
+    { label: "Transmission", value: vehicle.transmission ?? "" },
+    { label: "Engine", value: vehicle.engine ?? "" },
+    { label: "Drivetrain", value: vehicle.drivetrain ?? "" },
+  ];
+  const rows = isOwner ? all : all.filter((r) => r.value);
+  if (rows.length === 0) return null;
+  return (
+    <View style={specsStyles.card}>
+      <Text style={specsStyles.heading}>Details</Text>
+      {rows.map((r) => (
+        <View key={r.label} style={specsStyles.row}>
+          <Text style={specsStyles.rowLabel}>{r.label}</Text>
+          <Text style={specsStyles.rowValue} selectable>
+            {r.value || "Not set"}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 function SpecsCard({
   vehicle,
@@ -1270,9 +1302,10 @@ export default function VehicleScreen() {
         </View>
       )}
 
-      {tab === "Build" && (
+      {tab === "Specs" && (
         <View style={styles.section}>
           {/* Specifications card */}
+          <DetailsCard vehicle={vehicle} isOwner={isOwner} />
           <SpecsCard
             vehicle={vehicle}
             isOwner={isOwner}
